@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, sessions, ws
+from app.api import admin, health, sessions, ws
 from app.core.config import get_settings
 from app.core.lifespan import lifespan
 from app.core.logging import setup_logging
@@ -31,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(sessions.router)
     app.include_router(ws.router)
+    app.include_router(admin.router)
 
     return app
 

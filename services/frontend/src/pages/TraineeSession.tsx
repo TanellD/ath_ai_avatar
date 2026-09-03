@@ -7,17 +7,27 @@
  *   - поколение (`genRef`) — источник истины для фильтрации событий;
  *   - отправка реплики вызывает cancelPlayback() ДО отправки в сокет;
  *   - аудио-чанки идут только через AudioQueue, который сам отбрасывает чужие;
- *   - субтитры и мимика читают время у PlaybackClock и больше нигде.
+ *   - субтитры, панель истории и индикатор состояния читают время у
+ *     PlaybackClock / реальное завершение воспроизведения у AudioQueue,
+ *     и больше нигде.
+ *
+ * `AudioContext` теперь создаёт и владеет им TalkingHeadAvatar (это его
+ * `head.audioCtx`), а не этот компонент: PlaybackClock и AudioQueue
+ * собираются только после того, как аватар отдаст готовый контекст через
+ * onReady — до этого момента отправка реплики недоступна (см. MessageComposer
+ * disabled), так же как в проверенном PoC send оставался disabled, пока
+ * аватар не загрузился.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { gatewayApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
-import { SimliAvatar } from '@/avatar/SimliAvatar';
+import { TalkingHeadAvatar, type AvatarPlaybackHandle } from '@/avatar/TalkingHeadAvatar';
+import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
 import { ConsentBanner } from '@/components/ConsentBanner';
 import { MessageComposer } from '@/components/MessageComposer';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
@@ -27,9 +37,10 @@ import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
 import { useSessionSocket } from '@/ws/useSessionSocket';
 
-interface TranscriptLine {
-  role: 'user' | 'agent';
-  text: string;
+interface AudioRig {
+  clock: PlaybackClock;
+  queue: AudioQueue;
+  resetFace: () => void;
 }
 
 export function TraineeSession() {
@@ -37,11 +48,12 @@ export function TraineeSession() {
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<SessionError | null>(null);
-  const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
+  const [transcript, setTranscript] = useState<ChatTurn[]>([]);
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
   const [pushToTalk, setPushToTalk] = useState(false);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
+  const [audio, setAudio] = useState<AudioRig | null>(null);
 
   /**
    * Текущее поколение. Именно ref, а не useState: значение читается в
@@ -50,10 +62,21 @@ export function TraineeSession() {
    */
   const genRef = useRef(0);
 
-  const audio = useMemo(() => {
-    const context = new AudioContext();
-    const clock = new PlaybackClock(context);
-    return { context, clock, queue: new AudioQueue(context, clock) };
+  const handleAvatarReady = useCallback((handle: AvatarPlaybackHandle) => {
+    const clock = new PlaybackClock(handle.audioCtx);
+    // Четвёртый параметр — onIdle: единственный правильный источник для
+    // индикатора «персонаж говорит». `action` от сервера приходит, когда
+    // байты уже ОТПРАВЛЕНЫ, а не когда они доиграли — раньше индикатор либо
+    // не гас вовсе (обычный переход stay/next_stage не трогал playback), либо
+    // гас слишком рано. Теперь состояние идёт от факта тишины в колонках.
+    const queue = new AudioQueue(handle.audioCtx, clock, handle.destination, () =>
+      setPlayback('idle'),
+    );
+    setAudio({ clock, queue, resetFace: handle.resetFace });
+  }, []);
+
+  const handleAvatarError = useCallback((message: string) => {
+    setError({ type: 'audio', message: 'Не удалось загрузить аватара', details: message });
   }, []);
 
   // ------------------------------------------------------------ создание сессии
@@ -75,7 +98,9 @@ export function TraineeSession() {
     };
   }, [scenarioId]);
 
-  useEffect(() => () => void audio.context.close(), [audio]);
+  // AudioContext больше не наш: им владеет TalkingHeadAvatar (head.audioCtx),
+  // закрывать его здесь при размонтировании было бы вмешательством в чужой
+  // жизненный цикл. См. докстринг TalkingHeadAvatar.tsx про best-effort cleanup.
 
   // -------------------------------------------------------------- события WS
 
@@ -88,9 +113,11 @@ export function TraineeSession() {
           break;
 
         case 'audio_chunk':
-          // Очередь сама сверит gen_id ещё раз — намеренное дублирование
-          // проверки: чанк мог быть декодирован уже после перебивания.
-          void audio.queue.enqueue({ genId: event.gen_id, seq: event.seq, data: event.data });
+          // Аватар мог ещё не догрузиться (13 МБ GLB) к моменту первого
+          // чанка — тогда его попросту некуда проигрывать. Очередь также сама
+          // сверит gen_id ещё раз — намеренное дублирование проверки: чанк
+          // мог быть декодирован уже после перебивания.
+          if (audio) void audio.queue.enqueue({ genId: event.gen_id, seq: event.seq, data: event.data });
           break;
 
         case 'subtitle':
@@ -98,13 +125,18 @@ export function TraineeSession() {
           break;
 
         case 'action':
-          if (event.action === 'evaluate' || event.action === 'finish') setPlayback('idle');
+          // Обычный переход (stay/next_stage) не обязан гасить индикатор —
+          // это делает AudioQueue.onIdle, когда реплика реально доиграет.
+          // Исключение — предохранитель: если очередь и так уже пуста
+          // (ответ пришёл вовсе без звука, например при ошибке TTS),
+          // action — единственный сигнал, что ход завершён.
+          if (audio?.queue.isIdle) setPlayback('idle');
           break;
 
         case 'cancel':
           // Сервер подтвердил отмену. Локально мы её уже выполнили — это
           // подстраховка для случая, когда отмену инициировал не клиент.
-          if (event.gen_id !== genRef.current) audio.queue.stopAll();
+          if (audio && event.gen_id !== genRef.current) audio.queue.stopAll();
           break;
 
         case 'report':
@@ -139,13 +171,17 @@ export function TraineeSession() {
 
   const handleSubmit = useCallback(
     (text: string) => {
+      // MessageComposer держит disabled, пока audio === null (аватар ещё
+      // грузится) — это защита от невозможного состояния, а не рабочий путь.
+      if (!audio) return;
+
       const interrupted = audio.clock.isPlaying ? genRef.current : null;
 
       // Шаг 1 (§6): локально и немедленно, без сетевого round-trip.
       cancelPlayback({
         queue: audio.queue,
         freezeSubtitles: () => setSubtitlesFrozen(true),
-        resetFace: () => undefined, // LipSync сам вернёт рот в 0 по часам.
+        resetFace: audio.resetFace,
       });
 
       // Шаг 2: сообщаем серверу, какое поколение перебиваем.
@@ -182,22 +218,22 @@ export function TraineeSession() {
         </p>
       )}
 
-      <section className="session__stage">
-        <SimliAvatar clock={audio.clock} />
-        <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />
-      </section>
+      <section className="session__main">
+        <ChatPanel
+          transcript={transcript}
+          cues={cues}
+          clock={audio?.clock ?? null}
+          isAgentReplying={playback === 'speaking'}
+        />
 
-      <section className="session__transcript">
-        {transcript.map((line, index) => (
-          <p key={index} className={`line line--${line.role}`}>
-            <span className="line__role">{line.role === 'user' ? 'Вы' : 'Персонаж'}:</span>{' '}
-            {line.text}
-          </p>
-        ))}
+        <div className="session__stage">
+          <TalkingHeadAvatar onReady={handleAvatarReady} onError={handleAvatarError} />
+          {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
+        </div>
       </section>
 
       <MessageComposer
-        disabled={connection !== 'open'}
+        disabled={connection !== 'open' || !audio}
         isAgentSpeaking={playback === 'speaking'}
         onSubmit={handleSubmit}
       />
@@ -206,7 +242,7 @@ export function TraineeSession() {
 }
 
 /** Токены персонажа дописываются в последнюю его реплику, а не создают новую. */
-function appendAgentToken(lines: TranscriptLine[], token: string): TranscriptLine[] {
+function appendAgentToken(lines: ChatTurn[], token: string): ChatTurn[] {
   const last = lines[lines.length - 1];
   if (last?.role === 'agent') {
     return [...lines.slice(0, -1), { ...last, text: last.text + token }];

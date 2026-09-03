@@ -15,6 +15,7 @@ from app.clients.scenario_client import ScenarioNotFound
 from app.core.logging import get_logger
 from app.db.engine import get_session
 from app.db.repositories import SqlReportRepository, SqlSessionRepository
+from app.db.seed import DEFAULT_EMPLOYEE_ID
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 log = get_logger(__name__)
@@ -42,7 +43,10 @@ async def create_session(
         scenario_id=scenario.id,
         current_stage=scenario.stages[0].id,
     )
-    await SqlSessionRepository(db).create(state)
+    # Единственный сотрудник, пока авторизации нет (Claude.md §4) — см.
+    # app/db/seed.py. Когда появятся реальные аккаунты, здесь будет
+    # request.state.user_id вместо константы.
+    await SqlSessionRepository(db).create(state, user_id=DEFAULT_EMPLOYEE_ID)
 
     log.info("session.created", session_id=session_id, scenario_id=scenario.id)
     return CreateSessionResponse(

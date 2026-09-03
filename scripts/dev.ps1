@@ -33,11 +33,15 @@ switch ($Command) {
     'logs' { docker compose logs -f @Rest }
     'ps' { docker compose ps }
     'build' { docker compose build @Rest }
-    'test' { docker compose exec gateway pytest -v @Rest }
+    'test' {
+        docker compose exec gateway pytest -v @Rest
+        docker compose exec speech-service pytest -v @Rest
+        docker compose exec ai-service pytest -v @Rest
+    }
     'lint' {
         docker compose exec gateway ruff check app tests
-        docker compose exec speech-service ruff check app
-        docker compose exec ai-service ruff check app
+        docker compose exec speech-service ruff check app tests
+        docker compose exec ai-service ruff check app tests
         docker compose exec scenario-service ruff check app
         docker compose exec frontend npm run lint
     }

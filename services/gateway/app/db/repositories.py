@@ -16,10 +16,10 @@ from app.db.models import ReportRow, SessionRow, TurnRow
 
 
 class SessionRepository(Protocol):
-    async def create(self, state: SessionState) -> None: ...
+    async def create(self, state: SessionState, user_id: str) -> None: ...
     async def get(self, session_id: str) -> SessionState | None: ...
     async def save_snapshot(self, state: SessionState) -> None: ...
-    async def append_turn(self, session_id: str, index: int, turn: Turn) -> None: ...
+    async def append_turn(self, session_id: str, index: int, turn: Turn, gen_id: int) -> None: ...
 
 
 class ReportRepository(Protocol):
@@ -31,11 +31,12 @@ class SqlSessionRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._db = session
 
-    async def create(self, state: SessionState) -> None:
+    async def create(self, state: SessionState, user_id: str) -> None:
         self._db.add(
             SessionRow(
                 id=state.session_id,
                 scenario_id=state.scenario_id,
+                user_id=user_id,
                 current_stage=state.current_stage,
                 current_gen=state.current_gen,
                 status=state.status.value,
@@ -88,7 +89,7 @@ class SqlSessionRepository:
         row.stage_history = [entry.model_dump(mode="json") for entry in state.stage_history]
         await self._db.commit()
 
-    async def append_turn(self, session_id: str, index: int, turn: Turn) -> None:
+    async def append_turn(self, session_id: str, index: int, turn: Turn, gen_id: int) -> None:
         self._db.add(
             TurnRow(
                 session_id=session_id,
@@ -99,6 +100,7 @@ class SqlSessionRepository:
                 ts=turn.ts,
                 stt_confidence=turn.stt_confidence,
                 audio_ref=turn.audio_ref,
+                gen_id=gen_id,
             )
         )
         await self._db.commit()

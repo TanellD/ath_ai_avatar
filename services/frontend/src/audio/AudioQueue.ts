@@ -41,11 +41,33 @@ export class AudioQueue {
    */
   private decoding = 0;
 
-  constructor(context: AudioContext, clock: import('./PlaybackClock').PlaybackClock) {
+  /**
+   * Вызывается, когда очередь становится пустой — естественным завершением
+   * воспроизведения (последний source доиграл) либо отменой (stopAll).
+   * Единственный источник правды для UI-индикатора «персонаж говорит»: он
+   * обязан гаснуть по факту тишины, а не по серверным событиям (`action`
+   * приходит, когда байты ОТПРАВЛЕНЫ, а не когда они доиграли).
+   */
+  private readonly onIdle?: () => void;
+
+  /**
+   * @param destination Куда подключать декодированные источники. По умолчанию
+   *   динамики (`context.destination`). При рендере через TalkingHead сюда
+   *   передают `head.audioSpeechGainNode` — тогда HeadAudio, подключенный к
+   *   тому же узлу выше по графу, видит реально проигрываемый звук и ведёт
+   *   визему от него, а не от отдельного таймера (Claude.md §3).
+   */
+  constructor(
+    context: AudioContext,
+    clock: import('./PlaybackClock').PlaybackClock,
+    destination?: AudioNode,
+    onIdle?: () => void,
+  ) {
     this.context = context;
     this.clock = clock;
     this.gain = context.createGain();
-    this.gain.connect(context.destination);
+    this.gain.connect(destination ?? context.destination);
+    this.onIdle = onIdle;
   }
 
   get generation(): number {
@@ -91,7 +113,12 @@ export class AudioQueue {
       this.clock.noteScheduled(startAt, buffer.duration);
 
       this.sources.add(source);
-      source.onended = () => this.sources.delete(source);
+      source.onended = () => {
+        this.sources.delete(source);
+        // Естественный конец речи: последний source этого поколения доиграл
+        // и в полёте больше ничего не декодируется — тишина наступила по-настоящему.
+        if (this.isIdle) this.onIdle?.();
+      };
     } catch (error) {
       // Битый чанк не должен ронять сессию: один пропущенный кусок звука
       // переживаем, оборванный диалог — нет.
@@ -120,5 +147,6 @@ export class AudioQueue {
     }
     this.sources.clear();
     this.clock.reset();
+    this.onIdle?.();
   }
 }

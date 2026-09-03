@@ -25,8 +25,8 @@
          ├─ token       { gen_id, text } ────────────────► браузер
          ├─ audio_chunk { gen_id, seq, data } ───────────► браузер
          │                                                   └─► AudioQueue
-         │                                                         └─► PlaybackClock
-         │                                                               ├─► LipSync
+         │                                                         └─► PlaybackClock (head.audioCtx)
+         │                                                               ├─► HeadAudio → морф-таргеты
          │                                                               └─► Subtitles
          │
          └─► ai-service  POST /classify  →  StageMachine.decide()
@@ -77,6 +77,34 @@ Claude.md §3 запрещает независимые таймеры для м
 
 Требование закреплено механически — ESLint запрещает `setInterval` и
 `setTimeout` внутри `src/audio/**` и `src/avatar/**`.
+
+## Провайдеры, провалидированные веткой `poc`
+
+Отдельная хакатон-ветка (`origin/poc`, история не связана с этой) — рабочий
+браузерный спайк того же кейса. Три её технических решения подтверждены
+работающим кодом и перенесены сюда:
+
+| Что | Провайдер | Заменяет |
+|---|---|---|
+| Рендер + липсинк | TalkingHead + HeadAudio (self-hosted, MIT) | план на Simli из Claude.md §10 — тот уже помечен предупреждением про read-only репозиторий |
+| TTS | Soniox, реализован по-настоящему (`TTS_PROVIDER=soniox`) | заглушки ElevenLabs/Yandex остаются заглушками |
+| LLM | OpenAI-совместимый прокси / VseLLM, второй вариант (`LLM_PROVIDER=openai_compatible`) | не замена Anthropic, а альтернатива |
+
+`TalkingHeadAvatar.tsx` заменил заглушку `SimliAvatar.tsx` целиком: HeadAudio
+анализирует РЕАЛЬНО проигрываемый звук через AudioWorklet (посэмпльно, в
+аудио-потоке) и толкает значения визем прямо в морф-таргеты меша — это строже
+требования «часы — воспроизводимое аудио» (§3), чем прежний
+`requestAnimationFrame`-поллинг заглушки: здесь вообще нет отдельного опроса.
+
+Известное ограничение, унаследованное из `poc` и не устранённое: модель
+HeadAudio (`model-en-mixed.bin`) обучена на английской фонетике. VAD
+относительно языко-агностичен, точность визем на русской речи не проверялась
+— протокол проверки вендора из Claude.md, Приложение Б, к HeadAudio не
+применялся.
+
+Подробности реализации — `services/frontend/src/avatar/TalkingHeadAvatar.tsx`,
+`services/speech-service/app/tts/soniox.py`,
+`services/ai-service/app/llm/openai_compatible.py`.
 
 ## Что взято из `tatarby-main` и что нет
 

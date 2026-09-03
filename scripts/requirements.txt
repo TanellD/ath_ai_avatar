@@ -1,0 +1,4 @@
+# Только для session_gantt.py. Не относится ни к одному сервису — сюда, а
+# не в services/gateway/pyproject.toml, чтобы matplotlib не тянулся в
+# production-образ gateway ради офлайн-инструмента разработчика.
+matplotlib>=3.8

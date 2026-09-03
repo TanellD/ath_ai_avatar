@@ -46,15 +46,61 @@ curl localhost:8050/scenarios # засеянные шаблоны сценари
 
 ### С реальными моделями
 
-В `.env`:
+LLM — Anthropic (реализован) или OpenAI-совместимый прокси/VseLLM
+(реализован, второй вариант — по итогам ветки `poc`):
 
 ```dotenv
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+
+# либо
+LLM_PROVIDER=openai_compatible
+OPENAI_COMPATIBLE_BASE_URL=https://api.vsellm.ru/v1
+OPENAI_COMPATIBLE_API_KEY=...
+LLM_FAST_MODEL=google/gemini-2.5-flash    # имя модели ЭТОГО прокси
+LLM_STRONG_MODEL=google/gemini-2.5-flash
 ```
 
-`TTS_PROVIDER=elevenlabs|yandex` требует реализации провайдера — сейчас там
-заглушки с описанием, что нужно сделать (`services/speech-service/app/tts/`).
+TTS — Soniox (реализован, тот же провайдер, что подтвердила ветка `poc`,
+голос "Nina"):
+
+```dotenv
+TTS_PROVIDER=soniox
+SONIOX_API_KEY=...
+```
+
+`TTS_PROVIDER=elevenlabs|yandex` остаются заглушками — описание, что нужно
+сделать, в `services/speech-service/app/tts/`.
+
+### Без Docker (быстрый цикл при разработке)
+
+Каждый Python-сервис — отдельный устанавливаемый пакет со своим venv:
+
+```bash
+cd services/gateway            # или speech-service / ai-service / scenario-service
+python -m venv .venv
+.venv/Scripts/activate         # Linux/macOS: source .venv/bin/activate
+pip install -e ../../packages/contracts
+pip install -e ".[dev]"
+
+pytest -v                      # инварианты — без сети и без Docker
+ruff check app tests
+uvicorn app.main:app --reload --port 8000   # порт свой у каждого сервиса
+```
+
+Фронтенд — обычный Vite-проект:
+
+```bash
+cd services/frontend
+npm install
+npm run typecheck
+npm run lint
+npm run dev                    # смотрит на localhost:8000 и :8050 по умолчанию
+```
+
+`docker compose up` — по-прежнему единственная проверка, которая гоняет все
+пять сервисов вместе через реальную сеть контейнеров; локальный цикл ловит
+логические ошибки быстрее, но не заменяет его перед демо.
 
 ## Структура
 
@@ -76,7 +122,7 @@ tatarby-main/           референсный проект, только для
 ```bash
 make up          # docker compose up --build
 make logs        # логи всех сервисов
-make test        # pytest в gateway
+make test        # pytest в gateway, speech-service, ai-service
 make lint        # ruff по сервисам + eslint во фронтенде
 make down
 ```
@@ -117,3 +163,14 @@ docker compose exec gateway alembic upgrade head
 
 Раскомментировать блок `postgres` в `docker-compose.yml` и заменить две
 переменные в `.env`. Код не меняется: обращения к БД идут через репозитории.
+
+## Attribution
+
+Рендер аватара использует [TalkingHead](https://github.com/met4citizen/TalkingHead)
+и [HeadAudio](https://github.com/met4citizen/HeadAudio) авторства Mika
+Suominen, распространяемые по лицензии MIT:
+
+- Лицензия TalkingHead — устанавливается через npm (`@met4citizen/talkinghead`).
+- Лицензия HeadAudio — `services/frontend/public/vendor/headaudio/LICENSE`.
+
+Уведомления об авторских правах в исходных файлах этих компонентов сохранены.

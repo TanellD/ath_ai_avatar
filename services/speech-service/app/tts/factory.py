@@ -10,6 +10,7 @@ from app.core.logging import get_logger
 from app.tts.base import TtsProvider
 from app.tts.elevenlabs import ElevenLabsTtsProvider
 from app.tts.mock import MockTtsProvider
+from app.tts.soniox import SonioxTtsProvider
 from app.tts.yandex import YandexTtsProvider
 
 log = get_logger(__name__)
@@ -42,8 +43,17 @@ def create_tts_provider(settings: Settings) -> TtsProvider:
                 default_voice_id=settings.tts_voice_id,
                 sample_rate=settings.tts_sample_rate,
             )
+        case "soniox":
+            if not settings.soniox_api_key:
+                raise ValueError("TTS_PROVIDER=soniox, но SONIOX_API_KEY пуст")
+            return SonioxTtsProvider(
+                api_key=settings.soniox_api_key,
+                default_voice=settings.soniox_voice,
+                language=settings.soniox_language,
+                sample_rate=settings.tts_sample_rate,
+            )
         case _:
             raise UnknownProviderError(
                 f"неизвестный TTS_PROVIDER={settings.tts_provider!r}; "
-                "допустимо: mock | elevenlabs | yandex"
+                "допустимо: mock | elevenlabs | yandex | soniox"
             )

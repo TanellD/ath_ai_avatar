@@ -15,14 +15,31 @@
   box-sizing: border-box;
 }
 
+/* Страница целиком не скроллится — сама прокрутка живёт внутри .app__body
+   (обычные страницы) или внутри .session__transcript (экран сессии, где
+   шапку, аватар и поле ввода не хочется терять из виду). */
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
 .app__nav {
+  flex: none;
   padding: 12px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
@@ -34,11 +51,30 @@ body {
   font-weight: 500;
 }
 
-.page,
-.session {
+/* Обычные страницы (сценарии, отчёт) скроллятся здесь целиком, как документ.
+   .session переопределяет это ниже — там прокручивается только транскрипт. */
+.app__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.page {
   max-width: 780px;
   margin: 0 auto;
   padding: 24px;
+}
+
+/* Шире, чем .page: у сессии теперь два столбца (панель истории + аватар),
+   780px было тесно для обоих сразу. */
+.session {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .page--error {
@@ -48,6 +84,7 @@ body {
 /* --------------------------------------------------------------- сессия */
 
 .session__header {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -75,6 +112,7 @@ body {
 .indicator--disconnected .indicator__dot { background: var(--danger); }
 
 .consent {
+  flex: none;
   margin: 12px 0;
   padding: 8px 12px;
   border-left: 3px solid var(--border);
@@ -83,25 +121,47 @@ body {
 }
 
 .session__error {
+  flex: none;
   padding: 10px 12px;
   border: 1px solid var(--danger);
   border-radius: 6px;
   color: var(--danger);
 }
 
+/* Единственная область, которая растёт/сжимается в колонке .session —
+   шапка, баннер согласия и поле ввода фиксированной высоты (flex: none)
+   вокруг неё гарантируют, что композер никогда не окажется за пределами
+   экрана: раньше при нехватке высоты обрезался именно он. */
+.session__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+}
+
 .session__stage {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 20px 0;
+  padding: 12px 0;
 }
 
-.avatar__hint {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: center;
+/* TalkingHead создаёт canvas внутри этого контейнера сам и подгоняет его под
+   размер родителя — без явной высоты блок схлопывается в 0. Высота через
+   clamp(), а не фиксированный px: на невысоком экране 420px не оставлял бы
+   места ни панели истории, ни полю ввода. */
+.avatar {
+  width: 100%;
+  max-width: 480px;
+  height: clamp(220px, 42vh, 420px);
+  border-radius: 8px;
+  background: #202020;
+  overflow: hidden;
 }
 
 .subtitles {
@@ -116,11 +176,65 @@ body {
   opacity: 0.55;
 }
 
-.session__transcript {
+/* ------------------------------------------------------ панель истории */
+
+/* Свёрнута по умолчанию (маленькая max-height на .chatpanel__list — видна
+   только текущая реплика), разворачивается по наведению/фокусу клавиатурой:
+   :hover и :focus-within вместо JS-состояния — панель ничего не решает сама,
+   просто открывается, пока на ней внимание. */
+.chatpanel {
+  flex: 0 0 300px;
+  min-width: 0;
+  align-self: flex-start;
+  max-height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  outline: none;
+}
+
+.chatpanel__list {
+  max-height: 150px;
+  overflow: hidden;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 16px 0;
+  transition: max-height 0.18s ease;
+}
+
+.chatpanel:hover .chatpanel__list,
+.chatpanel:focus-within .chatpanel__list {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+.chatpanel__line {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.chatpanel__role {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chatpanel__line--user {
+  color: var(--text);
+}
+
+.chatpanel__line--agent {
+  color: #38434f;
+}
+
+/* Реплика, которая ещё раскрывается в такт голосу — лёгкий акцент, чтобы
+   было видно, что это «сейчас», а не уже сказанное. */
+.chatpanel__line--live {
+  color: var(--text);
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+  margin-left: -10px;
 }
 
 .line {
@@ -143,6 +257,7 @@ body {
 /* --------------------------------------------------------------- ввод */
 
 .composer {
+  flex: none;
   display: flex;
   gap: 8px;
   align-items: flex-end;
@@ -157,6 +272,11 @@ body {
   border-radius: 8px;
   font: inherit;
   resize: vertical;
+  /* .composer — flex: none (сознательно, чтобы не съедать место у панели
+     истории и аватара), а значит ручной resize текстового поля мог бы
+     раздуть его за пределы .session и вытолкнуть сам композер за экран —
+     ровно то, на что жаловались. Потолок сверху решает. */
+  max-height: 160px;
 }
 
 .composer__submit {
@@ -309,4 +429,216 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ------------------------------------------------------------ админ-панель
+   Внутренний инструмент отладки конвейера, не роль продукта (Claude.md §2) —
+   поэтому оформление нарочно суше остального интерфейса. */
+
+.app__nav-admin {
+  margin-left: 16px;
+  color: var(--muted) !important;
+  font-size: 13px;
+}
+
+.admin__hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-detail {
+  max-width: 1000px;
+}
+
+.admin-section {
+  margin-top: 28px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.admin-table__row--selected {
+  background: #f4f7f4;
+}
+
+.admin-status {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: var(--border);
+}
+
+.admin-status--finished {
+  background: #dcece1;
+  color: var(--accent);
+}
+
+.admin-status--abandoned {
+  background: #f2ddd8;
+  color: var(--danger);
+}
+
+.admin-genlink {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.admin-gen-select {
+  display: block;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.admin-gen-select select {
+  display: block;
+  margin-top: 4px;
+  padding: 4px 8px;
+  max-width: 100%;
+}
+
+/* ------------------------------------------------------------- нагрузка */
+
+.load-summary {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+
+.load-summary__item {
+  display: flex;
+  flex-direction: column;
+}
+
+.load-summary__value {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.load-summary__label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.load-cell--warn {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.load-timelines {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+@media (max-width: 640px) {
+  .load-timelines {
+    grid-template-columns: 1fr;
+  }
+}
+
+.load-timeline__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.load-timeline__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 70px;
+}
+
+.load-timeline__col {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+}
+
+.load-timeline__bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.load-timeline__label {
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--muted);
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------- Gantt-график */
+
+.gantt {
+  overflow: visible;
+  font-size: 11px;
+}
+
+.gantt__empty {
+  color: var(--muted);
+}
+
+.gantt__gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.gantt__tick {
+  fill: var(--muted);
+  text-anchor: middle;
+}
+
+.gantt__row-label {
+  fill: var(--text);
+  dominant-baseline: middle;
+}
+
+.gantt__bar {
+  stroke-width: 2;
+  stroke: transparent;
+}
+
+.gantt__bar--error {
+  stroke: var(--danger);
+}
+
+.gantt__bar--cancelled {
+  stroke: var(--muted);
+  stroke-dasharray: 4 2;
+}
+
+.gantt__bar-label {
+  fill: #fff;
+  dominant-baseline: middle;
+  pointer-events: none;
 }
