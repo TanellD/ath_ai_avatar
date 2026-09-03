@@ -15,7 +15,8 @@ from app.clients.scenario_client import ScenarioClient
 from app.clients.speech_client import SpeechClient
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.db.engine import dispose_engine, init_engine
+from app.db.engine import dispose_engine, init_engine, session_factory
+from app.db.seed import seed_default_users
 from app.orchestrator.session_manager import SessionRegistry
 
 log = get_logger(__name__)
@@ -26,6 +27,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
 
     await init_engine()
+    async with session_factory()() as db:
+        await seed_default_users(db)
 
     app.state.sessions = SessionRegistry()
     app.state.ai = AiClient(settings.ai_service_url, settings.downstream_timeout_sec)

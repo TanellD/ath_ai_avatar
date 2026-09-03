@@ -7,6 +7,13 @@
  * другую машину.
  */
 
+import type {
+  GenSummary,
+  LoadStats,
+  SessionPath,
+  SessionSummary,
+  Span,
+} from '@/contracts/admin';
 import type { Report, Scenario, ScenarioSummary } from '@/contracts/events';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
@@ -47,6 +54,35 @@ export const gatewayApi = {
 
   sessionSocketUrl(sessionId: string): string {
     return `${WS_URL}/ws/session/${sessionId}`;
+  },
+};
+
+export const adminApi = {
+  async listSessions(): Promise<SessionSummary[]> {
+    const data = await request<{ items: SessionSummary[] }>(`${API_URL}/admin/sessions`);
+    return data.items;
+  },
+
+  getSessionPath(sessionId: string): Promise<SessionPath> {
+    return request(`${API_URL}/admin/sessions/${sessionId}/path`);
+  },
+
+  async listGens(sessionId: string): Promise<GenSummary[]> {
+    const data = await request<{ items: GenSummary[] }>(
+      `${API_URL}/admin/sessions/${sessionId}/gens`,
+    );
+    return data.items;
+  },
+
+  async listSpans(sessionId: string, genId: number): Promise<Span[]> {
+    const data = await request<{ items: Span[] }>(
+      `${API_URL}/admin/sessions/${sessionId}/gens/${genId}/spans`,
+    );
+    return data.items;
+  },
+
+  getLoad(): Promise<LoadStats> {
+    return request(`${API_URL}/admin/load`);
   },
 };
 

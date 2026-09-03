@@ -430,3 +430,215 @@ body {
   flex-direction: column;
   gap: 6px;
 }
+
+/* ------------------------------------------------------------ админ-панель
+   Внутренний инструмент отладки конвейера, не роль продукта (Claude.md §2) —
+   поэтому оформление нарочно суше остального интерфейса. */
+
+.app__nav-admin {
+  margin-left: 16px;
+  color: var(--muted) !important;
+  font-size: 13px;
+}
+
+.admin__hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.admin-detail {
+  max-width: 1000px;
+}
+
+.admin-section {
+  margin-top: 28px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.admin-table__row--selected {
+  background: #f4f7f4;
+}
+
+.admin-status {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  background: var(--border);
+}
+
+.admin-status--finished {
+  background: #dcece1;
+  color: var(--accent);
+}
+
+.admin-status--abandoned {
+  background: #f2ddd8;
+  color: var(--danger);
+}
+
+.admin-genlink {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.admin-gen-select {
+  display: block;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.admin-gen-select select {
+  display: block;
+  margin-top: 4px;
+  padding: 4px 8px;
+  max-width: 100%;
+}
+
+/* ------------------------------------------------------------- нагрузка */
+
+.load-summary {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+
+.load-summary__item {
+  display: flex;
+  flex-direction: column;
+}
+
+.load-summary__value {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.load-summary__label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.load-cell--warn {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.load-timelines {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 16px;
+}
+
+@media (max-width: 640px) {
+  .load-timelines {
+    grid-template-columns: 1fr;
+  }
+}
+
+.load-timeline__title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.load-timeline__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 70px;
+}
+
+.load-timeline__col {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+}
+
+.load-timeline__bar {
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.load-timeline__label {
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--muted);
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------- Gantt-график */
+
+.gantt {
+  overflow: visible;
+  font-size: 11px;
+}
+
+.gantt__empty {
+  color: var(--muted);
+}
+
+.gantt__gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.gantt__tick {
+  fill: var(--muted);
+  text-anchor: middle;
+}
+
+.gantt__row-label {
+  fill: var(--text);
+  dominant-baseline: middle;
+}
+
+.gantt__bar {
+  stroke-width: 2;
+  stroke: transparent;
+}
+
+.gantt__bar--error {
+  stroke: var(--danger);
+}
+
+.gantt__bar--cancelled {
+  stroke: var(--muted);
+  stroke-dasharray: 4 2;
+}
+
+.gantt__bar-label {
+  fill: #fff;
+  dominant-baseline: middle;
+  pointer-events: none;
+}

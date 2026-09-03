@@ -18,7 +18,7 @@ import asyncio
 import base64
 import io
 import wave
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 
 from ath_contracts import (
     ActionEvent,
@@ -28,15 +28,19 @@ from ath_contracts import (
     ServerEvent,
     SubtitleEvent,
     TokenEvent,
+    Turn,
     TurnRole,
 )
 
 from app.clients.ai_client import AiClient
 from app.clients.speech_client import SpeechClient
 from app.core.logging import get_logger
+from app.db.engine import session_factory
+from app.db.repositories import SqlSessionRepository
 from app.orchestrator.context_window import build_context
 from app.orchestrator.sentence_splitter import SentenceSplitter
 from app.orchestrator.session_manager import LiveSession
+from app.tracing import SpanRecorder
 
 log = get_logger(__name__)
 
@@ -77,6 +81,15 @@ class TurnPipeline:
         self._speech = speech
         self._raw_send = send
         self._max_context_turns = max_context_turns
+        # Держит ссылки на fire-and-forget задачи (запись хода в БД), пока
+        # они не завершатся — иначе их может собрать GC на середине, это
+        # известная ловушка asyncio.create_task без сохранённой ссылки.
+        self._background_tasks: set[asyncio.Task[None]] = set()
+
+    def _fire_and_forget(self, coro: Coroutine[object, object, None]) -> None:
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     # ------------------------------------------------------------------ API
 
@@ -100,7 +113,10 @@ class TurnPipeline:
             # если он ещё не знает о новом.
             await self._raw_send(CancelEvent(gen_id=interrupts))
 
-        self._session.add_turn(TurnRole.USER, text)
+        user_turn = self._session.add_turn(TurnRole.USER, text)
+        # Не await: запись в БД не должна задерживать обработку следующего
+        # события в цикле приёма — от этого зависит бюджет barge-in (§9).
+        self._fire_and_forget(self._persist_turn(user_turn, gen_id))
 
         task = asyncio.create_task(self._run_turn(gen_id, text))
         generations.register(gen_id, task)
@@ -109,9 +125,10 @@ class TurnPipeline:
 
     async def _run_turn(self, gen_id: int, user_text: str) -> None:
         """Один ход целиком. Отменяется целиком по task.cancel()."""
+        recorder = SpanRecorder(self._session.session_id, gen_id)
         try:
-            await self._speak(gen_id, user_text)
-            await self._advance_stage(gen_id, user_text)
+            await self._speak(gen_id, user_text, recorder)
+            await self._advance_stage(gen_id, user_text, recorder)
         except asyncio.CancelledError:
             log.info("pipeline.turn_cancelled", gen_id=gen_id)
             raise
@@ -119,7 +136,19 @@ class TurnPipeline:
             log.exception("pipeline.turn_failed", gen_id=gen_id)
             raise
 
-    async def _speak(self, gen_id: int, user_text: str) -> None:
+    async def _persist_turn(self, turn: Turn, gen_id: int) -> None:
+        """Пишет ход в БД сразу, а не только на disconnect — админ-панель и
+        отчёт читают из БД, а не из памяти процесса."""
+        index = len(self._session.turns) - 1
+        try:
+            async with session_factory()() as db:
+                await SqlSessionRepository(db).append_turn(
+                    self._session.session_id, index, turn, gen_id
+                )
+        except Exception:
+            log.exception("pipeline.persist_turn_failed", gen_id=gen_id)
+
+    async def _speak(self, gen_id: int, user_text: str, recorder: SpanRecorder) -> None:
         """Реплика персонажа: токены LLM → предложения → чанки TTS.
 
         TODO: обвязка готова, тела клиентов — заглушки. Что здесь должно
@@ -141,27 +170,34 @@ class TurnPipeline:
         следующего SubtitleEvent. Тайминги относительно начала поколения (§7),
         не абсолютное время."""
 
-        async for token in self._ai.stream_character_reply(
-            persona=self._session.scenario.persona,
-            stage=stage,
-            history=context.recent,
-            summary=context.summary,
-            user_text=user_text,
+        persona_name = self._session.scenario.persona.name
+        async with recorder.span(
+            "character_reply", f'{persona_name}: ответ на "{user_text[:60]}"'
         ):
-            full_text.append(token)
-            await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
+            async for token in self._ai.stream_character_reply(
+                persona=self._session.scenario.persona,
+                stage=stage,
+                history=context.recent,
+                summary=context.summary,
+                user_text=user_text,
+            ):
+                full_text.append(token)
+                await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
 
-            for sentence in splitter.feed(token):
-                seq, elapsed_ms = await self._synthesize(gen_id, sentence, seq, elapsed_ms)
+                for sentence in splitter.feed(token):
+                    seq, elapsed_ms = await self._synthesize(
+                        gen_id, sentence, seq, elapsed_ms, recorder
+                    )
 
-        tail = splitter.flush()
-        if tail:
-            seq, elapsed_ms = await self._synthesize(gen_id, tail, seq, elapsed_ms)
+            tail = splitter.flush()
+            if tail:
+                seq, elapsed_ms = await self._synthesize(gen_id, tail, seq, elapsed_ms, recorder)
 
-        self._session.add_turn(TurnRole.AGENT, "".join(full_text))
+        agent_turn = self._session.add_turn(TurnRole.AGENT, "".join(full_text))
+        await self._persist_turn(agent_turn, gen_id)
 
     async def _synthesize(
-        self, gen_id: int, sentence: str, seq: int, elapsed_ms: int
+        self, gen_id: int, sentence: str, seq: int, elapsed_ms: int, recorder: SpanRecorder
     ) -> tuple[int, int]:
         """Озвучить одно предложение, отдавая чанки по мере готовности (§10).
 
@@ -170,20 +206,21 @@ class TurnPipeline:
         голосу, а не в такт токенам (токены приходят быстрее речи).
         """
         sentence_ms = 0
-        async for chunk in self._speech.stream_tts(
-            gen_id=gen_id,
-            seq=seq,
-            text=sentence,
-            voice_id=self._session.scenario.persona.voice_id,
-        ):
-            await self._send(
-                gen_id,
-                AudioChunkEvent(
-                    gen_id=gen_id, seq=chunk.seq, data=chunk.data, format=chunk.format
-                ),
-            )
-            sentence_ms += _wav_duration_ms(chunk.data)
-            seq = chunk.seq + 1
+        async with recorder.span("tts_synthesize", sentence):
+            async for chunk in self._speech.stream_tts(
+                gen_id=gen_id,
+                seq=seq,
+                text=sentence,
+                voice_id=self._session.scenario.persona.voice_id,
+            ):
+                await self._send(
+                    gen_id,
+                    AudioChunkEvent(
+                        gen_id=gen_id, seq=chunk.seq, data=chunk.data, format=chunk.format
+                    ),
+                )
+                sentence_ms += _wav_duration_ms(chunk.data)
+                seq = chunk.seq + 1
 
         await self._send(
             gen_id,
@@ -196,16 +233,17 @@ class TurnPipeline:
         )
         return seq, elapsed_ms + sentence_ms
 
-    async def _advance_stage(self, gen_id: int, user_text: str) -> None:
+    async def _advance_stage(self, gen_id: int, user_text: str, recorder: SpanRecorder) -> None:
         """Классификация ответа моделью, решение о переходе — кодом (§5)."""
         stage = self._session.machine.stage(self._session.current_stage_id)
         context = build_context(
             self._session.turns, self._max_context_turns, self._session.summary
         )
 
-        classification: Classification = await self._ai.classify(
-            stage=stage, history=context.recent, user_text=user_text
-        )
+        async with recorder.span("classify", f'Критерий этапа "{stage.id}"'):
+            classification: Classification = await self._ai.classify(
+                stage=stage, history=context.recent, user_text=user_text
+            )
 
         transition = self._session.machine.decide(
             current_stage_id=self._session.current_stage_id,
