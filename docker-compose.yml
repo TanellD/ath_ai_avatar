@@ -1,0 +1,176 @@
+name: ath-ai-avatar
+
+# Базовая композиция. Пять контейнеров, без инфраструктурных сервисов.
+#
+# Ввод в этой фазе — текстовый, поэтому:
+#   - нет Postgres: состояние в SQLite на bind-mount ./data (см. DATABASE_URL)
+#   - нет Redis: живое состояние сессии в памяти gateway (один воркер uvicorn)
+#   - нет MinIO: аудио пользователя не пишется, audio_ref в отчёте пока null
+# Всё это возвращается в [STT]-фазу — см. docs/stt-phase.md.
+#
+# docker-compose.override.yml подхватывается автоматически и переводит всё в dev-режим
+# (bind-mount исходников, --reload, vite вместо nginx).
+
+x-python-common: &python-common
+  restart: unless-stopped
+  environment: &python-env
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    PYTHONUNBUFFERED: "1"
+  networks: [ath]
+
+services:
+  # ---------------------------------------------------------------- gateway
+  # Оркестратор (Claude.md §5). Владеет gen_id, конечным автоматом этапов,
+  # WebSocket-сессией с браузером и персистентностью сессий/отчётов.
+  gateway:
+    <<: *python-common
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    environment:
+      <<: *python-env
+      SERVICE_NAME: gateway
+      DATABASE_URL: ${GATEWAY_DATABASE_URL:-sqlite+aiosqlite:////data/gateway.db}
+      SPEECH_SERVICE_URL: http://speech-service:8010
+      AI_SERVICE_URL: http://ai-service:8030
+      SCENARIO_SERVICE_URL: http://scenario-service:8050
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+      MAX_CONTEXT_TURNS: ${MAX_CONTEXT_TURNS:-6}
+    volumes:
+      - ./data:/data
+    depends_on:
+      speech-service: {condition: service_healthy}
+      ai-service: {condition: service_healthy}
+      scenario-service: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # --------------------------------------------------------- speech-service
+  # Только TTS (Claude.md §5, §10). Пространство имён STT существует как
+  # определение интерфейса без реализации — см. services/speech-service/app/stt/.
+  speech-service:
+    <<: *python-common
+    build:
+      context: .
+      dockerfile: services/speech-service/Dockerfile
+    ports:
+      - "${SPEECH_PORT:-8010}:8010"
+    environment:
+      <<: *python-env
+      SERVICE_NAME: speech-service
+      TTS_PROVIDER: ${TTS_PROVIDER:-mock}
+      TTS_VOICE_ID: ${TTS_VOICE_ID:-}
+      TTS_SAMPLE_RATE: ${TTS_SAMPLE_RATE:-24000}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      YANDEX_API_KEY: ${YANDEX_API_KEY:-}
+      YANDEX_FOLDER_ID: ${YANDEX_FOLDER_ID:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # ------------------------------------------------------------- ai-service
+  # Разделение моделей из Claude.md §5: быстрая — реплики персонажа,
+  # сильная — единственный вызов итоговой оценки.
+  ai-service:
+    <<: *python-common
+    build:
+      context: .
+      dockerfile: services/ai-service/Dockerfile
+    ports:
+      - "${AI_PORT:-8030}:8030"
+    environment:
+      <<: *python-env
+      SERVICE_NAME: ai-service
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      LLM_FAST_MODEL: ${LLM_FAST_MODEL:-claude-haiku-4-5}
+      LLM_STRONG_MODEL: ${LLM_STRONG_MODEL:-claude-opus-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8030/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # ------------------------------------------------------- scenario-service
+  # Интерфейс методиста (Claude.md §2, §7): сценарии, шаблоны, рубрики.
+  scenario-service:
+    <<: *python-common
+    build:
+      context: .
+      dockerfile: services/scenario-service/Dockerfile
+    ports:
+      - "${SCENARIO_PORT:-8050}:8050"
+    environment:
+      <<: *python-env
+      SERVICE_NAME: scenario-service
+      DATABASE_URL: ${SCENARIO_DATABASE_URL:-sqlite+aiosqlite:////data/scenarios.db}
+      SEED_TEMPLATES: ${SEED_TEMPLATES:-true}
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8050/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+  # --------------------------------------------------------------- frontend
+  frontend:
+    build:
+      context: services/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
+        VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-http://localhost:8050}
+        VITE_SIMLI_API_KEY: ${VITE_SIMLI_API_KEY:-}
+        VITE_SIMLI_FACE_ID: ${VITE_SIMLI_FACE_ID:-}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      gateway: {condition: service_healthy}
+    networks: [ath]
+
+networks:
+  ath:
+    driver: bridge
+
+# ---------------------------------------------------------------------------
+# Переезд на Postgres, когда SQLite перестанет хватать: раскомментировать блок
+# ниже и подменить две переменные в .env — код при этом не меняется, потому что
+# обращения к БД идут через репозитории (db/repositories.py).
+#
+#   GATEWAY_DATABASE_URL=postgresql+asyncpg://ath:ath@postgres:5432/ath_sessions
+#   SCENARIO_DATABASE_URL=postgresql+asyncpg://ath:ath@postgres:5432/ath_scenarios
+#
+#  postgres:
+#    image: postgres:16-alpine
+#    restart: unless-stopped
+#    environment:
+#      POSTGRES_USER: ${POSTGRES_USER:-ath}
+#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ath}
+#      POSTGRES_DB: ath_sessions
+#    volumes:
+#      - pg_data:/var/lib/postgresql/data
+#      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ath}"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 10
+#    networks: [ath]
+#
+# volumes:
+#   pg_data:
+# ---------------------------------------------------------------------------

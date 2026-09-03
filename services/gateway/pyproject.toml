@@ -1,0 +1,60 @@
+[project]
+name = "ath-gateway"
+version = "0.1.0"
+description = "Оркестратор: WebSocket-сессия, gen_id, конечный автомат этапов (Claude.md §5, §6)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "websockets>=13",
+    "httpx>=0.27",
+    "httpx-sse>=0.4",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5",
+    "sqlalchemy[asyncio]>=2.0.35",
+    "aiosqlite>=0.20",
+    "alembic>=1.13",
+    "structlog>=24.4",
+    "ath-contracts",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "RET", "SIM", "RUF", "ANN001", "BLE001"]
+ignore = [
+    # Файлы лежат на bind-mount с Windows и приезжают с битом +x. Правило
+    # ловит эту особенность монтирования, а не проблему в коде.
+    "EXE002",
+    # Depends(...) в сигнатуре — штатная идиома FastAPI, а не мутабельный
+    # аргумент по умолчанию.
+    "B008",
+    # Проект документирован по-русски. Правила ловят кириллицу как «символ,
+    # похожий на латинский», и срабатывают на каждой строке комментариев.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"app/alembic/*" = ["ANN001", "I001"]
