@@ -132,7 +132,7 @@
 <script type="module">
 
   import { TalkingHead } from "talkinghead";
-  import { HeadAudio } from "./modules/headaudio.mjs";
+  import { HeadAudio } from "./vendor/headaudio/headaudio.mjs";
 
   const avatar = document.getElementById("avatar");
   const text = document.getElementById("text");
@@ -163,7 +163,7 @@
   // -------------------------
 
   await head.audioCtx.audioWorklet.addModule(
-    "./modules/headworklet.mjs"
+    "./vendor/headaudio/headworklet.mjs"
   );
 
   const headaudio = new HeadAudio(
@@ -181,7 +181,7 @@
   );
 
   await headaudio.loadModel(
-    "./dist/model-en-mixed.bin"
+    "./vendor/headaudio/model-en-mixed.bin"
   );
 
   head.audioSpeechGainNode.connect(headaudio);
@@ -229,7 +229,7 @@
   // -------------------------
 
   await head.showAvatar({
-    url: "./avatars/avatar-aith.glb",
+    url: "./assets/avatar/avatar-aith.glb",
     body: "F",
     avatarMood: "neutral"
   });

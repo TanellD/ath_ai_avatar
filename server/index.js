@@ -1,20 +1,62 @@
+import "dotenv/config";
 import express from "express";
 import { SonioxNodeClient } from "@soniox/node";
 import OpenAI from "openai";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const { SONIOX_API_KEY, VSELLM_API_KEY } = process.env;
+
+if (!SONIOX_API_KEY || !VSELLM_API_KEY) {
+  throw new Error(
+    "Missing required environment variables: SONIOX_API_KEY and VSELLM_API_KEY",
+  );
+}
 
 const app = express();
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const publicDir = path.join(projectRoot, "public");
+const port = Number.parseInt(process.env.PORT ?? "3001", 10);
 
 app.use(express.json());
-app.use(express.static("."));
+app.use(express.static(publicDir));
 
 // -------------------------
 // SONIOX
 // -------------------------
 
-const soniox = new SonioxNodeClient();
+const soniox = new SonioxNodeClient({ api_key: SONIOX_API_KEY });
+
+const temporaryKeyRequests = new Map();
+const temporaryKeyWindowMs = 60_000;
+const temporaryKeyLimit = 10;
+
+function temporaryKeyRateLimit(req, res, next) {
+  const clientId = req.ip ?? req.socket.remoteAddress ?? "unknown";
+  const now = Date.now();
+  const current = temporaryKeyRequests.get(clientId);
+
+  if (!current || now - current.windowStartedAt >= temporaryKeyWindowMs) {
+    temporaryKeyRequests.set(clientId, { count: 1, windowStartedAt: now });
+    next();
+    return;
+  }
+
+  if (current.count >= temporaryKeyLimit) {
+    const retryAfterSeconds = Math.ceil(
+      (temporaryKeyWindowMs - (now - current.windowStartedAt)) / 1000,
+    );
+    res.set("Retry-After", String(retryAfterSeconds));
+    res.status(429).json({ error: "Too many temporary key requests" });
+    return;
+  }
+
+  current.count += 1;
+  next();
+}
 
 // Временный ключ для Soniox
-app.get("/tts-tmp-key", async (_req, res) => {
+app.get("/tts-tmp-key", temporaryKeyRateLimit, async (_req, res) => {
   try {
     const { api_key, expires_at } =
       await soniox.auth.createTemporaryKey({
@@ -22,12 +64,11 @@ app.get("/tts-tmp-key", async (_req, res) => {
         expires_in_seconds: 300,
       });
 
+    res.set("Cache-Control", "no-store");
     res.json({ api_key, expires_at });
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      error: err instanceof Error ? err.message : "Temporary key error",
-    });
+    res.status(500).json({ error: "Temporary key error" });
   }
 });
 
@@ -55,7 +96,7 @@ app.post("/tts", async (req, res) => {
 // -------------------------
 
 const llm = new OpenAI({
-  apiKey: process.env.VSELLM_API_KEY,
+  apiKey: VSELLM_API_KEY,
   baseURL: "https://api.vsellm.ru/v1",
 });
 
@@ -96,6 +137,6 @@ app.post("/chat", async (req, res) => {
 // START
 // -------------------------
 
-app.listen(3001, () => {
-  console.log("Server: http://localhost:3001");
+app.listen(port, () => {
+  console.log(`Server: http://localhost:${port}`);
 });
