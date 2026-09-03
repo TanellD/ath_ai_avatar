@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Soniox TTS Test</title>
+</head>
+
+<body>
+  <textarea id="text" rows="4" cols="60">Привет! Проверяем речь Soniox прямо из браузера.</textarea>
+
+  <br><br>
+
+  <button id="speak">Сказать</button>
+
+  <script>
+    document.getElementById("speak").onclick = async () => {
+      const text = document.getElementById("text").value;
+
+      const res = await fetch("/tts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ text })
+      });
+
+      if (!res.ok) {
+        alert("Ошибка TTS: " + res.status);
+        return;
+      }
+
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+
+      await audio.play();
+    };
+  </script>
+</body>
+</html>

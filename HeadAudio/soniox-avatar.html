@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>AI Avatar PoC</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: #202020;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    #app {
+      display: flex;
+      width: 100%;
+      height: 100%;
+    }
+
+    #avatar {
+      flex: 1;
+      min-width: 0;
+    }
+
+    #panel {
+      width: 420px;
+      padding: 24px;
+      box-sizing: border-box;
+      background: #303030;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    h2 {
+      margin: 0;
+    }
+
+    #history {
+      flex: 1;
+      overflow-y: auto;
+      background: #252525;
+      padding: 14px;
+      border-radius: 8px;
+    }
+
+    .message {
+      margin-bottom: 14px;
+      line-height: 1.4;
+    }
+
+    .user {
+      color: #9fd3ff;
+    }
+
+    .assistant {
+      color: #ffffff;
+    }
+
+    textarea {
+      width: 100%;
+      height: 90px;
+      box-sizing: border-box;
+      padding: 12px;
+      font-size: 16px;
+      resize: none;
+      border-radius: 6px;
+    }
+
+    button {
+      padding: 12px;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+
+    #status {
+      font-size: 14px;
+      color: #bbb;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/npm/@met4citizen/talkinghead@1.7/modules/talkinghead.mjs"
+    }
+  }
+  </script>
+</head>
+
+<body>
+
+<div id="app">
+
+  <div id="avatar"></div>
+
+  <div id="panel">
+
+    <h2>Диалог с аватаром</h2>
+
+    <div id="history"></div>
+
+    <textarea
+      id="text"
+      placeholder="Напишите сообщение..."
+    ></textarea>
+
+    <button id="send" disabled>
+      Отправить
+    </button>
+
+    <button id="stop" disabled>
+      Прервать речь
+    </button>
+
+    <div id="status">
+      Загружаю аватара...
+    </div>
+
+  </div>
+
+</div>
+
+<script type="module">
+
+  import { TalkingHead } from "talkinghead";
+  import { HeadAudio } from "./modules/headaudio.mjs";
+
+  const avatar = document.getElementById("avatar");
+  const text = document.getElementById("text");
+  const send = document.getElementById("send");
+  const stop = document.getElementById("stop");
+  const status = document.getElementById("status");
+  const history = document.getElementById("history");
+
+  const messages = [];
+
+  let source = null;
+
+  // -------------------------
+  // TALKINGHEAD
+  // -------------------------
+
+  const head = new TalkingHead(avatar, {
+    ttsEndpoint: "N/A",
+    lipsyncModules: [],
+    cameraView: "head",
+    mixerGainSpeech: 3,
+    modelFPS: 60,
+    cameraRotateEnable: false
+  });
+
+  // -------------------------
+  // HEADAUDIO
+  // -------------------------
+
+  await head.audioCtx.audioWorklet.addModule(
+    "./modules/headworklet.mjs"
+  );
+
+  const headaudio = new HeadAudio(
+    head.audioCtx,
+    {
+      processorOptions: {
+        vadEventsEnabled: true,
+        visemeEventsEnabled: true
+      },
+
+      parameterData: {
+        vadMode: 1
+      }
+    }
+  );
+
+  await headaudio.loadModel(
+    "./dist/model-en-mixed.bin"
+  );
+
+  head.audioSpeechGainNode.connect(headaudio);
+
+  const delayNode = new DelayNode(
+    head.audioCtx,
+    {
+      delayTime: 0.15
+    }
+  );
+
+  head.audioSpeechGainNode.disconnect(
+    head.audioReverbNode
+  );
+
+  head.audioSpeechGainNode.connect(delayNode);
+  delayNode.connect(head.audioReverbNode);
+
+  headaudio.onvalue = (key, value) => {
+
+    if (head.mtAvatar && head.mtAvatar[key]) {
+
+      Object.assign(
+        head.mtAvatar[key],
+        {
+          newvalue: value,
+          needsUpdate: true
+        }
+      );
+
+    }
+
+  };
+
+  head.opt.update =
+    headaudio.update.bind(headaudio);
+
+  headaudio.onstarted = () => {
+    head.lookAtCamera(500);
+    head.speakWithHands();
+  };
+
+  // -------------------------
+  // AVATAR
+  // -------------------------
+
+  await head.showAvatar({
+    url: "./avatars/avatar-aith.glb",
+    body: "F",
+    avatarMood: "neutral"
+  });
+
+  status.textContent = "Готово";
+  send.disabled = false;
+
+  // -------------------------
+  // HISTORY
+  // -------------------------
+
+  function addMessage(role, content) {
+
+    const div = document.createElement("div");
+
+    div.className =
+      "message " +
+      (role === "user"
+        ? "user"
+        : "assistant");
+
+    div.textContent =
+      (role === "user"
+        ? "Вы: "
+        : "Аватар: ")
+      + content;
+
+    history.appendChild(div);
+
+    history.scrollTop =
+      history.scrollHeight;
+  }
+
+  // -------------------------
+  // STOP SPEECH
+  // -------------------------
+
+  function stopSpeech() {
+
+    if (source) {
+
+      try {
+        source.stop();
+      } catch {}
+
+      source = null;
+    }
+
+    headaudio.resetAll();
+
+    stop.disabled = true;
+  }
+
+  stop.addEventListener(
+    "click",
+    () => {
+
+      stopSpeech();
+
+      status.textContent =
+        "Речь прервана";
+    }
+  );
+
+  // -------------------------
+  // SPEAK
+  // -------------------------
+
+  async function speakText(reply) {
+
+    status.textContent =
+      "Генерирую речь...";
+
+    const response = await fetch(
+      "/tts",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+          text: reply
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        "TTS error: " +
+        response.status
+      );
+    }
+
+    const arrayBuffer =
+      await response.arrayBuffer();
+
+    const audioBuffer =
+      await head.audioCtx.decodeAudioData(
+        arrayBuffer
+      );
+
+    source =
+      head.audioCtx.createBufferSource();
+
+    source.buffer = audioBuffer;
+
+    source.connect(
+      head.audioSpeechGainNode
+    );
+
+    source.onended = () => {
+
+      source = null;
+
+      headaudio.resetAll();
+
+      status.textContent = "Готово";
+
+      stop.disabled = true;
+    };
+
+    status.textContent =
+      "Аватар говорит";
+
+    stop.disabled = false;
+
+    source.start();
+  }
+
+  // -------------------------
+  // CHAT
+  // -------------------------
+
+  async function sendMessage() {
+
+    const userText =
+      text.value.trim();
+
+    if (!userText) return;
+
+    await head.audioCtx.resume();
+
+    // Если пользователь пишет,
+    // пока аватар говорит —
+    // старая речь прекращается.
+    stopSpeech();
+
+    text.value = "";
+
+    messages.push({
+      role: "user",
+      content: userText
+    });
+
+    addMessage(
+      "user",
+      userText
+    );
+
+    send.disabled = true;
+
+    status.textContent =
+      "Нейронка думает...";
+
+    try {
+
+      const response = await fetch(
+        "/chat",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            messages
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          "LLM error: " +
+          response.status
+        );
+      }
+
+      const data =
+        await response.json();
+
+      const reply =
+        data.reply;
+
+      messages.push({
+        role: "assistant",
+        content: reply
+      });
+
+      addMessage(
+        "assistant",
+        reply
+      );
+
+      await speakText(reply);
+
+    }
+
+    catch (error) {
+
+      console.error(error);
+
+      status.textContent =
+        "Ошибка: " +
+        error.message;
+
+    }
+
+    finally {
+
+      send.disabled = false;
+
+      text.focus();
+
+    }
+
+  }
+
+  send.addEventListener(
+    "click",
+    sendMessage
+  );
+
+  text.addEventListener(
+    "keydown",
+    event => {
+
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey
+      ) {
+
+        event.preventDefault();
+
+        sendMessage();
+      }
+
+    }
+  );
+
+</script>
+
+</body>
+</html>

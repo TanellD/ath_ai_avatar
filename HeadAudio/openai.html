@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link rel="icon" href="data:,">
+
+  <title>HeadAudio - OpenAI</title>
+
+  <style>
+    body, html {
+      width:100%; height:100%; margin: 0; padding: 0; position: relative;
+      background-color: #202020; color: white; overflow: hidden;
+      font-family: Arial;
+    }
+    #head { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
+    #avatar {
+      display: block; width: 100%; height: 100%; position: absolute;
+      top: 0; left: 0; right: 0; margin: 0; padding: 0;
+    }
+    #info {
+      display: block; position: absolute; bottom: 10px; left: 10px;
+      right: 10px; font-family: Arial; font-size: 20px;
+    }
+    #controls { position: absolute; top: 0; right: 0; margin: 10px; z-index: 10; }
+    #github {
+      position: absolute; bottom: 0; right: 0; margin: 10px; z-index: 10;
+      width: 36px; height: 36px; 
+    }
+    #github svg { color: #404040; }
+    #apikey { -webkit-text-security: square; }
+    *[disabled] {
+      opacity: 0.5; cursor: default; pointer-events: none;
+    }
+  </style>
+
+  <script type="importmap">
+  { "imports":
+    {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/npm/@met4citizen/talkinghead@1.7/modules/talkinghead.mjs",
+      "headaudio": "./dist/headaudio.min.mjs"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+    import { HeadAudio } from "headaudio";
+
+    /**
+    * GLOBALS
+    */
+
+    // TalkingHead
+    let head; // TalkingHead instance
+    const avatar = {
+      url: "./avatars/julia.glb",
+      body: "F",
+      avatarMood: "neutral"
+    };
+
+    // HeadAudio
+    let headaudio; // HeadAudio instance
+    const headaudioProcessor = "./dist/headworklet.min.mjs";
+    const headaudioModel = "./dist/model-en-mixed.bin";
+    
+    // WebRTC
+    let connection; // RTC Peer Connection
+    let datachannel; // Data channel
+    let micTrack; // Microphone audio track
+
+    // OpenAPI realtime API
+    const model = "gpt-realtime-mini";
+    const voice = "marin";
+    const instructions = [
+      "Your name is Julia. You are a clear, concise, and conversational English-speaking assistant.",
+      "\nInteraction:",
+      "- Listen for user speech, wait for a brief pause before responding. Avoid interrupting active user speech.",
+      "- If unclear, ask a brief clarifying question.",
+      "- Summarize only when explicitly asked.",
+      "\nPersonality:",
+      "- Be calm, helpful, and friendly.",
+      "\nEmbodied avatar:",
+      "- You have a human-like 3D avatar that the user can see. You can control your avatar using function calling.",
+      "- Express yourself by simulating emotions with avatar moods, hand gestures, and emojis via function calling."
+    ].join("\n");
+    const initialMessage = "Introduce yourself and ask how you can help.";
+    const closingMessage = "The user wants to end this session. Say a quick good-bye to the user.";
+    let isClosing = false;
+    let audioMuted; // Used as a workaround for a known Chrome bug
+    const functions = [
+      {
+        type: "function",
+        name: "set_mood",
+        description: "change your own mood",
+        parameters: {
+          type: "object",
+          properties: {
+            "mood": {
+              type: "string",
+              enum: ["neutral", "happy", "angry", "sad", "fear", "disgust", "love", "sleep"],
+              description: "Mood name"
+            }
+          }
+        }
+      },
+      {
+        type: "function",
+        name: "make_hand_gesture",
+        description: "make a hand gesture",
+        parameters: {
+          type: "object",
+          properties: {
+            "gesture": {
+              type: "string",
+              enum: ["handup", "index", "ok", "thumbup", "thumbdown", "side", "shrug", "namaste"],
+              description: "Hand gesture name"
+            }
+          }
+        }
+      },
+      {
+        type: "function",
+        name: "make_facial_expression",
+        description: "make a facial expression",
+        parameters: {
+          type: "object",
+          properties: {
+            "emoji": {
+              type: "string",
+              description: "Single face emoji"
+            }
+          }
+        }
+      }
+    ];
+
+    // Other globals
+    const el = {}; // DOM elements based in `id` property
+
+    /**
+    * Instantiate the TalkingHead class
+    */
+    function initHead() {
+      head = new TalkingHead( el.avatar, {
+        ttsEndpoint: "N/A",
+        lipsyncModules: [],
+        cameraView: "upper",
+        mixerGainSpeech: 3,
+        cameraDistance: -0.9,
+        cameraRotateEnable: false,
+        lightAmbientIntensity: 0,
+        lightDirectIntensity: 0,
+        lightSpotIntensity: 0
+      });
+      window.head = head; // For debugging
+    }
+
+    /**
+    * Wrap a promise with a timeout that rejects if it takes too long.
+    *
+    * @param {Promise<T>} promise Promise to wrap.
+    * @param {number} ms Timeout in milliseconds.
+    * @param {Error} [error] Optional timeout error.
+    * @return {Promise<T>} Promise that rejects on timeout.
+    */
+    function _withTimeout(promise, ms, error = new Error("Timeout")) {
+      return new Promise((resolve, reject) => {
+        const id = setTimeout(() => reject(error), ms);
+        promise
+          .then(val => { clearTimeout(id); resolve(val); })
+          .catch(err => { clearTimeout(id); reject(err); });
+      });
+    }
+
+    /**
+    * Resumes the AudioContext, timing out after 2 seconds.
+    */
+    async function resumeAudio() {
+      head.start();
+      if (head.audioCtx.state !== "running") {
+        try {
+          await _withTimeout(head.audioCtx.resume(), 2000);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    /**
+    * Instantiate Head Audio.
+    */
+    async function initHeadAudio() {
+
+      // Register Worklet Processor
+      await head.audioCtx.audioWorklet.addModule(headaudioProcessor);
+
+      // Create the instance
+      headaudio = new HeadAudio(head.audioCtx);
+      window.headaudio = headaudio; // For debugging
+
+      // Load the audio model
+      try {
+        await headaudio.loadModel(headaudioModel);
+      } catch(error) {
+        console.log(error);
+      }
+
+      // Connect speech gain node to lip-sync node
+      head.audioSpeechGainNode.connect(headaudio);
+
+      // Register callback function to set blend shape value
+      headaudio.onvalue = (key,value) => {
+        Object.assign( head.mtAvatar[ key ],{ newvalue: value, needsUpdate: true });
+      };
+
+      // Link update method to TalkingHead's animation loop
+      head.opt.update = headaudio.update.bind(headaudio);
+
+      // Make eye contact
+      let lastEnded = 0;
+      headaudio.onended = () => {
+        lastEnded = Date.now();
+      };
+
+      headaudio.onstarted = () => {
+        const duration = Date.now() - lastEnded;
+        if ( duration > 150 ) {
+          head.lookAtCamera(500);
+          head.speakWithHands();
+        }
+      };
+    }
+
+    /**
+    * Load the avatar
+    */
+    async function loadAvatar() {
+
+      // Progress info
+      const info = { head: "-" };
+      const updateInfo = (n,ev) => {
+        if ( ev ) {
+          if ( ev.lengthComputable ) {
+            info[n] = Math.min(100,Math.round(ev.loaded/ev.total * 100 )) + "%";
+          } else {
+            info[n] = Math.round(ev.loaded / 1000) + "KB";
+          }
+        }
+        let s = "Loading: " + info.head ;
+        if ( info.hasOwnProperty("error") ) {
+          s += " ERROR:<br>&gt; " + info.error.replaceAll("\n","<br>&gt; ");
+        }
+        el.info.innerHTML = s;
+      }
+
+      // Load and show the avatar
+      try {
+        el.label.disabled = true;
+        el.apikey.disabled = true;
+        el.info.style.display = 'block';
+        el.info.textContent = "Loading...";
+
+        await head.showAvatar( avatar, updateInfo.bind(null,"head") );
+
+        el.info.style.display = 'none';
+        el.label.disabled = false;
+        el.apikey.disabled = false;
+      } catch (error) {
+        console.log(error);
+        info.error = error.message?.slice() || "Unknown error.";
+        updateInfo();
+      }
+
+    }
+
+    /**
+    * Send system message.
+    * 
+    * @param {string} s System message.
+    */
+    function sendSystemMessage(s) {
+      if ( datachannel ) {
+        const message = {
+          type: "response.create",
+          response: {
+            input: [
+              {
+                type: "message",
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text: s
+                  }
+                ]
+              }
+            ],
+            output_modalities: ["audio"]
+          }
+        };
+        datachannel.send(JSON.stringify(message));
+      }
+    }
+
+    /**
+    * Send cancel.
+    */
+    function sendCancel() {
+      if ( datachannel ) {
+        const message = {
+          type: "response.cancel"
+        };
+        datachannel.send(JSON.stringify(message));
+      }
+    }
+    
+    /**
+    * Send initial instructions.
+    */
+    function sendInitialMessage() {
+      sendSystemMessage(initialMessage);
+    }
+
+    /**
+    * Send closing message.
+    */
+    function sendClosingMessage() {
+      sendSystemMessage(closingMessage);
+    }
+
+    /**
+    * Handle incoming messages.
+    */
+    function handleMessage(event) {
+      const message = JSON.parse(event.data);
+      const type = message.type;
+      
+      // For debugging, but ignore delta messages
+      if ( !type.endsWith("delta") ) { 
+        console.info(`Server: ${message.type}`, message);
+      }
+
+      switch (type) {
+      case "session.created":
+        const expiresAt = new Date(message?.session?.expires_at * 1000);
+        console.log(`Session created and will expire at ${expiresAt}`, message);
+        break;
+
+      case "input_audio_buffer.speech_started":
+        head.lookAtCamera(500); // Listen the user
+        break;
+
+      case "response.function_call_arguments.done":
+        const name = message.name;
+        const jsonArgs = message.arguments;
+        let args = jsonArgs ? JSON.parse(jsonArgs) : null;
+
+        // Function calling
+        if (name === "set_mood" && args?.mood) {
+          head.setMood(args.mood);
+        } else if (name === "make_hand_gesture" && args?.gesture) {
+          head.playGesture(args.gesture);
+        } else if (name === "make_facial_expression" && args?.emoji) {
+          head.speakEmoji(args.emoji);
+        }
+
+        break;
+
+      case "output_audio_buffer.started":
+        head.isSpeaking = true;
+        break;
+
+      case "output_audio_buffer.stopped":
+        head.isSpeaking = false;
+        if ( isClosing ) {
+          endSession();
+        }
+        break;
+
+      }
+    }
+
+    /**
+     * Start a new WebRTC session with the OpenAI Realtime API.
+     */
+    async function startSession() {
+      console.log("Session starting...");
+
+      // Microphone
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({audio: true});
+        if (!stream) {
+          console.error("Failed to get mic stream");
+          return;
+        }
+        [micTrack] = stream.getAudioTracks();
+      } catch (err) {
+        console.error("Error accessing mic:", err);
+        return;
+      }
+
+      // Start the WebRTC session
+      try {
+        el.connection.disabled = true;
+        el.info.style.display = 'block';
+        el.info.textContent = "Connecting...";
+        isClosing = false;
+
+        connection = new RTCPeerConnection();
+
+        connection.ontrack = async (e) => {
+          if (e.track.kind !== "audio") return;
+          const track = e.track;
+          const stream = e.streams[0];
+
+          // Workaround for an old Chrome bug in which Web Audio nodes
+          // don’t start processing remote MediaStream tracks unless
+          // a native <audio> element touches the stream.
+          audioMuted = new Audio();
+          audioMuted.muted = true;
+          audioMuted.srcObject = stream;
+          
+          const source = head.audioCtx.createMediaStreamSource(stream);
+          source.connect(head.audioAnalyzerNode);
+        };
+
+        connection.addTrack(micTrack, stream);
+
+        // New data channel
+        datachannel = connection.createDataChannel("oai");
+        datachannel.addEventListener("open", sendInitialMessage);
+        datachannel.addEventListener("message", handleMessage);
+        await connection.setLocalDescription();
+
+        const newSession = {
+          type: "realtime",
+          model: model,
+          instructions: instructions,
+          audio: {
+            output: {
+              voice: voice
+            }
+          },
+          tools: functions
+        };
+
+        const fd = new FormData();
+        fd.set("sdp", connection.localDescription.sdp);
+        fd.set("session", JSON.stringify(newSession));
+
+        const baseUrl = "https://api.openai.com/v1/realtime/calls";
+        const apikey = el.apikey.value;
+        const response = await fetch(`${baseUrl}?model=${model}`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apikey}`
+            },
+            body: fd
+        });
+        if (!response.ok) {
+            console.error("Failed to fetch SDP answer:", await response.text());
+        }
+
+        // Extract call ID from the Location header - could be useful for debugging
+        const location = response.headers.get("Location");
+        const callId = location?.split("/").pop();
+        console.log("call created:", callId);
+
+        const answerSdp = await response.text();
+        console.log("SDP answer:", answerSdp);
+
+        await connection.setRemoteDescription({type: "answer", sdp: answerSdp});
+
+        // Wait for connection to be established before proceeding
+        await new Promise((resolve, reject) => {
+          let timeout;
+          const waitConnected = () => {
+            if (connection.connectionState === "connected") {
+              console.log("Peer connection established!");
+              clearTimeout(timeout);
+              connection.removeEventListener("connectionstatechange", waitConnected);
+              resolve();
+            }
+          };
+          const waitTimeout = () => {
+            connection.removeEventListener("connectionstatechange", waitConnected);
+            reject(`Connection timeout. Current state: ${connection.connectionState}`)
+          };
+          timeout = setTimeout( waitTimeout , 10_000);
+          connection.addEventListener("connectionstatechange", waitConnected);
+        });
+
+        el.info.style.display = 'none';
+        el.label.style.display = "none";
+        el.apikey.style.display = "none";
+        el.connection.disabled = false;
+        el.connection.value  = "Disconnect";
+
+      } catch (err) {
+        console.error("Error starting session:", err);
+        el.info.textContent = err.message?.slice() || "Unknown error.";
+        endSession(true);
+      }
+    }
+
+    /**
+    * End the current session by sending instructions for a closing message.
+    * 
+    * @param {boolean} silent If true, doesn't notify the user in any way.
+    */
+    async function endSession(silent=false) {
+
+      if ( !silent ) {
+        el.info.style.display = 'block';
+        el.info.textContent = "Disconnecting...";
+
+        // Give AI agent a chance to say goodbye
+        if ( !isClosing && datachannel?.readyState === "open" ) {
+          isClosing = true;
+          sendClosingMessage();
+          return;
+        }
+
+      }
+
+      // Datachannel
+      if (datachannel) {
+        try { datachannel.removeEventListener("open", sendInitialMessage); } catch (_) {}
+        try { datachannel.removeEventListener("message", handleMessage); } catch (_) {}
+        try { datachannel.close(); } catch (_) {}
+        datachannel = null;
+      }
+
+      // Connection
+      if (connection) {
+        try {
+          connection.getSenders()?.forEach(sender => {
+            try { connection.removeTrack(sender); } catch (_) {}
+          });
+        } catch (_) {}
+        try { connection.close(); } catch (_) {}
+        connection.ontrack = null;
+        connection.onicecandidate = null;
+        connection.onconnectionstatechange = null;
+        connection = null;
+      }
+
+      // Microphone
+      if ( micTrack ) {
+        try { micTrack.stop(); } catch (_) {}
+        micTrack = null;
+      }
+
+      // Chrome workaround
+      if ( audioMuted ) {
+        try { audioMuted.srcObject = null; } catch (_) {}
+        audioMuted = null;
+      }
+
+      if ( !silent ) {
+        el.info.style.display = "none";
+      }
+
+      el.label.style.display = "inline-block";
+      el.apikey.style.display = "inline-block";
+      el.connection.disabled = false;
+      el.connection.value  = "Connect";
+      isClosing = false;
+
+      console.log("Session ended.");
+    }
+
+
+    // WEB PAGE LOADED
+    document.addEventListener('DOMContentLoaded', async function(e) {
+
+      // Get all DOM elements with an `id`
+      document.querySelectorAll('[id]').forEach( x => el[x.id] = x );
+
+      // Init head and headaudio
+      initHead();
+      await initHeadAudio();
+
+      // API key
+      const fnApikey = () => el.connection.disabled = !el.apikey.value;
+      el.apikey.addEventListener("change", fnApikey);
+      el.apikey.addEventListener("input", fnApikey);
+
+      // Connect/disconnect
+      el.connection.addEventListener("click", async function(e) {
+        const connect = el.connection.value ===  "Connect";
+        if ( connect ) {
+          await resumeAudio();
+          startSession();
+        } else {
+          endSession();
+        }
+      });
+
+      // Pause animation when document is not visible
+      document.addEventListener("visibilitychange", async function () {
+        if (document.visibilityState === "visible") {
+          head.start();
+          headaudio.start();
+        } else {
+          headaudio.stop();
+          head.stop();
+        }
+      });
+
+      // Load the avatar
+      await loadAvatar();
+
+    });
+
+  </script>
+</head>
+
+<body>
+  <div id="head">
+    <div id="avatar"></div>
+    <div id="info"></div>
+  </div>
+  <div id="controls">
+    <label id="label" for="apikey" disabled>OpenAI:</label>
+    <input id="apikey" name="apikey" type="text" placeholder="API Key" disabled/>
+    <input id="connection" type="button" value="Connect" disabled/>
+  </div>
+  <div id="github">
+    <a href="https://github.com/met4citizen/HeadAudio">
+      <svg viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="currentColor"/>
+      </svg>
+    </a>
+  </div>
+</body>
+
+</html>

@@ -1,0 +1,11 @@
+openai.html linguist-detectable=false
+tester.html linguist-detectable=false
+.* export-ignore
+*.html export-ignore
+jest.config.mjs export-ignore
+webpack.config.js export-ignore
+avatars export-ignore
+dictionaries export-ignore
+voices export-ignore
+training export-ignore
+tests export-ignore

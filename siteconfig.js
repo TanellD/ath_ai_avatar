@@ -1,0 +1,257 @@
+// Site configuration
+export const site = {
+
+  // Preset avatars
+  avatars: {
+    'Brunette': {
+      url: './avatars/brunette.glb',
+      body: 'F',
+      avatarMood: 'neutral',
+      fi: 'Brunetti'
+},
+
+    'MPFB': {
+      url: './avatars/mpfb.glb',
+      body: 'F',
+      avatarMood: 'happy',
+      baseline: {},
+      modelDynamicBones: [
+        {
+          "bone":"LeftBreast",
+          "type":"point",
+          "stiffness":600,
+          "damping":20,
+          "deltaLocal":[0,0.01,0],
+          "deltaWorld":[0,-0.02,0],
+          "limits":[[-0.02,0.02],[-0.02,0.06],[-0.02,0.02],[-0.5,0.5]]
+        },
+        {
+          "bone":"RightBreast",
+          "type":"point",
+          "stiffness":600,
+          "damping":20,
+          "deltaLocal":[0,0.01,0],
+          "deltaWorld":[0,-0.02,0],
+          "limits":[[-0.02,0.02],[-0.02,0.06],[-0.02,0.02],[-0.5,0.5]]
+        },
+        {
+          "bone":"Ponytail1",
+          "type":"mix2",
+          "stiffness":100,
+          "damping":4,
+          "limits":[null,null,[null,0.02],null],
+          "pivot":true
+        },
+        {
+          "bone":"Ponytail2",
+          "type":"mix2",
+          "stiffness":150,
+          "damping":4,
+          "limits":[null,null,[null,0.01],null]
+        },
+        {
+          "bone":"Ponytail3",
+          "type":"mix2",
+          "stiffness":200,
+          "damping":4,
+          "limits":[null,null,[null,0.01],null]
+        }
+      ],
+      baseline: {
+        headRotateX: -0.01,
+        eyeBlinkLeft: 0.05,
+        eyeBlinkRight: 0.05
+      }
+    },
+
+    'Avaturn': {
+      url: './avatars/avaturn.glb',
+      body: 'F',
+      avatarMood: 'happy',
+      retarget: {
+        Hips: { y: 0.03 }, Spine: { y: 0.02 }, Spine1: { y: 0.02, z: 0.01 },
+        Spine2: { y: 0.02, z: 0.01 }, Neck: { z: 0.02, y: 0.01 }, Head: { z: 0.02 },
+        LeftShoulder: { rx: -0.5 }, RightShoulder: { rx: -0.5 },
+        scaleToHipsLevel: 1.0
+      },
+      baseline: {
+        headRotateX: -0.05,
+        eyeBlinkLeft: 0.15,
+        eyeBlinkRight: 0.15
+      }
+    },
+
+    'AvatarSDK': {
+      url: './avatars/avatarsdk.glb',
+      body: 'M',
+      avatarMood: 'neutral',
+      retarget: {
+        Neck: { z: -0.01, rx: -0.15 }, Neck1: { z: -0.01, rx: -0.15 }, Neck2: { z: -0.01, rx: -0.15 },
+        LeftShoulder: { rz: -0.3 }, RightShoulder: { rz: 0.3 },
+        scaleToEyesLevel: 1.0, origin: { y: -0.1 }
+      },
+      baseline: {
+        headRotateX: -0.04,
+        eyeBlinkLeft: 0.05,
+        eyeBlinkRight: 0.05
+      }
+    },
+
+    'VRoid': {
+      url: './avatars/vroid.glb',
+      body: 'F',
+      avatarMood: 'neutral',
+      baseline: {
+        headRotateX: -0.1,
+        eyeBlinkLeft: 0.05,
+        eyeBlinkRight: 0.05
+      },
+      modelDynamicBones: [
+        {
+          "bone":"J_Sec_L_Bust1",
+          "type":"point",
+          "stiffness":400,
+          "damping":10,
+          "deltaLocal":[0,0.01,0],
+          "deltaWorld":[0,-0.02,0],
+          "limits":[[-0.01,0.01],[-0.01,0.01],[-0.01,0.01],[-0.01,0.01]]
+        },
+        {
+          "bone":"J_Sec_R_Bust1",
+          "type":"point",
+          "stiffness":400,
+          "damping":10,
+          "deltaLocal":[0,0.01,0],
+          "deltaWorld":[0,-0.02,0],
+          "limits":[[-0.01,0.01],[-0.01,0.01],[-0.01,0.01],[-0.01,0.01]]
+        },
+        {"bone":"J_Sec_Hair2_01","type":"mix2","stiffness":100,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair3_01","type":"mix2","stiffness":150,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair2_02","type":"mix2","stiffness":100,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair3_02","type":"mix2","stiffness":150,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair2_03","type":"mix2","stiffness":100,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair3_03","type":"mix2","stiffness":150,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair2_04","type":"mix2","stiffness":100,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair3_04","type":"mix2","stiffness":150,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair2_05","type":"mix2","stiffness":100,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair3_05","type":"mix2","stiffness":150,"damping":4,"limits":[null,null,[null,0.01],null]},
+        {"bone":"J_Sec_Hair2_06","type":"mix2","stiffness":100,"damping":4},
+        {"bone":"J_Sec_Hair3_06","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair3_06_end","type":"mix2","stiffness":200,"damping":4},
+        {"bone":"J_Sec_Hair2_07","type":"mix2","stiffness":100,"damping":4},
+        {"bone":"J_Sec_Hair3_07","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair3_07_end","type":"mix2","stiffness":200,"damping":4},
+        {"bone":"J_Sec_Hair2_08","type":"mix2","stiffness":100,"damping":4},
+        {"bone":"J_Sec_Hair3_08","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair4_08","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair4_08_end","type":"mix2","stiffness":200,"damping":4},
+        {"bone":"J_Sec_Hair2_09","type":"mix2","stiffness":100,"damping":4},
+        {"bone":"J_Sec_Hair3_09","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair4_09","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair4_09_end","type":"mix2","stiffness":200,"damping":4},
+        {"bone":"J_Sec_Hair2_10","type":"mix2","stiffness":100,"damping":4},
+        {"bone":"J_Sec_Hair3_10","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair3_10_end","type":"mix2","stiffness":200,"damping":4},
+        {"bone":"J_Sec_Hair2_11","type":"mix2","stiffness":100,"damping":4},
+        {"bone":"J_Sec_Hair3_11","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair3_11_end","type":"mix2","stiffness":200,"damping":4},
+        {"bone":"J_Sec_Hair2_12","type":"mix2","stiffness":100,"damping":4,"pivot":true},
+        {"bone":"J_Sec_Hair3_12","type":"mix2","stiffness":150,"damping":4},
+        {"bone":"J_Sec_Hair2_13","type":"mix2","stiffness":100,"damping":4,"pivot":true},
+        {"bone":"J_Sec_Hair3_13","type":"mix2","stiffness":150,"damping":4,},
+      ]
+    }
+
+  },
+
+  // Google voices
+  googleVoices: {
+    "fi-F": { id: "fi-FI-Standard-A" },
+    "lv-M": { id: "lv-LV-Standard-A" },
+    "lt-M": { id: "lt-LT-Standard-A" },
+    "en-F": { id: "en-GB-Standard-A" },
+    "en-M": { id: "en-GB-Standard-D" },
+    "fr-F": { id: "fr-FR-Standard-A" },
+    "fr-M": { id: "fr-FR-Standard-B" },
+    "de-F": { id: "de-DE-Standard-G" },
+    "de-M": { id: "de-DE-Standard-H" },
+  },
+
+  // ElevenLab voices
+  elevenVoices: {
+    "Bella": { id: "EXAVITQu4vr4xnSDxMaL" },
+    "Elli": { id: "MF3mGyEYCl7XYWbV9V6O" },
+    "Rachel": { id: "21m00Tcm4TlvDq8ikWAM" },
+    "Adam": { id: "pNInz6obpgDQGcFmaJgB" },
+    "Antoni": { id: "ErXwobaYiN019PkySvjV" },
+    "Arnold": { id: "VR6AewLTigWG4xSOukaG" },
+    "Domi": { id: "AZnzlk1XvdvUeBnXmlld" },
+    "Josh": { id: "TxGEqnHWrfWFTfGW9XjX" },
+    "Sam": { id: "yoZ06aMxZJJ28mfd3POQ" }
+  },
+
+  // Microsoft voices
+  microsoftVoices: {
+    "fi-Selma": { lang: "fi-FI", id: "fi-FI-SelmaNeural" },
+    "fi-Noora": { lang: "fi-FI", id: "fi-FI-NooraNeural" },
+    "fi-Harri": { lang: "fi-FI", id: "fi-FI-HarriNeural" },
+    "en-Jenny": { lang: "en-US", id: "en-US-JennyNeural" },
+    "en-Tony": { lang: "en-US", id: "en-US-TonyNeural" },
+    "fr-Vivienne": { lang: "fr-FR", id: "fr-FR-VivienneMultilingualNeural" },
+    "fr-Lucien": { lang: "fr-FR", id: "fr-FR-LucienMultilingualNeural" },
+    "de-Seraphina": { lang: "de-DE", id: "de-DE-SeraphinaMultilingualNeural" },
+    "de-Florian": { lang: "de-DE", id: "de-DE-FlorianMultilingualNeural" },
+  },
+
+  // Preset views
+  views: {
+    'DrStrange': { url: './views/strange.jpg', type: 'image/jpg', fi: 'TohtoriOuto' },
+    'Matrix': { url: './views/matrix.mp4', type: 'video/mp4' }
+  },
+
+  // Preset poses (includes internal poses)
+  poses: {
+    'Straight': { url: "straight", fi: 'Suora' },
+    'Side': { url: "side", fi: 'Keno' },
+    'Hip': { url: "hip", fi: 'Lantio' },
+    'Turn': { url: "turn", fi: 'Sivu' },
+    'Back': { url: "back", fi: 'Taka' },
+    'Wide': { url: "wide", fi: 'Haara' },
+    'OneKnee': { url: "oneknee", fi: 'Polvi' },
+    'TwoKnees': { url: "kneel", fi: 'Polvet' },
+    'Bend': { url: "bend", fi: 'Perä' },
+    'Sitting': { url:"sitting", fi: 'Istuva' },
+    'Dance': { url: './poses/dance.fbx', fi: 'Tanssi' }
+  },
+
+  // Preset gestures
+  gestures: {
+    'HandUp': { name: "handup", fi: 'KäsiYlös' },
+    'OK': { name: "ok" },
+    'Index': { name: "index", fi: 'Etusormi' },
+    'ThumbUp': { name: "thumbup", fi: 'PeukaloYlös' },
+    'ThumbDown': { name: "thumbdown", fi: 'PeukaloAlas' },
+    'Side': { name: "side", fi: 'Sivu' },
+    'Shrug': { name: "shrug", fi: 'Olankohautus' },
+    'Namaste': { name: "namaste" }
+  },
+
+  // Preset animations
+  animations: {
+    'Walking': { url: './animations/walking.fbx', fi: 'Kävely' }
+  },
+
+  // Impulse responses
+  impulses: {
+    'Room': { url: './audio/ir-room.m4a', fi: 'Huone' },
+    'Basement': { url: './audio/ir-basement.m4a', fi: 'Kellari' },
+    'Forest': { url: './audio/ir-forest.m4a', fi: 'Metsä' },
+    'Church': { url: './audio/ir-church.m4a', fi: 'Kirkko' }
+  },
+
+  // Background ambient sounds/music
+  music: {
+    'Murmur': { url: './audio/murmur.mp3', fi: 'Puheensorina'}
+  }
+
+};

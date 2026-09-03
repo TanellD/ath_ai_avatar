@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link rel="icon" href="data:,">
+
+  <title>HeadAudio</title>
+
+  <style>
+
+    body, html {
+      width:100%; height:100%; margin: 0; padding: 0; position: relative;
+      background-color: #202020; color: white; overflow: hidden;
+    }
+
+    #head {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      transform: translateX(-33%);
+    }
+    #mixer {
+      position: absolute; top: 20px; bottom: 20px; left: 36%; right: 20px;
+      background: transparent; display: flex; flex-direction: column; gap: 5px;
+    }
+
+    .mixer-track-1, .mixer-track-2, .mixer-track-3 {
+      width: Calc(100% - 20px); height: Calc(100%-20px); margin: 0; padding: 10px; border-radius: 10px;
+      overflow: hidden; background: #808080; display: flex; position: relative;
+    }
+    .mixer-track-1, .mixer-track-2 { flex: 0 1 auto; max-height: 200px; }
+    .mixer-track-3 { flex: 1; }
+
+    .row, .column { display: flex; position: relative; margin: 0; padding: 0; }
+    .row { height: 100%; }
+    .column { flex-direction: column; }
+    .fill { flex: 1 1; min-height: 0; min-width: 0; }
+
+    #avatar {
+      display: block; width: 100%; height: 100%; position: absolute;
+      top: 0; left: 0; right: 0; margin: 0; padding: 0;
+    }
+    #text {
+      width: Calc( 100% - 20px); max-width: 500px; height: 100px;
+      margin: 0 10px; padding: 8px 12px; resize: none;
+      overflow: hidden; box-sizing: border-box;
+      font-family: Arial; font-size: 16px; line-height: 1.2;
+      white-space: pre-wrap; word-wrap: break-word;
+      background-color: #d0d0d0; border: 0;
+      border-radius: 10px; z-index: 2;
+    }
+    #bubble { position: relative; }
+    #bubble::before {
+      content: "";
+      position: absolute; left: 1px; top: 8px;
+      width: 0; height: 0;
+      border-top: 10px solid transparent;
+      border-bottom: 10px solid transparent;
+      border-right: 10px solid #d0d0d0;
+      z-index: 1;
+    }
+    #info {
+      display: block; position: absolute; bottom: 10px; left: 10px;
+      right: 10px; font-family: Arial; font-size: 20px;
+    }
+    #subtitles {
+      position: absolute; bottom: 6vh; left: 50%; transform: translateX(-50%);
+      font-family: Arial; font-size: max( min(5vh,5vw), 24px );
+      line-height: max( min(6vh,6vh), 20px ); z-index: 30;
+      width: 30%; text-align: center;
+      white-space: pre-wrap; word-wrap: break-word;
+    }
+    
+    #github {
+      position: absolute; top: 0; left: 0; margin: 10px; z-index: 10;
+      width: 40px; height: 40px;
+    }
+
+    *[disabled] { opacity: 0.5; cursor: default; pointer-events: none; }
+
+  </style>
+
+  <script type="importmap">
+  { "imports":
+    {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/npm/@met4citizen/talkinghead@1.7/modules/talkinghead.mjs",
+      "headtts": "https://cdn.jsdelivr.net/npm/@met4citizen/headtts@1.2/+esm"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+    import { HeadTTS } from "headtts";
+    import { HeadAudio } from "./modules/headaudio.mjs";
+    import * as PARAMS from "./modules/parameters.mjs";
+
+    // Import web components
+    import "./modules/ui-headaudio.mjs";
+    import "./modules/ui-mixer.mjs";
+
+    // Globals
+    let head; // TalkingHead instance
+    let headtts; // HeadTTS instance
+    let headaudio; // HeadAudio instance
+
+    let micStream;
+    let micNode;
+
+    const el = {}; // DOM elements based in `id` property
+
+    const visemes = [
+      "aa", "E", "I", "O", "U", "PP", "SS", "TH",
+      "DD", "FF", "kk", "nn", "RR", "CH", "sil"
+    ];
+
+    // Avatars
+    const persons = {
+
+      "julia": {
+        avatar: { url: "./avatars/julia.glb", body: "F", avatarMood: "neutral" },
+        view: { cameraY: 0.04 },
+        setup: { voice: "af_bella", language: "en-us", speed: 1, audioEncoding: "wav" }
+      },
+
+      "david": {
+        avatar: { url: "./avatars/david.glb", body: "M", avatarMood: "neutral" },
+        view: { cameraY: 0 },
+        setup: { voice: "am_fenrir", language: "en-us", speed: 1, audioEncoding: "wav" }
+      }
+
+    };
+
+    /**
+    * Load the currently selected avatar and voice.
+    */
+    async function loadPerson(name) {
+
+      // Find person
+      if ( !persons.hasOwnProperty(name) ) return;
+      const person = persons[name];
+
+      // Progress info
+      const info = { head: "-", headtts:"-" };
+      const updateInfo = (n,ev) => {
+        if ( ev ) {
+          if ( ev.lengthComputable ) {
+            info[n] = Math.min(100,Math.round(ev.loaded/ev.total * 100 )) + "%";
+          } else {
+            info[n] = Math.round(ev.loaded / 1000) + "KB";
+          }
+        }
+        let s = "Loading: " + info.head + " / " + info.headtts;
+        if ( info.hasOwnProperty("error") ) {
+          s += " ERROR:<br>&gt; " + info.error.replaceAll("\n","<br>&gt; ");
+        }
+        el.info.innerHTML = s;
+      }
+
+      // Load and show the avatar
+      try {
+        el.file.disabled = true;
+        el.mic.disabled = true;
+        el.tts.disabled = true;
+        el.info.style.display = 'block';
+        el.info.textContent = "Loading...";
+
+        await Promise.all([
+          head.showAvatar( person.avatar, updateInfo.bind(null,"head") ),
+          headtts.connect( null, updateInfo.bind(null,"headtts"))
+        ]);
+
+        // Setup view
+        head.setView(head.viewName, person.view );
+        head.cameraClock = 999; // Hack to prevent smooth transition
+
+        // Setup voice
+        headtts.setup( person.setup );
+
+        el.info.style.display = 'none';
+        el.tts.disabled = false;
+        el.mic.disabled = false;
+        el.file.disabled = false;
+      } catch (error) {
+        console.log(error);
+        info.error = error.message?.slice() || "Unknown error.";
+        updateInfo();
+      }
+
+    }
+
+    // SUBTITLES
+    let timerSubtitles; // Subtitles clear timer
+
+    function addSubtitle(msg, word, ms=2000) {
+
+      // Add the word and scroll to bottom
+      if ( word ) {
+        el.subtitles.textContent += word;
+        el.subtitles.scrollTop = el.subtitles.scrollHeight;
+      }
+
+      // Timeout to clear subtitles
+      if ( timerSubtitles ) {
+        clearTimeout(timerSubtitles);
+        timerSubtitles = null;
+      }
+      timerSubtitles = setTimeout( clearSubtitles, ms );
+    }
+
+    function clearSubtitles(ms=0) {
+
+      if ( timerSubtitles ) {
+        clearTimeout(timerSubtitles);
+        timerSubtitles = null;
+      }
+      if ( ms > 0 ) {
+        timerSubtitles = setTimeout( clearSubtitles, ms );
+      } else {
+        el.subtitles.textContent = "";
+      }
+
+    }
+
+    // WEB PAGE LOADED
+    document.addEventListener('DOMContentLoaded', async function(e) {
+
+      // Get all DOM elements with an `id`
+      document.querySelectorAll('[id]').forEach( x => el[x.id] = x );
+
+      // Add persons to UI
+      Object.keys(persons).reverse().forEach( (x,i,arr) => {
+        const elOnOff = document.createElement("ui-mixer-onoff");
+        elOnOff.id = x;
+        if ( i === arr.length - 1 ) {
+          elOnOff.setAttribute("checked", "");
+        }
+        elOnOff.textContent = x.toUpperCase();
+        el[x] = elOnOff;
+        el.persons.prepend(elOnOff);
+      });
+
+      /**
+      * TALKING HEAD
+      */
+
+      // Instantiate the TalkingHead class
+      head = new TalkingHead( el.avatar, {
+        ttsEndpoint: "N/A",
+        lipsyncModules: [],
+        cameraView: "head",
+        mixerGainSpeech: 3,
+        modelFPS: 60,
+        cameraRotateEnable: false,
+        lightAmbientIntensity: 0,
+        lightDirectIntensity: 0,
+        lightSpotIntensity: 0
+      });
+      window.head = head; // For debugging
+
+      /**
+      * HEAD AUDIO
+      */
+
+      // Register processor
+      await head.audioCtx.audioWorklet.addModule("./modules/headworklet.mjs");
+
+      // Create new HeadAudioNode
+      headaudio = new HeadAudio(head.audioCtx, {
+        processorOptions: {
+          vadEventsEnabled: true,
+          visemeEventsEnabled: true
+        },
+        parameterData: {
+          vadMode: 1
+        }
+      });
+      window.headaudio = headaudio; // For debugging
+
+      // Load model
+      try {
+        await headaudio.loadModel("./dist/model-en-mixed.bin");
+      } catch(error) {
+        console.log(error);
+      }
+
+      // Connect speech gain node to lip-sync node + add delay
+      head.audioSpeechGainNode.connect(headaudio);
+      const delayNode = new DelayNode( head.audioCtx, { delayTime: 0.15 });
+      head.audioSpeechGainNode.disconnect(head.audioReverbNode);
+      head.audioSpeechGainNode.connect(delayNode);
+      delayNode.connect(head.audioReverbNode);
+
+      // Register callback function to set blend shape value
+      headaudio.onvalue = (key,value) => {
+        Object.assign( head.mtAvatar[ key ],{ newvalue: value, needsUpdate: true });
+      };
+
+      // Link update method to TalkingHead's animation loop
+      head.opt.update = headaudio.update.bind(headaudio);
+
+      // HeadAudio events
+      headaudio.onvad = (vad) => {
+        el.vad.update(vad);
+      };
+
+      let logVisemes = [];
+      headaudio.onviseme = (o) => {
+        logVisemes.push(o);
+        if ( o.viseme !== PARAMS.MODEL_VISEME_SIL ) {
+          if ( el.logFull.checked ) {
+            let s = visemes[o.viseme] +
+              ": [" + Math.floor(1000 * o.t) +
+              "," + Math.floor(1000 * o.d) + " ]";
+            if ( o.distances ) {
+              s += ", distances: [" +
+                o.distances.map( x => Math.floor(x) ).join(" ") + "]";
+            }
+            el.events.addEvent("FULL",s);
+          }
+          if ( o.vector ) { 
+            el.visemes.add(o.vector, 3);
+            el.visemes.write(visemes[o.viseme]);
+            el.visemes.addBreak(1);
+          }
+        }
+      };
+
+      let lastEnded = 0;
+      headaudio.onended = () => {
+        lastEnded = Date.now();
+        
+        // Combine viseme data for log
+        const N = logVisemes.length;
+        const joined = [];
+        for( let i=0; i<N; i++ ) {
+          const v = logVisemes[i];
+          if ( i===0 ) {
+            joined.push(v);
+          } else {
+            const w = joined[joined.length-1];
+            if ( v.viseme === w.viseme ) {
+              w.d += PARAMS.MFCC_SAMPLES_HOP / PARAMS.AUDIO_SAMPLE_RATE;
+            } else {
+              joined.push(v);
+            }
+          }
+        }
+        const s = joined.map( x => {
+          return visemes[x.viseme] +
+              ": [" + Math.floor(1000 * x.t) +
+              "," + Math.floor(1000 * x.d) + " ]";
+        });
+        el.events.addEvent("VISEMES", s.join(" "));
+
+        el.visemes.addBreak();
+        el.events.addEvent("ENDED");
+      };
+
+      headaudio.onstarted = () => {
+        const duration = Date.now() - lastEnded;
+        if ( duration > 150 && (el.mic.checked || el.file.checked) ) {
+          head.lookAtCamera(500);
+          head.speakWithHands();
+          el.events.addEvent("STARTED", "New sentence detected.");
+        } else {
+          el.events.addEvent("STARTED");
+        }
+        logVisemes = [];
+      };
+
+      headaudio.oncalibrated = () => {
+        el.calibrate.checked = false;
+      };
+
+      /**
+      * HEAD TTS
+      */
+
+      // Instantiate HeadTTS text-to-speech class
+      headtts = new HeadTTS({
+        endpoints: ["webgpu", "ws://127.0.0.1:8882/", "wasm" ], // Endpoints
+        languages: ["en-us"], // Language to be pre-loaded
+        voices: ["af_bella","am_fenrir"], // Voices to be pre-loaded
+        audioCtx: head.audioCtx, // Share audio context with TalkingHead
+        workerModule: "https://cdn.jsdelivr.net/npm/@met4citizen/headtts@1.1/modules/worker-tts.mjs",
+        dictionaryURL: "https://cdn.jsdelivr.net/npm/@met4citizen/headtts@1.1/dictionaries/",
+        trace: 0,
+      });
+
+      // Message handlers
+      headtts.onstart = () => {
+        el.tts.checked = true;
+      }
+
+      headtts.onmessage = (message) => {
+        if ( message.type === "audio" ) {
+          try {
+            head.speakMarker( clearSubtitles );
+
+            // Add TTS event
+            let s = ""; 
+            const d = message.data;
+            const len = d.visemes.length;
+            for( let i=0; i<len; i++ ) {
+              s += d.visemes[i] + "=[" + d.vtimes[i] + "," + d.vdurations[i] + "] ";
+            }
+            el.events.addEvent("TTS",s);
+
+            // NOTE: Clear visemes, so we use HeadAudio only!
+            message.data.visemes = [];
+
+            head.speakMarker( headaudio.resetTimer.bind(headaudio) );
+            head.speakAudio( message.data, { isRaw: true }, addSubtitle.bind(null,message) );
+
+          } catch(error) {
+            console.log(error);
+          }
+        } else if ( message.type === "custom" ) {
+          console.error("Received custom message, data=", message.data );
+        } else if ( message.type === "error" ) {
+          console.error("Received error message, error=", (message.data?.error || "Unknown error."));
+        }
+      }
+
+      headtts.onend = () => {
+        head.speakMarker( () => {
+          el.tts.checked = false;
+        });
+      }
+
+      /**
+      * UI EVENTS
+      */
+
+      // Avatars
+      Object.keys(persons).forEach( x => {
+        el[x].addEventListener('ui-mixer-click', (e) => {
+          if ( el[x].checked ) loadPerson(x);
+          Object.keys(persons).forEach( y => el[y].checked = (y === x) );
+        });
+      });
+
+      // Resets
+      const defaultVadMode = el.vadMode.checked ? 1 : 0;
+      const defaultVadGateActiveDb = el.vadGateActiveDb.value;
+      const defaultVadGateActiveMs = el.vadGateActiveMs.value;
+      const defaultVadGateInactiveDb = el.vadGateInactiveDb.value;
+      const defaultVadGateInactiveMs = el.vadGateInactiveMs.value;
+      const defaultSilMode = el.silMode.checked ? 1 : 0;
+      const defaultSilCalibrationWindowSec = el.silCalibrationWindowSec.value;
+      const defaultSilSensitivity = el.silSensitivity.value;
+      const defaultSpeakerMeanHz = el.speakerMeanHz.value;
+
+      // Adjust Head Audio parameters
+      headaudio.parameters.get("vadMode").value = defaultVadMode;
+      const updateVadMode = (e) => {
+        headaudio.parameters.get("vadMode").value = el.vadMode.checked ? 1 : 0;
+      };
+      el.vadMode.addEventListener('ui-mixer-click', updateVadMode);
+
+      headaudio.parameters.get("vadGateActiveDb").value = defaultVadGateActiveDb;
+      el.vad.setActive(defaultVadGateActiveDb);
+      const updateVadGateActiveDb = () => {
+        const val = el.vadGateActiveDb.value;
+        headaudio.parameters.get("vadGateActiveDb").value = val;
+        el.vad.setActive(val);
+      };
+      el.vadGateActiveDb.addEventListener('ui-mixer-input', updateVadGateActiveDb );
+      el.vadGateActiveDb.addEventListener('ui-mixer-change', updateVadGateActiveDb );
+
+      headaudio.parameters.get("vadGateActiveMs").value = defaultVadGateActiveMs;
+      const updateVadGateActiveMs = () => {
+        const val = el.vadGateActiveMs.value;
+        headaudio.parameters.get("vadGateActiveMs").value = val;
+      };
+      el.vadGateActiveMs.addEventListener('ui-mixer-input', updateVadGateActiveMs);
+      el.vadGateActiveMs.addEventListener('ui-mixer-change', updateVadGateActiveMs);
+
+      headaudio.parameters.get("vadGateInactiveDb").value = defaultVadGateInactiveDb;
+      el.vad.setInactive(defaultVadGateInactiveDb);
+      const updateVadGateInactiveDb = () => {
+        const val = el.vadGateInactiveDb.value;
+        headaudio.parameters.get("vadGateInactiveDb").value = val;
+        el.vad.setInactive(val);
+      };
+      el.vadGateInactiveDb.addEventListener('ui-mixer-input', updateVadGateInactiveDb);
+      el.vadGateInactiveDb.addEventListener('ui-mixer-change', updateVadGateInactiveDb);
+
+      headaudio.parameters.get("vadGateInactiveMs").value = defaultVadGateInactiveMs;
+      const updateVadGateInactiveMs = () => {
+        const val = el.vadGateInactiveMs.value;
+        headaudio.parameters.get("vadGateInactiveMs").value = val;
+      };
+      el.vadGateInactiveMs.addEventListener('ui-mixer-input', updateVadGateInactiveMs);
+      el.vadGateInactiveMs.addEventListener('ui-mixer-change', updateVadGateInactiveMs);
+
+      headaudio.parameters.get("silMode").value = defaultSilMode;
+      const updateSilMode = () => {
+        headaudio.parameters.get("silMode").value = el.silMode.checked ? 1 : 0;
+      };
+      el.silMode.addEventListener('ui-mixer-click', updateSilMode );
+
+      headaudio.parameters.get("silCalibrationWindowSec").value = defaultSilCalibrationWindowSec;
+      const updateSilCalibrationWindowSec = () => {
+        const val = el.silCalibrationWindowSec.value;
+        headaudio.parameters.get("silCalibrationWindowSec").value = val;
+      };
+      el.silCalibrationWindowSec.addEventListener('ui-mixer-input', updateSilCalibrationWindowSec);
+      el.silCalibrationWindowSec.addEventListener('ui-mixer-change', updateSilCalibrationWindowSec);
+
+      headaudio.parameters.get("silSensitivity").value = defaultSilSensitivity;
+      const updateSilSensitivity = () => {
+        const val = el.silSensitivity.value;
+        headaudio.parameters.get("silSensitivity").value = val;
+      };
+      el.silSensitivity.addEventListener('ui-mixer-input', updateSilSensitivity);
+      el.silSensitivity.addEventListener('ui-mixer-change', updateSilSensitivity);
+
+      headaudio.parameters.get("speakerMeanHz").value = defaultSpeakerMeanHz;
+      const updateSpeakerMeanHz = () => {
+        const val = el.speakerMeanHz.value;
+        headaudio.parameters.get("speakerMeanHz").value = val;
+      };
+      el.speakerMeanHz.addEventListener('ui-mixer-input', updateSpeakerMeanHz);
+      el.speakerMeanHz.addEventListener('ui-mixer-change', updateSpeakerMeanHz);
+
+      // Calibration
+      el.calibrate.addEventListener('ui-mixer-click', () => {
+        if ( el.calibrate.checked ) {
+          headaudio.calibrate();
+        }
+      });
+
+      // Resets
+      el.reset.addEventListener('ui-mixer-click', () => {
+        el.vadMode.checked = !!defaultVadMode;
+        updateVadMode();
+        el.vadGateActiveDb.value = defaultVadGateActiveDb;
+        updateVadGateActiveDb();
+        el.vadGateActiveMs.value = defaultVadGateActiveMs;
+        updateVadGateActiveMs();
+        el.vadGateInactiveDb.value = defaultVadGateInactiveDb;
+        updateVadGateInactiveDb();
+        el.vadGateInactiveMs.value = defaultVadGateInactiveMs;
+        updateVadGateInactiveMs();
+        el.silMode.checked = !!defaultSilMode;
+        updateSilMode();
+        el.silCalibrationWindowSec.value = defaultSilCalibrationWindowSec;
+        updateSilCalibrationWindowSec();
+        el.silSensitivity.value = defaultSilSensitivity;
+        updateSilSensitivity();
+        el.speakerMeanHz.value = defaultSpeakerMeanHz;
+        updateSpeakerMeanHz();
+      });
+
+      // Speak when clicked
+      el.tts.addEventListener('ui-mixer-click', async function () {
+        if ( el.tts.checked ) {
+          let text = document.getElementById('text').value;
+          if ( text ) {
+            headtts.synthesize({ input: text });
+          }
+        } else {
+          headtts.clear();
+          head.stopSpeaking();
+        }
+      });
+
+      // Clear visemes
+      el.clearVisemes.addEventListener('ui-mixer-click', function () {
+        el.visemes.clear();
+      });
+
+      // Clear events
+      el.clearEvents.addEventListener('ui-mixer-click', function () {
+        el.events.clear();
+      });
+
+      // Use microphone
+      el.mic.addEventListener('ui-mixer-click', async function () {
+        if ( el.mic.checked ) {
+          el.file.disabled = true;
+          el.tts.disabled = true;
+
+          // Resume, if this happens to be the user's first click
+          try {
+            head.audioCtx.resume();
+          } catch(error) {}
+
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          micNode = head.audioCtx.createMediaStreamSource(micStream);
+          head.audioSpeechGainNode.disconnect(headaudio);
+          micNode.connect(headaudio);
+          headaudio.resetAll();
+
+        } else {
+          el.file.disabled = false;
+          el.tts.disabled = false;
+
+          // Attach lip sync processing to speech node
+          micNode.disconnect(headaudio);
+          head.audioSpeechGainNode.connect(headaudio);
+          micNode = null;
+          headaudio.resetAll();
+
+          if ( micStream ) {
+            micStream.getTracks().forEach(track => track.stop());
+            micStream = null;
+          }
+
+        }
+      });
+
+      // Play audio file
+      let source = null;
+      el.file.addEventListener('ui-mixer-click', function () {
+        if ( el.file.checked ) {
+          el.mic.disabled = true;
+          el.tts.disabled = true;
+          el.uploadfile.click();
+        } else {
+          if ( source ) {
+            source.stop();
+            source = null;
+          }
+          el.mic.disabled = false;
+          el.tts.disabled = false;
+        }
+      });
+
+      el.uploadfile.addEventListener('change', function (ev) {
+        let file = ev.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const arrayBuffer = e.target.result;
+
+            // Decode the audio data
+            head.audioCtx.decodeAudioData(arrayBuffer)
+              .then(audioBuffer => {
+
+                if ( el.file.checked ) {
+
+                  // Create a buffer source
+                  source = head.audioCtx.createBufferSource();
+                  source.buffer = audioBuffer;
+
+                  // Connect to output and play
+                  source.connect(head.audioSpeechGainNode);
+                  source.start(0);
+
+                  // Disconnect when done
+                  source.onended = (e2) => {
+                    e2.target.disconnect();
+                    el.file.checked = false;
+                    el.file.disabled = false;
+                    el.mic.disabled = false;
+                    el.tts.disabled = false;
+                    source = null;
+                  };
+
+                }
+
+              })
+              .catch(err => console.error('Error decoding audio:', err));
+          };
+
+          // Read file as ArrayBuffer
+          reader.readAsArrayBuffer(file);
+        }
+        ev.target.value = '';
+      });
+
+      // Pause animation when document is not visible
+      document.addEventListener("visibilitychange", async function () {
+        if (document.visibilityState === "visible") {
+          head.start();
+          headaudio.start();
+        } else {
+          headaudio.stop();
+          head.stop();
+        }
+      });
+
+      // Load the currently chosen person
+      loadPerson("julia");
+
+    });
+
+  </script>
+</head>
+
+<body>
+  <div id="container" class="row fill">
+
+    <div id="head" class="column fill">
+      <div id="avatar"></div>
+      <div id="info"></div>
+      <div id="subtitles"></div>
+    </div>
+
+    <div id="mixer" class="column fill">
+
+      <div class="mixer-track-1">
+        <ui-mixer-header>OUTPUT</ui-mixer-header>
+        <div id="persons" class="column">
+          <div class="fill"></div>
+          <ui-mixer-button id="clearVisemes">CLEAR</ui-mixer-button>
+        </div>
+        <ui-mixer-separator></ui-mixer-separator>
+        <ui-headaudio-visemes id="visemes"></ui-headaudio-visemes>
+        <ui-mixer-separator></ui-mixer-separator>
+        <ui-headaudio-vad id="vad"></ui-headaudio-vad>
+      </div>
+
+      <div class="mixer-track-2">
+        <ui-mixer-header>INPUT</ui-mixer-header>
+        <div class="column">
+          <input type="file" id="uploadfile" accept=".m4a,.mp3,.webm,.mp4,.mpga,.wav,.mpeg" hidden>
+          <ui-mixer-onoff id="tts" disabled>TTS</ui-mixer-onoff>
+          <ui-mixer-onoff id="file" disabled>FILE</ui-mixer-onoff>
+          <ui-mixer-onoff id="mic" disabled>MIC</ui-mixer-onoff>
+        </div>
+        <div id="bubble" class="column fill">
+          <textarea id="text">Life is like a box of chocolates. You never know what you're gonna get.</textarea>
+        </div>
+        <ui-mixer-separator></ui-mixer-separator>
+        <div class="column">
+          <ui-mixer-onoff id="vadMode" checked>VAD</ui-mixer-onoff>
+          <ui-mixer-onoff id="silMode" checked>SIL</ui-mixer-onoff>
+          <ui-mixer-onoff id="calibrate">CALIB</ui-mixer-onoff>
+          <div class="fill"></div>
+          <ui-mixer-button id="reset">RESET</ui-mixer-button>
+        </div>
+        <ui-mixer-header>VAD Active / Inactive</ui-mixer-header>
+        <ui-mixer-range id="vadGateActiveDb" min="-100" max="0" step="1" value="-40">dB</ui-mixer-range>
+        <ui-mixer-range id="vadGateActiveMs" min="0" max="50" step="5" value="10">ms</ui-mixer-range>
+        <ui-mixer-range id="vadGateInactiveDb" min="-100" max="0" step="1" value="-50">dB</ui-mixer-range>
+        <ui-mixer-range id="vadGateInactiveMs" min="0" max="50" step="5" value="10">ms</ui-mixer-range>
+        <ui-mixer-header>SIL Window / Sensitivity</ui-mixer-header>
+        <ui-mixer-range id="silCalibrationWindowSec" min="0.1" max="10" step="0.1" value="3.0">sec</ui-mixer-range>
+        <ui-mixer-range id="silSensitivity" min="0" max="4" step="0.1" value="1.2"></ui-mixer-range>
+        <ui-mixer-header>Speaker Mean</ui-mixer-header>
+        <ui-mixer-range id="speakerMeanHz" min="50" max="500" step="10" value="150">Hz</ui-mixer-range>
+      </div>
+
+      <div class="mixer-track-3">
+        <ui-mixer-header>LOG</ui-mixer-header>
+        <div class="column">
+          <ui-mixer-onoff id="logFull">FULL</ui-mixer-onoff>
+          <div class="fill"></div>
+          <ui-mixer-button id="clearEvents">CLEAR</ui-mixer-button>
+        </div>
+        <ui-mixer-separator></ui-mixer-separator>
+        <ui-headaudio-events id="events"></ui-headaudio-events>
+      </div>
+
+    </div>
+
+  </div>
+  <div id="github">
+    <a href="https://github.com/met4citizen/HeadAudio">
+      <svg viewBox="0 0 98 96" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" clip-rule="evenodd" d="M48.854 0C21.839 0 0 22 0 49.217c0 21.756 13.993 40.172 33.405 46.69 2.427.49 3.316-1.059 3.316-2.362 0-1.141-.08-5.052-.08-9.127-13.59 2.934-16.42-5.867-16.42-5.867-2.184-5.704-5.42-7.17-5.42-7.17-4.448-3.015.324-3.015.324-3.015 4.934.326 7.523 5.052 7.523 5.052 4.367 7.496 11.404 5.378 14.235 4.074.404-3.178 1.699-5.378 3.074-6.6-10.839-1.141-22.243-5.378-22.243-24.283 0-5.378 1.94-9.778 5.014-13.2-.485-1.222-2.184-6.275.486-13.038 0 0 4.125-1.304 13.426 5.052a46.97 46.97 0 0 1 12.214-1.63c4.125 0 8.33.571 12.213 1.63 9.302-6.356 13.427-5.052 13.427-5.052 2.67 6.763.97 11.816.485 13.038 3.155 3.422 5.015 7.822 5.015 13.2 0 18.905-11.404 23.06-22.324 24.283 1.78 1.548 3.316 4.481 3.316 9.126 0 6.6-.08 11.897-.08 13.526 0 1.304.89 2.853 3.316 2.364 19.412-6.52 33.405-24.935 33.405-46.691C97.707 22 75.788 0 48.854 0z" fill="#84898f"/>
+      </svg>
+    </a>
+  </div>
+</body>
+
+</html>
