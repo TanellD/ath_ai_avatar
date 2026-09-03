@@ -1,0 +1,312 @@
+/* Минимальная база. Дизайн-системы в скоупе нет — важно, чтобы читалось. */
+
+:root {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --border: #e3e0da;
+  --text: #232323;
+  --muted: #6b6660;
+  --accent: #2f6f4f;
+  --danger: #a33a2a;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.app__nav {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.app__nav a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.page,
+.session {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.page--error {
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------- сессия */
+
+.session__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.indicator__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.indicator--speaking .indicator__dot { background: var(--accent); }
+.indicator--thinking .indicator__dot { background: #b8860b; }
+.indicator--idle .indicator__dot { background: #4a8fd1; }
+.indicator--disconnected .indicator__dot { background: var(--danger); }
+
+.consent {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.session__error {
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: var(--danger);
+}
+
+.session__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+}
+
+.avatar__hint {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.subtitles {
+  margin: 0;
+  min-height: 1.6em;
+  max-width: 560px;
+  text-align: center;
+  font-size: 17px;
+}
+
+.subtitles--frozen {
+  opacity: 0.55;
+}
+
+.session__transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.line {
+  margin: 0;
+}
+
+.line__role {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.line--user {
+  color: var(--text);
+}
+
+.line--agent {
+  color: #38434f;
+}
+
+/* --------------------------------------------------------------- ввод */
+
+.composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.composer__input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+.composer__submit {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer__submit:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.ptt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------- сценарии */
+
+.scenarios {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scenarios__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scenarios__item h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.scenarios__meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.scenarios__start {
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------- отчёт */
+
+.report__verdict {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.report__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+
+.report__summary dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.report__summary dd {
+  margin: 2px 0 0;
+  font-size: 20px;
+}
+
+.report__scores {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.evidence {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.evidence__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.evidence__criterion {
+  font-weight: 600;
+}
+
+.evidence__score {
+  color: var(--muted);
+}
+
+/* Цитата — главный элемент отчёта, поэтому она выделена, а не спрятана. */
+.evidence__quote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  background: #f4f7f4;
+  font-style: italic;
+}
+
+.evidence__comment {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.evidence__warning {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.report__transcript {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

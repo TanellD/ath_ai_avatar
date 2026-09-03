@@ -1,0 +1,27 @@
+# Контекст сборки для python-сервисов — корень репозитория (нужен packages/contracts),
+# поэтому исключаем всё тяжёлое явно.
+
+.git
+.gitignore
+tatarby-main/
+data/
+docs/
+scripts/
+*.md
+!README.md
+
+**/node_modules
+**/dist
+**/.vite
+**/__pycache__
+**/*.py[cod]
+**/.venv
+**/venv
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/*.egg-info
+
+.env
+.env.*
+!.env.example

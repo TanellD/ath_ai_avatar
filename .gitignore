@@ -1,0 +1,37 @@
+.env
+.env.local
+*.env
+!.env.example
+
+# SQLite и прочие рантайм-данные
+data/*
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Логи
+*.log
+
+# reference
+tatarby-main
