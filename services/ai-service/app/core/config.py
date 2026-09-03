@@ -24,11 +24,24 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "json"
 
-    llm_provider: str = Field(default="mock", description="mock | anthropic")
+    llm_provider: str = Field(default="mock", description="mock | anthropic | openai_compatible")
     llm_fast_model: str = "claude-haiku-4-5"
     llm_strong_model: str = "claude-opus-5"
 
     anthropic_api_key: str = ""
+    # Пусто = настоящий api.anthropic.com (дефолт самого SDK). Заполняется
+    # только если ключ и биллинг идут через прокси/шлюз, отдающий тот же
+    # реальный Anthropic Messages API (не OpenAI-совместимый — для этого
+    # есть openai_compatible ниже). Без /v1 на конце: сам SDK дописывает
+    # /v1/messages, так же как для api.anthropic.com.
+    anthropic_base_url: str = ""
+
+    # Второй провайдер (§10, по итогам ветки poc): VseLLM — OpenAI-совместимый
+    # прокси. LLM_FAST_MODEL/LLM_STRONG_MODEL при этом провайдере должны
+    # содержать имя модели прокси, например "google/gemini-2.5-flash", а не
+    # имя модели Anthropic.
+    openai_compatible_base_url: str = "https://api.vsellm.ru/v1"
+    openai_compatible_api_key: str = ""
 
     # Реплика персонажа короткая по сути жанра: он спрашивает и дожимает,
     # а не читает лекцию. Ограничение заодно бережёт бюджет латентности.

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     log_format: str = "json"
 
     tts_provider: str = Field(
-        default="mock", description="mock | elevenlabs | yandex — см. app/tts/factory.py"
+        default="mock", description="mock | elevenlabs | yandex | soniox — см. app/tts/factory.py"
     )
     tts_voice_id: str = ""
     tts_sample_rate: int = 24000
@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
+
+    # Единственный провайдер из четырёх, реально реализованный (§10) — выбор
+    # провалидирован веткой poc. Голос "Nina" и русский язык — те же значения,
+    # что подтвердили рабочий результат там.
+    soniox_api_key: str = ""
+    soniox_voice: str = "Nina"
+    soniox_language: str = "ru"
 
     # ------------------------------------------------------------- [STT]
     # Голосовой ввод — следующая фаза. Поля объявлены, но не читаются ничем:

@@ -70,6 +70,9 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       YANDEX_API_KEY: ${YANDEX_API_KEY:-}
       YANDEX_FOLDER_ID: ${YANDEX_FOLDER_ID:-}
+      SONIOX_API_KEY: ${SONIOX_API_KEY:-}
+      SONIOX_VOICE: ${SONIOX_VOICE:-Nina}
+      SONIOX_LANGUAGE: ${SONIOX_LANGUAGE:-ru}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8010/health')"]
       interval: 10s
@@ -94,6 +97,9 @@ services:
       LLM_FAST_MODEL: ${LLM_FAST_MODEL:-claude-haiku-4-5}
       LLM_STRONG_MODEL: ${LLM_STRONG_MODEL:-claude-opus-5}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      OPENAI_COMPATIBLE_BASE_URL: ${OPENAI_COMPATIBLE_BASE_URL:-https://api.vsellm.ru/v1}
+      OPENAI_COMPATIBLE_API_KEY: ${OPENAI_COMPATIBLE_API_KEY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8030/health')"]
       interval: 10s
@@ -130,11 +136,12 @@ services:
       context: services/frontend
       dockerfile: Dockerfile
       args:
+        # Аватар — TalkingHead + HeadAudio, self-hosted, без ключа управляемого
+        # сервиса (заменяет прежний план на Simli, см. Claude.md §10 и
+        # docs/architecture.md).
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
         VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
         VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-http://localhost:8050}
-        VITE_SIMLI_API_KEY: ${VITE_SIMLI_API_KEY:-}
-        VITE_SIMLI_FACE_ID: ${VITE_SIMLI_FACE_ID:-}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-8080}:80"

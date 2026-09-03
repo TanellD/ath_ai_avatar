@@ -18,6 +18,7 @@ COPY services/speech-service/app ./app
 
 FROM base AS dev
 RUN pip install -e ".[dev]"
+COPY services/speech-service/tests ./tests
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8010", "--reload"]
 
 FROM base AS prod

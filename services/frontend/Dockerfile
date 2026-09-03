@@ -20,8 +20,6 @@ COPY . .
 ARG VITE_API_URL
 ARG VITE_WS_URL
 ARG VITE_SCENARIO_API_URL
-ARG VITE_SIMLI_API_KEY
-ARG VITE_SIMLI_FACE_ID
 RUN npm run build
 
 # ----------------------------------------------------------------- prod
