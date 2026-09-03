@@ -1,0 +1,15 @@
+# Контекст сборки этого сервиса — services/frontend (не корень репозитория),
+# поэтому корневой .dockerignore сюда не действует.
+#
+# node_modules обязателен в списке: с тех пор, как локальная проверка без
+# Docker стала обычным путём (npm install прямо в services/frontend), здесь
+# на диске лежит Windows-сборка зависимостей. Без этой строки `COPY . .`
+# в Dockerfile перекроет ею node_modules, поставленный внутри контейнера
+# нативным `npm install` под Linux, — и всё тихо сломается на нативных биндингах.
+
+node_modules
+dist
+.vite
+.env
+.env.*
+!.env.example

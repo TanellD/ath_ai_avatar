@@ -19,11 +19,15 @@ case "$command" in
     logs)    docker compose logs -f "$@" ;;
     ps)      docker compose ps ;;
     build)   docker compose build "$@" ;;
-    test)    docker compose exec gateway pytest -v "$@" ;;
+    test)
+        docker compose exec gateway pytest -v "$@"
+        docker compose exec speech-service pytest -v "$@"
+        docker compose exec ai-service pytest -v "$@"
+        ;;
     lint)
         docker compose exec gateway ruff check app tests
-        docker compose exec speech-service ruff check app
-        docker compose exec ai-service ruff check app
+        docker compose exec speech-service ruff check app tests
+        docker compose exec ai-service ruff check app tests
         docker compose exec scenario-service ruff check app
         docker compose exec frontend npm run lint
         ;;

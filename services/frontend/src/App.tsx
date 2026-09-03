@@ -17,13 +17,15 @@ export function App() {
         <Link to="/scenarios">Сценарии</Link>
       </nav>
 
-      <Routes>
-        <Route path="/" element={<Navigate to="/scenarios" replace />} />
-        <Route path="/scenarios" element={<MethodistScenarios />} />
-        <Route path="/session/:scenarioId" element={<TraineeSession />} />
-        <Route path="/report/:sessionId" element={<MethodistReport />} />
-        <Route path="*" element={<p className="page">Страница не найдена</p>} />
-      </Routes>
+      <div className="app__body">
+        <Routes>
+          <Route path="/" element={<Navigate to="/scenarios" replace />} />
+          <Route path="/scenarios" element={<MethodistScenarios />} />
+          <Route path="/session/:scenarioId" element={<TraineeSession />} />
+          <Route path="/report/:sessionId" element={<MethodistReport />} />
+          <Route path="*" element={<p className="page">Страница не найдена</p>} />
+        </Routes>
+      </div>
     </div>
   );
 }

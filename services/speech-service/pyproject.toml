@@ -2,7 +2,7 @@
 name = "ath-speech-service"
 version = "0.1.0"
 description = "TTS-стрим (Claude.md §10). Пространство STT объявлено, но не реализовано."
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.5",
     "structlog>=24.4",
+    "soniox>=2.9",
     "ath-contracts",
 ]
 
@@ -23,6 +24,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
