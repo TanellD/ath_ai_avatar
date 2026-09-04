@@ -36,6 +36,10 @@ class UserMessage(BaseModel):
         default=None,
         description="gen_id перебиваемого поколения, либо None если персонаж молчал",
     )
+    avatar_id: Literal["avatar-aith", "tom-avatar"] = Field(
+        default="avatar-aith",
+        description="Профиль аватара; gateway выбирает связанный с ним голос",
+    )
 
 
 class Ping(BaseModel):

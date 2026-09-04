@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { gatewayApi } from '@/api/client';
-import type { ClientEvent, ServerEvent, UserMessage } from '@/contracts/events';
+import type { AvatarId, ClientEvent, ServerEvent, UserMessage } from '@/contracts/events';
 import { sessionError, type SessionError } from '@/types/errors';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed';
@@ -95,8 +95,8 @@ export function useSessionSocket({
   }, []);
 
   const sendUserMessage = useCallback(
-    (text: string, interrupts: number | null) => {
-      const event: UserMessage = { type: 'user_message', text, interrupts };
+    (text: string, interrupts: number | null, avatarId: AvatarId) => {
+      const event: UserMessage = { type: 'user_message', text, interrupts, avatar_id: avatarId };
       send(event);
     },
     [send],

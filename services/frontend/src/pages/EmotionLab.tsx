@@ -2,17 +2,30 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
-import { TalkingHeadAvatar, type AvatarPlaybackHandle } from '@/avatar/TalkingHeadAvatar';
+import {
+  AVATAR_MODELS,
+  TalkingHeadAvatar,
+  type AvatarPlaybackHandle,
+} from '@/avatar/TalkingHeadAvatar';
 import type { Emotion } from '@/contracts/events';
 
 const SPEECH_WS_URL = import.meta.env.VITE_SPEECH_WS_URL ?? 'ws://localhost:8010';
 
-const VOICES = [
+const AITH_VOICES = [
   { value: 'Nina', label: 'Nina — яркая, молодая, дружелюбная' },
   { value: 'Piper', label: 'Piper — весёлая, яркая, энергичная' },
   { value: 'Reyna', label: 'Reyna — зрелая, театральная, эмоционально широкая' },
   { value: 'Reese', label: 'Reese — молодая, уверенная, решительная' },
   { value: 'Isla', label: 'Isla — живая, энергичная, британский акцент' },
+] as const;
+
+const TOM_VOICES = [
+  { value: 'Noah', label: 'Noah — молодой, живой, выразительный' },
+  { value: 'Jack', label: 'Jack — дружелюбный, уверенный, естественный' },
+  { value: 'Owen', label: 'Owen — спокойный, суховатый, невозмутимый' },
+  { value: 'Daniel', label: 'Daniel — зрелый, глубокий, уверенный (выбран для Tom)' },
+  { value: 'Rohan', label: 'Rohan — харизматичный, энергичный, с индийским акцентом' },
+  { value: 'Cooper', label: 'Cooper — дерзкий, расслабленный, с австралийским акцентом' },
 ] as const;
 
 type EmotionIntensity = 'soft' | 'normal' | 'strong';
@@ -75,6 +88,37 @@ const EMOTIONS: Array<{
   },
 ];
 
+const TOM_SAMPLES: Record<Emotion, { sample: string; longSample: string }> = {
+  neutral: {
+    sample: 'Давайте спокойно разберёмся в ситуации.',
+    longSample: 'Хорошо, давайте спокойно разберёмся в ситуации, уточним основные условия и после этого решим, какой вариант подходит нам лучше всего.',
+  },
+  friendly: {
+    sample: 'Отличная мысль! Кажется, мы с вами поладим.',
+    longSample: 'Отличная мысль! Кажется, мы с вами поладим, поэтому давайте вместе обсудим детали и попробуем найти решение, которое устроит всех.',
+  },
+  irritated: {
+    sample: 'Вы снова не ответили на мой вопрос.',
+    longSample: 'Послушайте, я уже несколько раз объяснил, что мне нужен конкретный ответ, но вы снова уходите от вопроса и предлагаете начать всё сначала.',
+  },
+  angry: {
+    sample: 'Нет, такие условия меня совершенно не устраивают.',
+    longSample: 'Нет, такие условия меня совершенно не устраивают, потому что мы договаривались о другом, а теперь вы снова предлагаете переложить все риски на меня.',
+  },
+  sad: {
+    sample: 'Жаль, я ожидал совсем другого результата.',
+    longSample: 'Жаль, я действительно надеялся, что мы сможем договориться, но теперь понимаю, что наши ожидания слишком сильно отличаются друг от друга.',
+  },
+  excited: {
+    sample: 'Вот это действительно отличная новость!',
+    longSample: 'Вот это действительно отличная новость! Теперь мы можем запустить проект раньше, собрать первые результаты и показать их всей команде уже на следующей неделе!',
+  },
+  surprised: {
+    sample: 'Правда? Такого поворота я совсем не ожидал!',
+    longSample: 'Правда? Я совсем не ожидал, что вы согласитесь так быстро, поэтому мне даже нужно немного времени, чтобы осмыслить ваше предложение и проверить все детали.',
+  },
+};
+
 function withEnhancedProsody(text: string): string {
   return text
     .replace(
@@ -99,10 +143,15 @@ interface TtsChunk {
 }
 
 export function EmotionLab() {
+  const requestedModel = new URLSearchParams(window.location.search).get('model');
+  const avatarModel =
+    requestedModel === AVATAR_MODELS.tom.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith;
+  const isTom = avatarModel.id === AVATAR_MODELS.tom.id;
+  const voices = isTom ? TOM_VOICES : AITH_VOICES;
   const [emotion, setEmotion] = useState<Emotion>('neutral');
   const [intensity, setIntensity] = useState<EmotionIntensity>('strong');
   const [sampleLength, setSampleLength] = useState<SampleLength>('short');
-  const [voice, setVoice] = useState<(typeof VOICES)[number]['value']>('Reese');
+  const [voice, setVoice] = useState(isTom ? 'Daniel' : 'Reese');
   const [enhancedProsody, setEnhancedProsody] = useState(true);
   const [text, setText] = useState(EMOTIONS[0].sample);
   const [rig, setRig] = useState<LabRig | null>(null);
@@ -133,14 +182,16 @@ export function EmotionLab() {
 
   const selectEmotion = (next: (typeof EMOTIONS)[number]) => {
     setEmotion(next.value);
-    setText(sampleLength === 'long' ? next.longSample : next.sample);
+    const samples = isTom ? TOM_SAMPLES[next.value] : next;
+    setText(sampleLength === 'long' ? samples.longSample : samples.sample);
     rig?.setEmotion(next.value);
   };
 
   const selectSampleLength = (next: SampleLength) => {
     setSampleLength(next);
     const current = EMOTIONS.find((item) => item.value === emotion) ?? EMOTIONS[0];
-    setText(next === 'long' ? current.longSample : current.sample);
+    const samples = isTom ? TOM_SAMPLES[current.value] : current;
+    setText(next === 'long' ? samples.longSample : samples.sample);
   };
 
   const speak = () => {
@@ -209,6 +260,7 @@ export function EmotionLab() {
     <main className="emotion-lab">
       <section className="emotion-lab__stage">
         <TalkingHeadAvatar
+          model={avatarModel}
           isSpeaking={isSpeaking}
           onReady={handleAvatarReady}
           onError={handleAvatarError}
@@ -235,7 +287,7 @@ export function EmotionLab() {
         <label className="emotion-lab__field">
           Голос Soniox
           <select value={voice} onChange={(event) => setVoice(event.target.value as typeof voice)}>
-            {VOICES.map((item) => (
+            {voices.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
               </option>
