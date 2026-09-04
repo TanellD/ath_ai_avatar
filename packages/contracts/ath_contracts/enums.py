@@ -37,6 +37,26 @@ class Mood(StrEnum):
     FRIENDLY = "friendly"
 
 
+class Emotion(StrEnum):
+    """Выражение конкретной реплики, в отличие от базового Persona.mood."""
+
+    NEUTRAL = "neutral"
+    FRIENDLY = "friendly"
+    IRRITATED = "irritated"
+    ANGRY = "angry"
+    SAD = "sad"
+    EXCITED = "excited"
+    SURPRISED = "surprised"
+
+
+class EmotionIntensity(StrEnum):
+    """Интенсивность голосовой подачи; не меняет продуктовую эмоцию."""
+
+    SOFT = "soft"
+    NORMAL = "normal"
+    STRONG = "strong"
+
+
 class SessionStatus(StrEnum):
     ACTIVE = "active"
     FINISHED = "finished"

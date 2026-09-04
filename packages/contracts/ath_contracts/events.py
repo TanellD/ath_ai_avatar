@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ath_contracts.enums import Action, Mood
+from ath_contracts.enums import Action, Emotion
 from ath_contracts.report import Report
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ class AudioChunkEvent(BaseModel):
     seq: int
     data: str = Field(description="base64 PCM/WAV")
     format: str = "wav"
-    mood: Mood = Mood.NEUTRAL
+    emotion: Emotion = Emotion.NEUTRAL
 
 
 class SubtitleEvent(BaseModel):

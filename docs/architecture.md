@@ -23,7 +23,7 @@
          │                              └─ чанки аудио
          │
          ├─ token       { gen_id, text } ────────────────► браузер
-         ├─ audio_chunk { gen_id, seq, data, mood } ─────► браузер
+         ├─ audio_chunk { gen_id, seq, data, emotion } ──► браузер
          │                                                   └─► AudioQueue
          │                                                         └─► PlaybackClock (head.audioCtx)
          │                                                               ├─► HeadAudio → морф-таргеты

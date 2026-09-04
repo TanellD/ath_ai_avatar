@@ -32,7 +32,7 @@ import { useEffect, useRef } from 'react';
 // Ворклет-часть того же рантайма (headworklet.mjs и его зависимости) как раз
 // грузится так и поэтому осталась в public/ — см. README рядом с обоими.
 import { HeadAudio } from '@/vendor/headaudio/headaudio.mjs';
-import type { Mood } from '@/contracts/events';
+import type { Emotion } from '@/contracts/events';
 
 const AVATAR_URL = '/assets/avatar/avatar-aith.glb';
 const HEADAUDIO_WORKLET_URL = '/vendor/headaudio/headworklet.mjs';
@@ -45,8 +45,8 @@ export interface AvatarPlaybackHandle {
   destination: AudioNode;
   /** Вернуть лицо в нейтральное положение — вызывается из cancelPlayback(). */
   resetFace: () => void;
-  /** Применить продуктовое настроение к встроенной мимике TalkingHead. */
-  setMood: (mood: Mood) => void;
+  /** Применить эмоцию реплики к мимике TalkingHead. */
+  setEmotion: (emotion: Emotion) => void;
 }
 
 interface Props {
@@ -157,7 +157,7 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
           audioCtx: head.audioCtx,
           destination: head.audioSpeechGainNode,
           resetFace: () => headaudio.resetAll(),
-          setMood: (mood) => head.setMood(avatarMood(mood)),
+          setEmotion: (emotion) => applyEmotion(head, emotion),
         });
       } catch (error) {
         onError(error instanceof Error ? error.message : 'Не удалось загрузить аватара');
@@ -174,10 +174,69 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
   return <div ref={containerRef} className="avatar" />;
 }
 
-function avatarMood(mood: Mood): 'neutral' | 'happy' | 'angry' {
-  if (mood === 'friendly') return 'happy';
-  if (mood === 'irritated') return 'angry';
-  return 'neutral';
+interface EmotionHead {
+  setMood(mood: string): void;
+  setFixedValue(morphTarget: string, value: number | null): void;
+}
+
+const EMOTION_OVERLAYS = [
+  'browDownLeft',
+  'browDownRight',
+  'browInnerUp',
+  'browOuterUpLeft',
+  'browOuterUpRight',
+  'eyeSquintLeft',
+  'eyeSquintRight',
+  'eyeWideLeft',
+  'eyeWideRight',
+  'mouthFrownLeft',
+  'mouthFrownRight',
+] as const;
+
+function applyEmotion(head: EmotionHead, emotion: Emotion): void {
+  for (const target of EMOTION_OVERLAYS) head.setFixedValue(target, null);
+
+  if (emotion === 'friendly') {
+    head.setMood('happy');
+    return;
+  }
+  if (emotion === 'angry') {
+    head.setMood('angry');
+    return;
+  }
+  if (emotion === 'sad') {
+    head.setMood('sad');
+    return;
+  }
+  if (emotion === 'irritated') {
+    head.setMood('neutral');
+    head.setFixedValue('browDownLeft', 0.3);
+    head.setFixedValue('browDownRight', 0.3);
+    head.setFixedValue('eyeSquintLeft', 0.12);
+    head.setFixedValue('eyeSquintRight', 0.12);
+    head.setFixedValue('mouthFrownLeft', 0.14);
+    head.setFixedValue('mouthFrownRight', 0.14);
+    return;
+  }
+  if (emotion === 'excited') {
+    head.setMood('happy');
+    head.setFixedValue('eyeWideLeft', 0.22);
+    head.setFixedValue('eyeWideRight', 0.22);
+    head.setFixedValue('browOuterUpLeft', 0.18);
+    head.setFixedValue('browOuterUpRight', 0.18);
+    return;
+  }
+  if (emotion === 'surprised') {
+    head.setMood('neutral');
+    head.setFixedValue('eyeWideLeft', 0.5);
+    head.setFixedValue('eyeWideRight', 0.5);
+    head.setFixedValue('browInnerUp', 0.5);
+    head.setFixedValue('browOuterUpLeft', 0.35);
+    head.setFixedValue('browOuterUpRight', 0.35);
+    return;
+  }
+
+  head.setMood('neutral');
 }
 
 interface CursorGazeHead {

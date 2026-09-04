@@ -49,7 +49,9 @@ async def tts_stream(websocket: WebSocket) -> None:
 
     seq = request.seq
     try:
-        async for chunk in provider.synthesize(request.text, request.voice_id, request.mood):
+        async for chunk in provider.synthesize(
+            request.text, request.voice_id, request.emotion, request.intensity
+        ):
             payload = TtsChunk(
                 gen_id=request.gen_id,
                 seq=seq,

@@ -28,7 +28,7 @@ import uuid
 import wave
 from collections.abc import AsyncIterator
 
-from ath_contracts import Mood
+from ath_contracts import Emotion, EmotionIntensity
 from soniox import AsyncSonioxClient
 from soniox.realtime import RealtimeTTSConfig
 
@@ -39,16 +39,52 @@ log = get_logger(__name__)
 
 _MODEL = "tts-rt-v2"
 
-_MOOD_TAGS = {
-    Mood.NEUTRAL: "[calm]",
-    Mood.FRIENDLY: "[warm]",
-    Mood.IRRITATED: "[annoyed]",
+_EMOTION_TAGS = {
+    Emotion.NEUTRAL: {
+        EmotionIntensity.SOFT: "[calm] [softly]",
+        EmotionIntensity.NORMAL: "[calm]",
+        EmotionIntensity.STRONG: "[serious]",
+    },
+    Emotion.FRIENDLY: {
+        EmotionIntensity.SOFT: "[warm] [softly]",
+        EmotionIntensity.NORMAL: "[warm] [reassuringly]",
+        EmotionIntensity.STRONG: "[delighted] [warm]",
+    },
+    Emotion.IRRITATED: {
+        EmotionIntensity.SOFT: "[annoyed] [muttering]",
+        EmotionIntensity.NORMAL: "[annoyed] [getting louder]",
+        EmotionIntensity.STRONG: "[annoyed] [loudly]",
+    },
+    Emotion.ANGRY: {
+        EmotionIntensity.SOFT: "[angry] [low voice]",
+        EmotionIntensity.NORMAL: "[angry] [loudly]",
+        EmotionIntensity.STRONG: "[angry] [shouting]",
+    },
+    Emotion.SAD: {
+        EmotionIntensity.SOFT: "[disappointed] [softly]",
+        EmotionIntensity.NORMAL: "[sad] [softly]",
+        EmotionIntensity.STRONG: "[sad] [trembling voice]",
+    },
+    Emotion.EXCITED: {
+        EmotionIntensity.SOFT: "[happy] [warm]",
+        EmotionIntensity.NORMAL: "[excited] [quickly]",
+        EmotionIntensity.STRONG: "[excited] [loudly]",
+    },
+    Emotion.SURPRISED: {
+        EmotionIntensity.SOFT: "[curious] [surprised]",
+        EmotionIntensity.NORMAL: "[surprised] [high-pitched]",
+        EmotionIntensity.STRONG: "[gasps] [surprised]",
+    },
 }
 
 
-def text_with_mood(text: str, mood: Mood) -> str:
+def text_with_emotion(
+    text: str,
+    emotion: Emotion,
+    intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+) -> str:
     """Добавить управляющий тег только в запрос Soniox, не в текст сессии."""
-    return f"{_MOOD_TAGS[mood]} {text}"
+    return f"{_EMOTION_TAGS[emotion][intensity]} {text}"
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
@@ -88,7 +124,11 @@ class SonioxTtsProvider(TtsProvider):
         await self._client.aclose()
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None, mood: Mood = Mood.NEUTRAL
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
     ) -> AsyncIterator[AudioChunk]:
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
@@ -104,7 +144,9 @@ class SonioxTtsProvider(TtsProvider):
         # вызывает __aexit__ соединения на разворачивании стека — отдельно
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
-            await connection.send_text_chunks(text_with_mood(text, mood), text_end=True)
+            await connection.send_text_chunks(
+                text_with_emotion(text, emotion, intensity), text_end=True
+            )
 
             # Однокусковый lookahead: SDK не помечает последний чанк сам —
             # is_final узнаём только когда async-итератор исчерпан, то есть

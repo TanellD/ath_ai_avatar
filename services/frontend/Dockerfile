@@ -20,6 +20,7 @@ COPY . .
 ARG VITE_API_URL
 ARG VITE_WS_URL
 ARG VITE_SCENARIO_API_URL
+ARG VITE_SPEECH_WS_URL
 RUN npm run build
 
 # ----------------------------------------------------------------- prod

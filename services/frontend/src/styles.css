@@ -642,3 +642,111 @@ body {
   dominant-baseline: middle;
   pointer-events: none;
 }
+
+.app__nav-tool {
+  margin-left: 16px;
+}
+
+/* ---------------------------------------------------- лаборатория эмоций */
+
+.emotion-lab {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 440px);
+  gap: 28px;
+  max-width: 1100px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.emotion-lab__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emotion-lab__controls {
+  align-self: center;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.emotion-lab__controls h1 {
+  margin-top: 0;
+}
+
+.emotion-lab__buttons,
+.emotion-lab__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.emotion-lab button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.emotion-lab button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.emotion-lab__emotion.is-active,
+.emotion-lab__actions button:nth-child(2) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.emotion-lab__field {
+  display: block;
+  margin: 20px 0 10px;
+  color: var(--muted);
+}
+
+.emotion-lab__field textarea,
+.emotion-lab__field select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+}
+
+.emotion-lab__field select {
+  background: #fff;
+}
+
+.emotion-lab__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  color: var(--muted);
+}
+
+.emotion-lab__meta {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.emotion-lab__error {
+  color: var(--danger);
+}
+
+@media (max-width: 760px) {
+  .emotion-lab {
+    grid-template-columns: 1fr;
+  }
+}

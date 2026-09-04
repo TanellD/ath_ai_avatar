@@ -7,7 +7,7 @@
 
 from pydantic import BaseModel, Field
 
-from ath_contracts.enums import Action, Classification, Mood
+from ath_contracts.enums import Action, Classification, Emotion, EmotionIntensity
 from ath_contracts.report import Report
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 from ath_contracts.session import Turn
@@ -30,6 +30,13 @@ class CharacterReplyDone(BaseModel):
 
     action: Action = Action.STAY
     full_text: str
+    emotion: Emotion = Emotion.NEUTRAL
+
+
+class CharacterReplyMeta(BaseModel):
+    """Первое SSE-событие: управление голосом и лицом до первого предложения."""
+
+    emotion: Emotion
 
 
 class ClassifyRequest(BaseModel):
@@ -74,7 +81,8 @@ class TtsRequest(BaseModel):
     seq: int
     text: str
     voice_id: str | None = None
-    mood: Mood = Mood.NEUTRAL
+    emotion: Emotion = Emotion.NEUTRAL
+    intensity: EmotionIntensity = EmotionIntensity.NORMAL
 
 
 class TtsChunk(BaseModel):
