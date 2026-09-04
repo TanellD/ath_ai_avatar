@@ -18,6 +18,8 @@ import struct
 import wave
 from collections.abc import AsyncIterator
 
+from ath_contracts import Emotion, EmotionIntensity
+
 from app.core.logging import get_logger
 from app.tts.base import AudioChunk, TtsProvider
 
@@ -56,7 +58,12 @@ class MockTtsProvider(TtsProvider):
         return "mock"
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         total_sec = max(0.3, len(text) / _CHARS_PER_SECOND)
         chunk_sec = _CHUNK_MS / 1000

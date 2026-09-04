@@ -1,6 +1,6 @@
 """Реальный потоковый TTS через Soniox — Claude.md §10.
 
-Провалидирован веткой `poc`: рабочий русский голос ("Nina") в реальном
+Провалидирован веткой `poc`: рабочий русский голос ("Reese") в реальном
 Node-сервере. Здесь — не порт того же кода, а собственная реализация поверх
 проверенного контракта: API прочитан из официального Python-пакета `soniox`
 (`pip install soniox`, `AsyncSonioxClient`), а не угадан по Node-сниппету.
@@ -24,10 +24,12 @@ Node-сервере. Здесь — не порт того же кода, а с�
 """
 
 import io
+import re
 import uuid
 import wave
 from collections.abc import AsyncIterator
 
+from ath_contracts import Emotion, EmotionIntensity
 from soniox import AsyncSonioxClient
 from soniox.realtime import RealtimeTTSConfig
 
@@ -37,6 +39,70 @@ from app.tts.base import AudioChunk, TtsProvider
 log = get_logger(__name__)
 
 _MODEL = "tts-rt-v2"
+
+_EMOTION_TAGS = {
+    Emotion.NEUTRAL: {
+        EmotionIntensity.SOFT: "[calm] [softly]",
+        EmotionIntensity.NORMAL: "[calm]",
+        EmotionIntensity.STRONG: "[serious]",
+    },
+    Emotion.FRIENDLY: {
+        EmotionIntensity.SOFT: "[warm] [softly]",
+        EmotionIntensity.NORMAL: "[warm] [reassuringly]",
+        EmotionIntensity.STRONG: "[delighted] [warm]",
+    },
+    Emotion.IRRITATED: {
+        EmotionIntensity.SOFT: "[annoyed] [muttering]",
+        EmotionIntensity.NORMAL: "[annoyed] [getting louder]",
+        EmotionIntensity.STRONG: "[annoyed] [loudly]",
+    },
+    Emotion.ANGRY: {
+        EmotionIntensity.SOFT: "[angry] [low voice]",
+        EmotionIntensity.NORMAL: "[angry] [loudly]",
+        EmotionIntensity.STRONG: "[angry] [shouting]",
+    },
+    Emotion.SAD: {
+        EmotionIntensity.SOFT: "[disappointed] [softly]",
+        EmotionIntensity.NORMAL: "[sad] [softly]",
+        EmotionIntensity.STRONG: "[sad] [trembling voice]",
+    },
+    Emotion.EXCITED: {
+        EmotionIntensity.SOFT: "[happy] [warm]",
+        EmotionIntensity.NORMAL: "[excited] [quickly]",
+        EmotionIntensity.STRONG: "[excited] [loudly]",
+    },
+    Emotion.SURPRISED: {
+        EmotionIntensity.SOFT: "[curious] [surprised]",
+        EmotionIntensity.NORMAL: "[surprised] [high-pitched]",
+        EmotionIntensity.STRONG: "[gasps] [surprised]",
+    },
+}
+
+_INTRODUCTORY_PAUSE_RE = re.compile(
+    r"(^|[.!?]\s*)(да|нет|хорошо|итак|конечно|пожалуй|послушайте|смотрите|жаль),\s*",
+    re.IGNORECASE,
+)
+_TURN_PAUSE_RE = re.compile(
+    r",\s+(но|однако|поэтому|зато|впрочем|и всё же)\b",
+    re.IGNORECASE,
+)
+
+
+def with_enhanced_prosody(text: str) -> str:
+    """Добавить паузы только в TTS-копию текста на смысловых границах."""
+    with_intro_pauses = _INTRODUCTORY_PAUSE_RE.sub(r"\1\2, [pause] ", text)
+    return _TURN_PAUSE_RE.sub(r", [pause] \1", with_intro_pauses)
+
+
+def text_with_emotion(
+    text: str,
+    emotion: Emotion,
+    intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+    enhanced_prosody: bool = True,
+) -> str:
+    """Добавить управляющий тег только в запрос Soniox, не в текст сессии."""
+    spoken_text = with_enhanced_prosody(text) if enhanced_prosody else text
+    return f"{_EMOTION_TAGS[emotion][intensity]} {spoken_text}"
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
@@ -76,7 +142,12 @@ class SonioxTtsProvider(TtsProvider):
         await self._client.aclose()
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
@@ -92,7 +163,9 @@ class SonioxTtsProvider(TtsProvider):
         # вызывает __aexit__ соединения на разворачивании стека — отдельно
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
-            await connection.send_text_chunks(text, text_end=True)
+            await connection.send_text_chunks(
+                text_with_emotion(text, emotion, intensity, enhanced_prosody), text_end=True
+            )
 
             # Однокусковый lookahead: SDK не помечает последний чанк сам —
             # is_final узнаём только когда async-итератор исчерпан, то есть

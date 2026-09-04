@@ -65,6 +65,8 @@ declare module '@met4citizen/talkinghead' {
     opt: { update?: (dt: number) => void; [key: string]: unknown };
     showAvatar(options: ShowAvatarOptions): Promise<void>;
     lookAtCamera(durationMs: number): void;
+    setMood(mood: string): void;
+    setFixedValue(morphTarget: string, value: number | null, durationMs?: number): void;
     speakWithHands(): void;
   }
 }

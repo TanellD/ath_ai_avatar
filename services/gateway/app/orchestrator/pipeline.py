@@ -25,12 +25,14 @@ from ath_contracts import (
     AudioChunkEvent,
     CancelEvent,
     Classification,
+    Emotion,
     ServerEvent,
     SubtitleEvent,
     TokenEvent,
     Turn,
     TurnRole,
 )
+from ath_contracts.api import CharacterReplyMeta
 
 from app.clients.ai_client import AiClient
 from app.clients.speech_client import SpeechClient
@@ -164,6 +166,7 @@ class TurnPipeline:
 
         splitter = SentenceSplitter()
         full_text: list[str] = []
+        emotion = Emotion(self._session.scenario.persona.mood.value)
         seq = 0
         elapsed_ms = 0
         """Сколько аудио этого поколения уже отправлено — начало отсчёта для
@@ -174,30 +177,43 @@ class TurnPipeline:
         async with recorder.span(
             "character_reply", f'{persona_name}: ответ на "{user_text[:60]}"'
         ):
-            async for token in self._ai.stream_character_reply(
+            async for item in self._ai.stream_character_reply(
                 persona=self._session.scenario.persona,
                 stage=stage,
                 history=context.recent,
                 summary=context.summary,
                 user_text=user_text,
             ):
+                if isinstance(item, CharacterReplyMeta):
+                    emotion = item.emotion
+                    continue
+
+                token = item
                 full_text.append(token)
                 await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
 
                 for sentence in splitter.feed(token):
                     seq, elapsed_ms = await self._synthesize(
-                        gen_id, sentence, seq, elapsed_ms, recorder
+                        gen_id, sentence, seq, elapsed_ms, emotion, recorder
                     )
 
             tail = splitter.flush()
             if tail:
-                seq, elapsed_ms = await self._synthesize(gen_id, tail, seq, elapsed_ms, recorder)
+                seq, elapsed_ms = await self._synthesize(
+                    gen_id, tail, seq, elapsed_ms, emotion, recorder
+                )
 
         agent_turn = self._session.add_turn(TurnRole.AGENT, "".join(full_text))
         await self._persist_turn(agent_turn, gen_id)
 
     async def _synthesize(
-        self, gen_id: int, sentence: str, seq: int, elapsed_ms: int, recorder: SpanRecorder
+        self,
+        gen_id: int,
+        sentence: str,
+        seq: int,
+        elapsed_ms: int,
+        emotion: Emotion,
+        recorder: SpanRecorder,
     ) -> tuple[int, int]:
         """Озвучить одно предложение, отдавая чанки по мере готовности (§10).
 
@@ -212,11 +228,16 @@ class TurnPipeline:
                 seq=seq,
                 text=sentence,
                 voice_id=self._session.scenario.persona.voice_id,
+                emotion=emotion,
             ):
                 await self._send(
                     gen_id,
                     AudioChunkEvent(
-                        gen_id=gen_id, seq=chunk.seq, data=chunk.data, format=chunk.format
+                        gen_id=gen_id,
+                        seq=chunk.seq,
+                        data=chunk.data,
+                        format=chunk.format,
+                        emotion=emotion,
                     ),
                 )
                 sentence_ms += _wav_duration_ms(chunk.data)
