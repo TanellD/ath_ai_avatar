@@ -63,6 +63,7 @@ class MockTtsProvider(TtsProvider):
         voice_id: str | None = None,
         emotion: Emotion = Emotion.NEUTRAL,
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         total_sec = max(0.3, len(text) / _CHARS_PER_SECOND)
         chunk_sec = _CHUNK_MS / 1000

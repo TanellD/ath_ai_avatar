@@ -41,6 +41,7 @@ class TtsProvider(ABC):
         voice_id: str | None = None,
         emotion: Emotion = Emotion.NEUTRAL,
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         """Синтезировать текст, отдавая чанки по мере готовности.
 

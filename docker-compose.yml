@@ -71,7 +71,7 @@ services:
       YANDEX_API_KEY: ${YANDEX_API_KEY:-}
       YANDEX_FOLDER_ID: ${YANDEX_FOLDER_ID:-}
       SONIOX_API_KEY: ${SONIOX_API_KEY:-}
-      SONIOX_VOICE: ${SONIOX_VOICE:-Nina}
+      SONIOX_VOICE: ${SONIOX_VOICE:-Reese}
       SONIOX_LANGUAGE: ${SONIOX_LANGUAGE:-ru}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8010/health')"]

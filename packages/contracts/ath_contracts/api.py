@@ -82,7 +82,8 @@ class TtsRequest(BaseModel):
     text: str
     voice_id: str | None = None
     emotion: Emotion = Emotion.NEUTRAL
-    intensity: EmotionIntensity = EmotionIntensity.NORMAL
+    intensity: EmotionIntensity = EmotionIntensity.STRONG
+    enhanced_prosody: bool = True
 
 
 class TtsChunk(BaseModel):

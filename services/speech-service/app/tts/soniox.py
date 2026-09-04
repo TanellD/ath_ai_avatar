@@ -1,6 +1,6 @@
 """Реальный потоковый TTS через Soniox — Claude.md §10.
 
-Провалидирован веткой `poc`: рабочий русский голос ("Nina") в реальном
+Провалидирован веткой `poc`: рабочий русский голос ("Reese") в реальном
 Node-сервере. Здесь — не порт того же кода, а собственная реализация поверх
 проверенного контракта: API прочитан из официального Python-пакета `soniox`
 (`pip install soniox`, `AsyncSonioxClient`), а не угадан по Node-сниппету.
@@ -24,6 +24,7 @@ Node-сервере. Здесь — не порт того же кода, а с�
 """
 
 import io
+import re
 import uuid
 import wave
 from collections.abc import AsyncIterator
@@ -77,14 +78,31 @@ _EMOTION_TAGS = {
     },
 }
 
+_INTRODUCTORY_PAUSE_RE = re.compile(
+    r"(^|[.!?]\s*)(да|нет|хорошо|итак|конечно|пожалуй|послушайте|смотрите|жаль),\s*",
+    re.IGNORECASE,
+)
+_TURN_PAUSE_RE = re.compile(
+    r",\s+(но|однако|поэтому|зато|впрочем|и всё же)\b",
+    re.IGNORECASE,
+)
+
+
+def with_enhanced_prosody(text: str) -> str:
+    """Добавить паузы только в TTS-копию текста на смысловых границах."""
+    with_intro_pauses = _INTRODUCTORY_PAUSE_RE.sub(r"\1\2, [pause] ", text)
+    return _TURN_PAUSE_RE.sub(r", [pause] \1", with_intro_pauses)
+
 
 def text_with_emotion(
     text: str,
     emotion: Emotion,
     intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+    enhanced_prosody: bool = True,
 ) -> str:
     """Добавить управляющий тег только в запрос Soniox, не в текст сессии."""
-    return f"{_EMOTION_TAGS[emotion][intensity]} {text}"
+    spoken_text = with_enhanced_prosody(text) if enhanced_prosody else text
+    return f"{_EMOTION_TAGS[emotion][intensity]} {spoken_text}"
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
@@ -129,6 +147,7 @@ class SonioxTtsProvider(TtsProvider):
         voice_id: str | None = None,
         emotion: Emotion = Emotion.NEUTRAL,
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
@@ -145,7 +164,7 @@ class SonioxTtsProvider(TtsProvider):
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
             await connection.send_text_chunks(
-                text_with_emotion(text, emotion, intensity), text_end=True
+                text_with_emotion(text, emotion, intensity, enhanced_prosody), text_end=True
             )
 
             # Однокусковый lookahead: SDK не помечает последний чанк сам —

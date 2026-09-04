@@ -100,10 +100,10 @@ interface TtsChunk {
 
 export function EmotionLab() {
   const [emotion, setEmotion] = useState<Emotion>('neutral');
-  const [intensity, setIntensity] = useState<EmotionIntensity>('normal');
+  const [intensity, setIntensity] = useState<EmotionIntensity>('strong');
   const [sampleLength, setSampleLength] = useState<SampleLength>('short');
-  const [voice, setVoice] = useState<(typeof VOICES)[number]['value']>('Nina');
-  const [enhancedProsody, setEnhancedProsody] = useState(false);
+  const [voice, setVoice] = useState<(typeof VOICES)[number]['value']>('Reese');
+  const [enhancedProsody, setEnhancedProsody] = useState(true);
   const [text, setText] = useState(EMOTIONS[0].sample);
   const [rig, setRig] = useState<LabRig | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -146,8 +146,6 @@ export function EmotionLab() {
   const speak = () => {
     if (!rig || !text.trim()) return;
 
-    const spokenText = enhancedProsody ? withEnhancedProsody(text.trim()) : text.trim();
-
     // Resume immediately while the click still counts as a user gesture.
     // Do not block the TTS connection on browsers that keep this promise pending.
     const audioResume = rig.audioCtx.resume();
@@ -179,10 +177,11 @@ export function EmotionLab() {
         JSON.stringify({
           gen_id: genId,
           seq: 0,
-          text: spokenText,
+          text: text.trim(),
           voice_id: voice,
           emotion,
           intensity,
+          enhanced_prosody: enhancedProsody,
         }),
       );
     };

@@ -3,7 +3,7 @@
 import pytest
 from ath_contracts import Emotion, EmotionIntensity
 
-from app.tts.soniox import text_with_emotion
+from app.tts.soniox import text_with_emotion, with_enhanced_prosody
 
 
 @pytest.mark.parametrize(
@@ -37,3 +37,19 @@ def test_text_with_emotion_intensity(
     emotion: Emotion, intensity: EmotionIntensity, expected: str
 ) -> None:
     assert text_with_emotion("Проверка", emotion, intensity) == expected
+
+
+def test_with_enhanced_prosody_adds_only_semantic_pauses() -> None:
+    text = "Нет, это возможно, но потребует времени, сил и внимания."
+    assert with_enhanced_prosody(text) == (
+        "Нет, [pause] это возможно, [pause] но потребует времени, сил и внимания."
+    )
+
+
+def test_text_with_emotion_can_disable_enhanced_prosody() -> None:
+    assert text_with_emotion(
+        "Нет, это невозможно.",
+        Emotion.ANGRY,
+        EmotionIntensity.STRONG,
+        enhanced_prosody=False,
+    ) == "[angry] [shouting] Нет, это невозможно."

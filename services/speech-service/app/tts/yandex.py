@@ -40,6 +40,7 @@ class YandexTtsProvider(TtsProvider):
         voice_id: str | None = None,
         emotion: Emotion = Emotion.NEUTRAL,
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         raise NotImplementedError(
             "Yandex SpeechKit TTS не подключён. Используйте TTS_PROVIDER=mock либо "
