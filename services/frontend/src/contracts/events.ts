@@ -12,6 +12,7 @@
 export type Action = 'stay' | 'next_stage' | 'finish' | 'evaluate';
 export type SessionStatus = 'active' | 'finished' | 'abandoned';
 export type TurnRole = 'user' | 'agent';
+export type Mood = 'neutral' | 'irritated' | 'friendly';
 
 // --------------------------------------------------------- клиент → сервер
 
@@ -54,6 +55,7 @@ export interface AudioChunkEvent {
   /** base64 */
   data: string;
   format: string;
+  mood: Mood;
 }
 
 export interface SubtitleEvent {
@@ -155,7 +157,7 @@ export interface Persona {
   name: string;
   role: string;
   character: string;
-  mood: 'neutral' | 'irritated' | 'friendly';
+  mood: Mood;
   difficulty: number;
   voice_id: string | null;
 }

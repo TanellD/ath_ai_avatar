@@ -212,11 +212,16 @@ class TurnPipeline:
                 seq=seq,
                 text=sentence,
                 voice_id=self._session.scenario.persona.voice_id,
+                mood=self._session.scenario.persona.mood,
             ):
                 await self._send(
                     gen_id,
                     AudioChunkEvent(
-                        gen_id=gen_id, seq=chunk.seq, data=chunk.data, format=chunk.format
+                        gen_id=gen_id,
+                        seq=chunk.seq,
+                        data=chunk.data,
+                        format=chunk.format,
+                        mood=self._session.scenario.persona.mood,
                     ),
                 )
                 sentence_ms += _wav_duration_ms(chunk.data)

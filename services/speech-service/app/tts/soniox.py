@@ -28,6 +28,7 @@ import uuid
 import wave
 from collections.abc import AsyncIterator
 
+from ath_contracts import Mood
 from soniox import AsyncSonioxClient
 from soniox.realtime import RealtimeTTSConfig
 
@@ -37,6 +38,17 @@ from app.tts.base import AudioChunk, TtsProvider
 log = get_logger(__name__)
 
 _MODEL = "tts-rt-v2"
+
+_MOOD_TAGS = {
+    Mood.NEUTRAL: "[calm]",
+    Mood.FRIENDLY: "[warm]",
+    Mood.IRRITATED: "[annoyed]",
+}
+
+
+def text_with_mood(text: str, mood: Mood) -> str:
+    """Добавить управляющий тег только в запрос Soniox, не в текст сессии."""
+    return f"{_MOOD_TAGS[mood]} {text}"
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
@@ -76,7 +88,7 @@ class SonioxTtsProvider(TtsProvider):
         await self._client.aclose()
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self, text: str, voice_id: str | None = None, mood: Mood = Mood.NEUTRAL
     ) -> AsyncIterator[AudioChunk]:
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
@@ -92,7 +104,7 @@ class SonioxTtsProvider(TtsProvider):
         # вызывает __aexit__ соединения на разворачивании стека — отдельно
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
-            await connection.send_text_chunks(text, text_end=True)
+            await connection.send_text_chunks(text_with_mood(text, mood), text_end=True)
 
             # Однокусковый lookahead: SDK не помечает последний чанк сам —
             # is_final узнаём только когда async-итератор исчерпан, то есть

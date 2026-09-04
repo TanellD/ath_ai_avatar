@@ -17,6 +17,8 @@
 
 from collections.abc import AsyncIterator
 
+from ath_contracts import Mood
+
 from app.tts.base import AudioChunk, TtsProvider
 
 
@@ -31,7 +33,7 @@ class ElevenLabsTtsProvider(TtsProvider):
         return "elevenlabs"
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self, text: str, voice_id: str | None = None, mood: Mood = Mood.NEUTRAL
     ) -> AsyncIterator[AudioChunk]:
         raise NotImplementedError(
             "ElevenLabs TTS не подключён. Используйте TTS_PROVIDER=mock либо "

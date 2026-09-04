@@ -41,6 +41,7 @@ interface AudioRig {
   clock: PlaybackClock;
   queue: AudioQueue;
   resetFace: () => void;
+  setMood: AvatarPlaybackHandle['setMood'];
 }
 
 export function TraineeSession() {
@@ -61,6 +62,7 @@ export function TraineeSession() {
    * пропущенный отброс чанка — то есть нарушение метрики 4.
    */
   const genRef = useRef(0);
+  const moodGenerationRef = useRef<number | null>(null);
 
   const handleAvatarReady = useCallback((handle: AvatarPlaybackHandle) => {
     const clock = new PlaybackClock(handle.audioCtx);
@@ -72,7 +74,7 @@ export function TraineeSession() {
     const queue = new AudioQueue(handle.audioCtx, clock, handle.destination, () =>
       setPlayback('idle'),
     );
-    setAudio({ clock, queue, resetFace: handle.resetFace });
+    setAudio({ clock, queue, resetFace: handle.resetFace, setMood: handle.setMood });
   }, []);
 
   const handleAvatarError = useCallback((message: string) => {
@@ -117,7 +119,13 @@ export function TraineeSession() {
           // чанка — тогда его попросту некуда проигрывать. Очередь также сама
           // сверит gen_id ещё раз — намеренное дублирование проверки: чанк
           // мог быть декодирован уже после перебивания.
-          if (audio) void audio.queue.enqueue({ genId: event.gen_id, seq: event.seq, data: event.data });
+          if (audio) {
+            if (moodGenerationRef.current !== event.gen_id) {
+              audio.setMood(event.mood);
+              moodGenerationRef.current = event.gen_id;
+            }
+            void audio.queue.enqueue({ genId: event.gen_id, seq: event.seq, data: event.data });
+          }
           break;
 
         case 'subtitle':
@@ -227,7 +235,11 @@ export function TraineeSession() {
         />
 
         <div className="session__stage">
-          <TalkingHeadAvatar onReady={handleAvatarReady} onError={handleAvatarError} />
+          <TalkingHeadAvatar
+            isSpeaking={playback === 'speaking'}
+            onReady={handleAvatarReady}
+            onError={handleAvatarError}
+          />
           {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
         </div>
       </section>

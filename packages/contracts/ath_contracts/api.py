@@ -7,7 +7,7 @@
 
 from pydantic import BaseModel, Field
 
-from ath_contracts.enums import Action, Classification
+from ath_contracts.enums import Action, Classification, Mood
 from ath_contracts.report import Report
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 from ath_contracts.session import Turn
@@ -74,6 +74,7 @@ class TtsRequest(BaseModel):
     seq: int
     text: str
     voice_id: str | None = None
+    mood: Mood = Mood.NEUTRAL
 
 
 class TtsChunk(BaseModel):

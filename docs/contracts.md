@@ -54,7 +54,7 @@ TypeScript-зеркало (`services/frontend/src/contracts/events.ts`) пока
 | Событие | Поля | Комментарий |
 |---|---|---|
 | `token` | `gen_id`, `text` | Для субтитров и лога, **не для тайминга** |
-| `audio_chunk` | `gen_id`, `seq`, `data`, `format` | По порядку, клиент буферизует |
+| `audio_chunk` | `gen_id`, `seq`, `data`, `format`, `mood` | По порядку; `mood` синхронизирует лицо с озвучиваемым поколением |
 | `subtitle` | `gen_id`, `text`, `start_ms`, `end_ms` | Тайминги относительно начала аудио **поколения** |
 | `transcript` | `gen_id`, `text`, `is_final`, `stt_confidence` | `[STT]` Объявлено, не эмитится |
 | `action` | `gen_id`, `action`, `stage_id` | `stay` / `next_stage` / `finish` / `evaluate` |
