@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 import httpx
 from ath_contracts import (
     Classification,
+    OpeningKind,
     Persona,
     Report,
     Scenario,
@@ -32,6 +33,14 @@ from httpx_sse import aconnect_sse
 from app.core.logging import get_logger
 
 log = get_logger(__name__)
+
+
+class EvaluationUnavailable(Exception):
+    """Оценку не удалось получить: ai-service или провайдер не ответили.
+
+    Отдельный тип по образцу ScenarioNotFound — чтобы слой API мог отличить
+    «не смогли посчитать» от ошибки в данных и не импортировал httpx.
+    """
 
 
 class AiClient:
@@ -53,12 +62,17 @@ class AiClient:
         history: list[Turn],
         summary: str,
         user_text: str,
+        opening_kind: OpeningKind | None = None,
+        off_topic_streak: int = 0,
     ) -> AsyncIterator[str]:
         """Поток токенов реплики персонажа (быстрая модель, §5).
 
         Отдаёт токены по мере поступления; финальное событие с action пока
         игнорируем — решение о переходе принимает автомат на основе
         отдельного вызова classify(), а не того, что предложила модель.
+
+        `opening_kind` заполнен, когда персонаж заговорил сам (§1): тогда в
+        `user_text` лежит ремарка режиссёра, а не реплика человека.
         """
         payload = CharacterReplyRequest(
             persona=persona,
@@ -66,6 +80,8 @@ class AiClient:
             history=history,
             summary=summary,
             user_text=user_text,
+            opening_kind=opening_kind,
+            off_topic_streak=off_topic_streak,
         )
 
         async with aconnect_sse(
@@ -104,8 +120,16 @@ class AiClient:
             stages_completed=stages_completed,
             stages_total=stages_total,
         )
-        response = await self._client.post(
-            "/evaluate", json=payload.model_dump(mode="json"), timeout=120.0
-        )
-        response.raise_for_status()
+        try:
+            response = await self._client.post(
+                "/evaluate", json=payload.model_dump(mode="json"), timeout=120.0
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            # Оценка длинного разговора сильной моделью — самый долгий вызов в
+            # системе, и он реально отваливается: сторонний шлюз отдавал 524 на
+            # транскрипте в 40 реплик. Наверх идёт своё исключение, чтобы API
+            # не пришлось знать про httpx и можно было ответить внятно.
+            raise EvaluationUnavailable(str(exc)) from exc
+
         return EvaluateResponse.model_validate(response.json()).report

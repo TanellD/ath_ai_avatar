@@ -42,6 +42,17 @@ class Ping(BaseModel):
     type: Literal["ping"] = "ping"
 
 
+class FinishSession(BaseModel):
+    """Сотрудник заканчивает тренировку досрочно.
+
+    Claude.md §3 требует от агента действие «завершить»; автомат делает это
+    сам, когда пройден последний этап, но разговор может выдохнуться раньше —
+    и тогда без этого события сессия висела бы в active навсегда.
+    """
+
+    type: Literal["finish_session"] = "finish_session"
+
+
 # --- [STT] Голосовая фаза — объявлено, не подключено. docs/stt-phase.md -----
 #
 # class SpeechStart(BaseModel):
@@ -61,7 +72,7 @@ class Ping(BaseModel):
 #     type: Literal["speech_end"] = "speech_end"
 
 
-ClientEvent = Annotated[UserMessage | Ping, Field(discriminator="type")]
+ClientEvent = Annotated[UserMessage | Ping | FinishSession, Field(discriminator="type")]
 
 _client_adapter: TypeAdapter[ClientEvent] = TypeAdapter(ClientEvent)
 

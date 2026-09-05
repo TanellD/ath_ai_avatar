@@ -4,6 +4,7 @@ import { AdminSessionDetail } from '@/pages/AdminSessionDetail';
 import { AdminSessions } from '@/pages/AdminSessions';
 import { MethodistReport } from '@/pages/MethodistReport';
 import { MethodistScenarios } from '@/pages/MethodistScenarios';
+import { MethodistSessions } from '@/pages/MethodistSessions';
 import { TraineeSession } from '@/pages/TraineeSession';
 
 /**
@@ -21,6 +22,7 @@ export function App() {
     <div className="app">
       <nav className="app__nav">
         <Link to="/scenarios">Сценарии</Link>
+        <Link to="/sessions">Тренировки</Link>
         <Link to="/admin/sessions" className="app__nav-admin">
           Админ-панель
         </Link>
@@ -30,6 +32,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/scenarios" replace />} />
           <Route path="/scenarios" element={<MethodistScenarios />} />
+          <Route path="/sessions" element={<MethodistSessions />} />
           <Route path="/session/:scenarioId" element={<TraineeSession />} />
           <Route path="/report/:sessionId" element={<MethodistReport />} />
           <Route path="/admin/sessions" element={<AdminSessions />} />

@@ -6,7 +6,7 @@
 услужливый ассистентский режим и тренировка перестаёт быть тренировкой.
 """
 
-from ath_contracts import Persona, Stage, Turn
+from ath_contracts import OpeningKind, Persona, Stage, Turn
 
 _CHARACTER_SYSTEM = """\
 Ты — {name}, {role}. Характер: {character}. Настроение: {mood}.
@@ -23,6 +23,9 @@ _CHARACTER_SYSTEM = """\
 - Не подсказывай собеседнику, что ему следовало бы сказать, и не оценивай его.
 - Не выходи из роли ни при каких обстоятельствах.
 - Не используй разметку, списки и эмодзи: твой текст будет озвучен вслух.
+- Пиши только прямую речь. Никаких ремарок в скобках вроде «(разговор
+  завершён)» и описаний действий: всё, что ты напишешь, будет произнесено
+  голосом как есть.
 {difficulty_hint}
 """
 
@@ -34,10 +37,81 @@ _DIFFICULTY_HINTS = {
     5: "- Максимально сложный собеседник: давление, срыв темы, дефицит времени.",
 }
 
+_OPENING_SESSION_START = """\
 
-def build_character_system(persona: Persona, stage: Stage) -> str:
-    """Системный промпт реплики персонажа."""
-    return _CHARACTER_SYSTEM.format(
+Это самое начало разговора — ты говоришь первым, собеседник ещё не сказал ни
+слова.
+
+ВАЖНО: приветствие уже прозвучало отдельной фразой — «{intro}» Не здоровайся
+второй раз и не представляйся заново, продолжай с середины. Ориентир может
+начинаться с приветствия — приветствие из него не бери, бери только суть.
+
+Одной-двумя фразами задай тон этапа, оттолкнувшись (не дословно!) от ориентира:
+«{agent_opening}»
+Не формулируй прямо или косвенно, что должен ответить собеседник, и не
+раскрывай критерий, по которому будет оцениваться этап.
+"""
+
+_OPENING_STAGE_TRANSITION = """\
+
+Ты уже разговаривал с собеседником — заново не представляйся. Разговор
+переходит к следующему этапу. Одной-двумя фразами естественно перейди к нему,
+оттолкнувшись (не дословно!) от ориентира: «{agent_opening}»
+Не формулируй прямо или косвенно, что должен ответить собеседник, и не
+раскрывай критерий, по которому будет оцениваться этап.
+"""
+
+_OPENING_BLOCKS = {
+    OpeningKind.SESSION_START: _OPENING_SESSION_START,
+    OpeningKind.STAGE_TRANSITION: _OPENING_STAGE_TRANSITION,
+}
+
+_OFF_TOPIC_NUDGE = {
+    1: (
+        "- Последняя реплика собеседника была не по теме этапа. Одной фразой,"
+        " мягко и в характере, верни разговор в сценарий — не отчитывай."
+    ),
+    2: (
+        "- Собеседник уже второй раз подряд уводит разговор в сторону. Твёрдо,"
+        " но оставаясь в характере, откажись обсуждать постороннее и потребуй"
+        " вернуться к теме."
+    ),
+}
+"""Тон возврата в русло. Потолок на 2 — дальше усиливать нечего: от
+бесконечного застревания страхует stage.max_turns в автомате (§5), а не
+эскалация тона. Ветки в fsm.py под off_topic по-прежнему нет и не должно
+быть: возврат в русло — работа персонажа, а не автомата."""
+
+
+def build_intro_template(persona: Persona) -> str:
+    """Самопредставление персонажа — детерминированная строка, без LLM.
+
+    Имя и роль фиксированы сценарием, поэтому генерировать их моделью незачем:
+    эта фраза уходит в TTS первой, пока модель ещё только начинает писать
+    продолжение, и снимает вызов LLM с критического пути до первого звука
+    (метрика 1, §9). Побочный выигрыш: текст детерминирован, поэтому его
+    синтез кэшируется в speech-service по (voice_id, sha256(text)).
+    """
+    return f"Здравствуйте, меня зовут {persona.name}, {persona.role}."
+
+
+def build_character_system(
+    persona: Persona,
+    stage: Stage,
+    opening_kind: OpeningKind | None = None,
+    off_topic_streak: int = 0,
+) -> str:
+    """Системный промпт реплики персонажа.
+
+    `opening_kind` заполнен, только когда персонаж говорит сам, без реплики
+    пользователя (§1). `off_topic_streak` меняет ровно тон возврата в русло и
+    ничего больше — решение о переходе принимает автомат (§5).
+
+    `stage.completion_criteria` сюда не попадает ни при каких условиях: то,
+    чего персонаж не знает, он не может проболтать. Критерий видит только
+    классификатор — см. `build_classifier_system`.
+    """
+    prompt = _CHARACTER_SYSTEM.format(
         name=persona.name,
         role=persona.role,
         character=persona.character,
@@ -45,6 +119,16 @@ def build_character_system(persona: Persona, stage: Stage) -> str:
         stage_goal=stage.goal,
         difficulty_hint=_DIFFICULTY_HINTS.get(persona.difficulty, _DIFFICULTY_HINTS[3]),
     )
+
+    if opening_kind is not None:
+        prompt += _OPENING_BLOCKS[opening_kind].format(
+            agent_opening=stage.agent_opening,
+            intro=build_intro_template(persona),
+        )
+    elif off_topic_streak > 0:
+        prompt += _OFF_TOPIC_NUDGE[min(off_topic_streak, max(_OFF_TOPIC_NUDGE))] + "\n"
+
+    return prompt
 
 
 def build_messages(history: list[Turn], summary: str, user_text: str) -> list[dict[str, str]]:

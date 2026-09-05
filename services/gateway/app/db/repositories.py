@@ -6,10 +6,12 @@
 in-memory реализацию, не поднимая базу.
 """
 
+from datetime import UTC, datetime
 from typing import Protocol
 
-from ath_contracts import Report, SessionState, Turn
-from sqlalchemy import select
+from ath_contracts import Report, SessionState, SessionStatus, Turn
+from ath_contracts.api import SessionSummaryItem
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ReportRow, SessionRow, TurnRow
@@ -19,6 +21,8 @@ class SessionRepository(Protocol):
     async def create(self, state: SessionState, user_id: str) -> None: ...
     async def get(self, session_id: str) -> SessionState | None: ...
     async def save_snapshot(self, state: SessionState) -> None: ...
+    async def mark_finished(self, session_id: str) -> None: ...
+    async def list_summaries(self, limit: int = 100) -> list[SessionSummaryItem]: ...
     async def append_turn(self, session_id: str, index: int, turn: Turn, gen_id: int) -> None: ...
 
 
@@ -89,6 +93,61 @@ class SqlSessionRepository:
         row.stage_history = [entry.model_dump(mode="json") for entry in state.stage_history]
         await self._db.commit()
 
+    async def list_summaries(self, limit: int = 100) -> list[SessionSummaryItem]:
+        """Сессии для экрана методиста (§2), новые сверху.
+
+        Пустые сессии отфильтрованы (`join`, а не `outerjoin`, по счётчику
+        ходов): до недавнего времени строка заводилась на каждый заход на
+        страницу тренировки, и таких в базе накопилось больше, чем настоящих.
+        Тренировка без единого хода методисту не нужна ни для чего — ни
+        истории, ни оценки в ней нет.
+        """
+        turn_counts = (
+            select(TurnRow.session_id, func.count(TurnRow.id).label("n"))
+            .group_by(TurnRow.session_id)
+            .subquery()
+        )
+        rows = (
+            await self._db.execute(
+                select(SessionRow, turn_counts.c.n, ReportRow.session_id.label("report_id"))
+                .join(turn_counts, turn_counts.c.session_id == SessionRow.id)
+                .outerjoin(ReportRow, ReportRow.session_id == SessionRow.id)
+                .order_by(SessionRow.created_at.desc())
+                .limit(limit)
+            )
+        ).all()
+
+        return [
+            SessionSummaryItem(
+                session_id=row.SessionRow.id,
+                scenario_id=row.SessionRow.scenario_id,
+                status=SessionStatus(row.SessionRow.status),
+                turn_count=row.n,
+                created_at=row.SessionRow.created_at.isoformat(),
+                finished_at=(
+                    row.SessionRow.finished_at.isoformat()
+                    if row.SessionRow.finished_at
+                    else None
+                ),
+                has_report=row.report_id is not None,
+            )
+            for row in rows
+        ]
+
+    async def mark_finished(self, session_id: str) -> None:
+        """Зафиксировать завершение: статус и время окончания.
+
+        Отдельно от save_snapshot: снимок делается на дисконнекте, а завершение
+        надо записать в момент, когда оно произошло, — иначе сессия, из которой
+        сотрудник ушёл сразу после финала, останется в БД как active.
+        """
+        row = await self._db.get(SessionRow, session_id)
+        if row is None:
+            return
+        row.status = SessionStatus.FINISHED.value
+        row.finished_at = datetime.now(UTC).replace(tzinfo=None)
+        await self._db.commit()
+
     async def append_turn(self, session_id: str, index: int, turn: Turn, gen_id: int) -> None:
         self._db.add(
             TurnRow(
@@ -111,14 +170,21 @@ class SqlReportRepository:
         self._db = session
 
     async def save(self, report: Report) -> None:
-        self._db.add(
-            ReportRow(
-                session_id=report.session_id,
-                verdict=report.verdict,
-                total_score=report.total_score,
-                payload=report.model_dump(mode="json"),
-            )
-        )
+        """Сохранить или перезаписать отчёт.
+
+        Именно перезаписать, а не только вставить: оценку можно запустить
+        повторно (POST /sessions/{id}/report), когда первая прошла на заглушке
+        или упала. Простой INSERT падал бы на дубликате первичного ключа, и
+        «пересчитать» работало бы ровно один раз — то есть никогда.
+        """
+        row = await self._db.get(ReportRow, report.session_id)
+        if row is None:
+            row = ReportRow(session_id=report.session_id)
+            self._db.add(row)
+
+        row.verdict = report.verdict
+        row.total_score = report.total_score
+        row.payload = report.model_dump(mode="json")
         await self._db.commit()
 
     async def get(self, session_id: str) -> Report | None:

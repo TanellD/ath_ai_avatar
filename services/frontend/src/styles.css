@@ -81,6 +81,62 @@ body {
   color: var(--danger);
 }
 
+/* ------------------------------------------- оверлеи начала и конца сессии
+   Общая разметка на два экрана: стартовый (перекрывает сессию, пока
+   пользователь не нажал «Начать» — аватар под ним уже грузится, но звук до
+   жеста пользователя браузер не пустит, см. SessionStartOverlay.tsx) и
+   финальный (SessionEndOverlay.tsx). */
+
+.session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(250, 249, 247, 0.94);
+}
+
+.session-overlay__card {
+  max-width: 460px;
+  width: 100%;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.session-overlay__title {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.session-overlay__lead {
+  margin: 0 0 4px;
+  color: var(--muted);
+}
+
+.session-overlay__button {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.session-overlay__button:disabled {
+  background: var(--border);
+  color: var(--muted);
+  cursor: progress;
+}
+
 /* --------------------------------------------------------------- сессия */
 
 .session__header {
@@ -89,6 +145,35 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+
+.session__controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Второстепенная по виду кнопка: завершить тренировку можно в любой момент,
+   но это не то действие, к которому стоит подталкивать. */
+.session__finish {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.session__finish:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.session__finish:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .indicator {
@@ -422,6 +507,37 @@ body {
   margin: 8px 0 0;
   color: var(--danger);
   font-size: 13px;
+}
+
+/* Отчёт заглушки невозможно отличить от настоящего по содержанию — только по
+   этой плашке и полю model. */
+.report__stub {
+  padding: 10px 14px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: #fdf3f1;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.report__rebuild {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.report__rebuild:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.report__rebuild:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 .report__transcript {

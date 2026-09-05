@@ -44,6 +44,8 @@ async def evaluate(payload: EvaluateRequest, request: Request) -> EvaluateRespon
             duration_sec=payload.duration_sec,
             stages_completed=payload.stages_completed,
             stages_total=payload.stages_total,
+            # Провайдер + модель: отчёт заглушки обязан быть опознаваем.
+            model=f"{provider.name}/{settings.llm_strong_model}",
         )
     except InvalidReportError as exc:
         # TODO: один повтор с указанием на конкретную непрошедшую цитату перед

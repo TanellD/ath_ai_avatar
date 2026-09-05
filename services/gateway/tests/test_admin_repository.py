@@ -5,13 +5,13 @@ SpanRow напрямую, читаем через админ-чтения. In-me
 from collections.abc import AsyncIterator
 
 import pytest
-from ath_contracts import SessionState, Turn, TurnRole
+from ath_contracts import Report, SessionState, Turn, TurnRole
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.admin_repository import AdminRepository
-from app.db.models import Base, SpanRow
-from app.db.repositories import SqlSessionRepository
+from app.db.models import Base, ReportRow, SessionRow, SpanRow
+from app.db.repositories import SqlReportRepository, SqlSessionRepository
 from app.db.seed import DEFAULT_EMPLOYEE_ID, seed_default_users
 
 
@@ -69,6 +69,122 @@ async def test_get_session_path_returns_turns_in_order(db_session: AsyncSession)
     assert summary.turn_count == 2
     assert [t.text for t in turns] == ["первый", "второй"]
     assert [t.gen_id for t in turns] == [1, 2]
+
+
+async def test_mark_finished_sets_status_and_timestamp(db_session: AsyncSession) -> None:
+    """Завершение фиксируется сразу, а не на дисконнекте: сотрудник может уйти
+    с экрана мгновенно, и тогда save_snapshot уже не спасёт."""
+    repo = SqlSessionRepository(db_session)
+    state = SessionState(session_id="s-fin", scenario_id="objection_price", current_stage="opening")
+    await repo.create(state, user_id=DEFAULT_EMPLOYEE_ID)
+
+    await repo.mark_finished("s-fin")
+
+    admin = AdminRepository(db_session)
+    row = (await admin.list_sessions())[0]
+    assert row.status == "finished"
+
+    stored = await db_session.get(SessionRow, "s-fin")
+    assert stored is not None
+    assert stored.finished_at is not None, "колонка finished_at должна наконец писаться"
+
+
+async def _report(session_id: str, **overrides) -> Report:
+    payload = {
+        "session_id": session_id,
+        "verdict": "Норм",
+        "total_score": 3.0,
+        "scores": [],
+        "transcript": [],
+        "duration_sec": 60,
+        "stages_completed": 1,
+        "stages_total": 1,
+    }
+    payload.update(overrides)
+    return Report.model_validate(payload)
+
+
+async def test_list_summaries_flags_sessions_with_report(db_session: AsyncSession) -> None:
+    """has_report — то, ради чего запрос и писался: без него список сессий
+    показывал бы ссылки на несуществующие отчёты."""
+    repo = SqlSessionRepository(db_session)
+    state = SessionState(session_id="s-rep", scenario_id="objection_price", current_stage="opening")
+    await repo.create(state, user_id=DEFAULT_EMPLOYEE_ID)
+    await repo.append_turn(
+        "s-rep", 0, Turn(role=TurnRole.USER, text="привет", stage_id="opening", ts=0.0), gen_id=1
+    )
+
+    assert (await repo.list_summaries())[0].has_report is False
+
+    await SqlReportRepository(db_session).save(await _report("s-rep"))
+
+    summary = (await repo.list_summaries())[0]
+    assert summary.has_report is True
+    assert summary.turn_count == 1
+
+
+async def test_list_summaries_hides_empty_sessions(db_session: AsyncSession) -> None:
+    """Сессия без единого хода методисту бесполезна — в базе таких большинство,
+    потому что раньше строка заводилась на каждый заход на страницу."""
+    repo = SqlSessionRepository(db_session)
+    await repo.create(
+        SessionState(session_id="s-empty", scenario_id="objection_price", current_stage="opening"),
+        user_id=DEFAULT_EMPLOYEE_ID,
+    )
+
+    assert await repo.list_summaries() == []
+
+
+async def test_report_save_overwrites(db_session: AsyncSession) -> None:
+    """«Пересчитать» обязано работать больше одного раза — на INSERT падало бы
+    на дубликате первичного ключа."""
+    repo = SqlSessionRepository(db_session)
+    await repo.create(
+        SessionState(session_id="s-again", scenario_id="objection_price", current_stage="opening"),
+        user_id=DEFAULT_EMPLOYEE_ID,
+    )
+    reports = SqlReportRepository(db_session)
+
+    await reports.save(await _report("s-again", verdict="Первый", total_score=1.0))
+    await reports.save(await _report("s-again", verdict="Второй", total_score=4.0))
+
+    stored = await reports.get("s-again")
+    assert stored is not None
+    assert stored.verdict == "Второй"
+    assert stored.total_score == 4.0
+
+
+async def test_old_report_without_new_fields_still_reads(db_session: AsyncSession) -> None:
+    """В базе уже лежат отчёты без scenario_id и model. Обязательные поля
+    сделали бы их нечитаемыми — защита дефолтов проверяется здесь."""
+    repo = SqlSessionRepository(db_session)
+    await repo.create(
+        SessionState(session_id="s-old", scenario_id="objection_price", current_stage="opening"),
+        user_id=DEFAULT_EMPLOYEE_ID,
+    )
+    db_session.add(
+        ReportRow(
+            session_id="s-old",
+            verdict="Старый формат",
+            total_score=2.0,
+            payload={
+                "session_id": "s-old",
+                "verdict": "Старый формат",
+                "total_score": 2.0,
+                "scores": [],
+                "transcript": [],
+                "duration_sec": 30,
+                "stages_completed": 1,
+                "stages_total": 1,
+            },
+        )
+    )
+    await db_session.commit()
+
+    stored = await SqlReportRepository(db_session).get("s-old")
+    assert stored is not None
+    assert stored.scenario_id == ""
+    assert stored.model == ""
 
 
 async def test_get_session_path_missing_session_returns_none(db_session: AsyncSession) -> None:

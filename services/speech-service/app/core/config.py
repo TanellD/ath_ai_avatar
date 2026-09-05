@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     tts_voice_id: str = ""
     tts_sample_rate: int = 24000
 
+    # Кэш аудио для детерминированных фраз — прежде всего самопредставления
+    # персонажа (docs/agent-initiative.md). В памяти процесса: сервис и так
+    # однопроцессный, а холодный кэш после рестарта стоит один синтез.
+    tts_cache_enabled: bool = True
+    tts_cache_max_entries: int = 256
+
     elevenlabs_api_key: str = ""
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
