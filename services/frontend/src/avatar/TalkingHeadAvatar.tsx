@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { stabilizeNonHumanoidPose, guardAvatarResize } from './runtimeGuards';
 import {
   AnimationMixer,
   LoopOnce,
@@ -184,6 +185,7 @@ export function TalkingHeadAvatar({
       try {
         const { TalkingHead } = await import('@met4citizen/talkinghead');
         let embeddedIdle: EmbeddedIdleController | null = null;
+        let restoreRootPosition: (() => void) | undefined;
 
         const initialTuning = model.cameraTuning[model.cameraView];
 
@@ -197,6 +199,9 @@ export function TalkingHeadAvatar({
           modelFPS: 60,
           cameraRotateEnable: false,
         });
+
+        const disposeResize = guardAvatarResize(head, mount);
+        avatarCleanupRef.current = disposeResize;
 
         await head.audioCtx.audioWorklet.addModule(HEADAUDIO_WORKLET_URL);
 
@@ -233,6 +238,7 @@ export function TalkingHeadAvatar({
         head.opt.update = (dt: number) => {
           headaudio.update(dt);
           embeddedIdle?.update(dt);
+          restoreRootPosition?.();
         };
 
         headaudio.onstarted = () => {
@@ -247,10 +253,13 @@ export function TalkingHeadAvatar({
         });
 
         if (!model.humanoidPose) {
-          stabilizeNonHumanoidPose(head);
+          restoreRootPosition = stabilizeNonHumanoidPose(head);
           if (model.embeddedIdleAnimations) {
             embeddedIdle = playEmbeddedIdleAnimations(head);
-            avatarCleanupRef.current = () => embeddedIdle?.dispose();
+            avatarCleanupRef.current = () => {
+              disposeResize();
+              embeddedIdle?.dispose();
+            };
           }
         }
 
@@ -258,33 +267,12 @@ export function TalkingHeadAvatar({
         cursorGazeRef.current = cursorGaze;
         cursorGaze.setEnabled(!isSpeakingRef.current);
 
-        // TalkingHead.onResize() не защищён от нулевого размера контейнера:
-        // при сворачивании окна clientWidth/clientHeight дают 0, camera.aspect
-        // становится NaN, и OrbitControls остаются в испорченном состоянии —
-        // после разворачивания аватар оказывается вне кадра. Возвращаем камеру
-        // на место, как только контейнер снова получает ненулевой размер.
-        let currentView: CameraView = model.cameraView;
         const applyView = (view: CameraView) => {
-          currentView = view;
           const tuning = model.cameraTuning[view];
           head.setView(view, {
             cameraDistance: tuning.cameraDistance,
             cameraY: tuning.cameraY,
           });
-        };
-
-        let hadSize = mount.clientWidth > 0 && mount.clientHeight > 0;
-        const sizeGuard = new ResizeObserver(() => {
-          const hasSize = mount.clientWidth > 0 && mount.clientHeight > 0;
-          if (hasSize && !hadSize) applyView(currentView);
-          hadSize = hasSize;
-        });
-        sizeGuard.observe(mount);
-
-        const disposeIdle = avatarCleanupRef.current;
-        avatarCleanupRef.current = () => {
-          sizeGuard.disconnect();
-          disposeIdle?.();
         };
 
         onReady({
@@ -344,35 +332,6 @@ function asNonHumanoidRuntime(head: unknown): NonHumanoidRuntime {
  */
 function prepareNonHumanoidPose(head: unknown): void {
   asNonHumanoidRuntime(head).poseBase.props = {};
-}
-
-/** Зафиксировать нативную базу Tom и оставить из pose-delta только поворот головы. */
-function stabilizeNonHumanoidPose(head: unknown): void {
-  const runtime = asNonHumanoidRuntime(head);
-
-  for (const [key, original] of Object.entries(runtime.poseBase.props)) {
-    const base = original.clone() as TimedPoseTransform;
-    const target = original.clone() as TimedPoseTransform;
-    target.t = runtime.animClock;
-    target.d = 0;
-    runtime.poseBase.props[key] = base;
-    runtime.poseTarget.props[key] = target;
-    runtime.poseAvatar.props[key]?.copy(original);
-  }
-
-  const proceduralPose = runtime.animQueue.find((item) => item.template?.name === 'pose');
-  if (proceduralPose) proceduralPose.ts[0] = Infinity;
-
-  const updatePoseDelta = runtime.updatePoseDelta.bind(runtime);
-  runtime.updatePoseDelta = () => {
-    for (const [key, delta] of Object.entries(runtime.poseDelta.props)) {
-      if (key === 'Head.quaternion') continue;
-      delta.x = 0;
-      delta.y = 0;
-      delta.z = 0;
-    }
-    updatePoseDelta();
-  };
 }
 
 /** Последовательно проигрывать только авторские idle-клипы из GLB Tom. */
