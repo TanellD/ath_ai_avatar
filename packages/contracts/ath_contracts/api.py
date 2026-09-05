@@ -76,8 +76,8 @@ class EvaluateResponse(BaseModel):
 class TtsRequest(BaseModel):
     """Кадр запроса в WS /tts/stream.
 
-    Дробление по предложениям делает gateway: первое предложение уходит сюда
-    сразу, не дожидаясь конца генерации LLM (§10).
+    Gateway может продолжить запрос кадрами `TtsTextChunk`: первое предложение
+    уходит сразу, а `text_end` закрывает всю реплику только после конца LLM.
     """
 
     gen_id: int
@@ -87,6 +87,14 @@ class TtsRequest(BaseModel):
     emotion: Emotion = Emotion.NEUTRAL
     intensity: EmotionIntensity = EmotionIntensity.STRONG
     enhanced_prosody: bool = True
+    text_end: bool = True
+
+
+class TtsTextChunk(BaseModel):
+    """Следующая часть текста в уже открытом TTS stream."""
+
+    text: str
+    text_end: bool = False
 
 
 class TtsChunk(BaseModel):
@@ -98,6 +106,9 @@ class TtsChunk(BaseModel):
     format: str = "wav"
     sample_rate: int = 24000
     is_final: bool = False
+    subtitle_text: str = ""
+    subtitle_start_ms: int | None = None
+    subtitle_end_ms: int | None = None
 
 
 class SttOpenRequest(BaseModel):

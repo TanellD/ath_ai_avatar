@@ -18,7 +18,7 @@ import asyncio
 import base64
 import io
 import wave
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 
 from ath_contracts import (
     ActionEvent,
@@ -183,14 +183,7 @@ class TurnPipeline:
     async def _speak(
         self, gen_id: int, user_text: str, avatar_id: str, recorder: SpanRecorder
     ) -> None:
-        """Реплика персонажа: токены LLM → предложения → чанки TTS.
-
-        TODO: обвязка готова, тела клиентов — заглушки. Что здесь должно
-        появиться при подключении реальных провайдеров:
-          - параллельный запуск TTS для предложения N и продолжение чтения
-            токенов N+1 (сейчас последовательно, и это съедает time to first
-            audio на длинных ответах).
-        """
+        """Реплика персонажа: токены LLM → один непрерывный TTS stream."""
         stage = self._session.machine.stage(self._session.current_stage_id)
         context = build_context(
             self._session.turns, self._max_context_turns, self._session.summary
@@ -200,93 +193,99 @@ class TurnPipeline:
         full_text: list[str] = []
         emotion = Emotion(self._session.scenario.persona.mood.value)
         voice_id = voice_for(avatar_id, self._session.scenario.persona)
-        seq = 0
         elapsed_ms = 0
-        """Сколько аудио этого поколения уже отправлено — начало отсчёта для
-        следующего SubtitleEvent. Тайминги относительно начала поколения (§7),
-        не абсолютное время."""
 
         persona_name = self._session.scenario.persona.name
         async with recorder.span(
             "character_reply", f'{persona_name}: ответ на "{user_text[:60]}"'
         ):
-            async for item in self._ai.stream_character_reply(
+            reply = self._ai.stream_character_reply(
                 persona=self._session.scenario.persona,
                 stage=stage,
                 history=context.recent,
                 summary=context.summary,
                 user_text=user_text,
-            ):
+            ).__aiter__()
+
+            # Emotion meta штатно приходит до первого токена. Примируем поток,
+            # чтобы Soniox stream сразу открылся с правильной подачей.
+            first_token: str | None = None
+            async for item in reply:
                 if isinstance(item, CharacterReplyMeta):
                     emotion = item.emotion
                     continue
+                first_token = item
+                break
 
-                token = item
-                full_text.append(token)
-                await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
+            async def sentences() -> AsyncIterator[str]:
+                async def tokens() -> AsyncIterator[str]:
+                    if first_token is not None:
+                        yield first_token
+                    async for remaining in reply:
+                        if isinstance(remaining, CharacterReplyMeta):
+                            log.warning("pipeline.late_emotion_meta", gen_id=gen_id)
+                            continue
+                        yield remaining
 
-                for sentence in splitter.feed(token):
-                    seq, elapsed_ms = await self._synthesize(
-                        gen_id, sentence, seq, elapsed_ms, emotion, voice_id, recorder
+                async for token in tokens():
+                    full_text.append(token)
+                    await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
+                    for sentence in splitter.feed(token):
+                        yield sentence
+
+                tail = splitter.flush()
+                if tail:
+                    yield tail
+
+            alignment_seen = False
+            async with recorder.span("tts_synthesize", "continuous reply"):
+                async for chunk in self._speech.stream_tts_reply(
+                    gen_id=gen_id,
+                    seq=0,
+                    texts=sentences(),
+                    voice_id=voice_id,
+                    emotion=emotion,
+                ):
+                    await self._send(
+                        gen_id,
+                        AudioChunkEvent(
+                            gen_id=gen_id,
+                            seq=chunk.seq,
+                            data=chunk.data,
+                            format=chunk.format,
+                            emotion=emotion,
+                        ),
                     )
+                    elapsed_ms += wav_duration_ms(chunk.data)
+                    if (
+                        chunk.subtitle_text
+                        and chunk.subtitle_start_ms is not None
+                        and chunk.subtitle_end_ms is not None
+                    ):
+                        alignment_seen = True
+                        await self._send(
+                            gen_id,
+                            SubtitleEvent(
+                                gen_id=gen_id,
+                                text=chunk.subtitle_text,
+                                start_ms=chunk.subtitle_start_ms,
+                                end_ms=chunk.subtitle_end_ms,
+                            ),
+                        )
 
-            tail = splitter.flush()
-            if tail:
-                seq, elapsed_ms = await self._synthesize(
-                    gen_id, tail, seq, elapsed_ms, emotion, voice_id, recorder
+            if not alignment_seen and full_text:
+                await self._send(
+                    gen_id,
+                    SubtitleEvent(
+                        gen_id=gen_id,
+                        text="".join(full_text),
+                        start_ms=0,
+                        end_ms=elapsed_ms,
+                    ),
                 )
 
         agent_turn = self._session.add_turn(TurnRole.AGENT, "".join(full_text))
         await self._persist_turn(agent_turn, gen_id)
-
-    async def _synthesize(
-        self,
-        gen_id: int,
-        sentence: str,
-        seq: int,
-        elapsed_ms: int,
-        emotion: Emotion,
-        voice_id: str | None,
-        recorder: SpanRecorder,
-    ) -> tuple[int, int]:
-        """Озвучить одно предложение, отдавая чанки по мере готовности (§10).
-
-        Заодно копит длительность и шлёт SubtitleEvent по завершении
-        предложения — клиент использует его, чтобы показывать текст в такт
-        голосу, а не в такт токенам (токены приходят быстрее речи).
-        """
-        sentence_ms = 0
-        async with recorder.span("tts_synthesize", sentence):
-            async for chunk in self._speech.stream_tts(
-                gen_id=gen_id,
-                seq=seq,
-                text=sentence,
-                voice_id=voice_id,
-                emotion=emotion,
-            ):
-                await self._send(
-                    gen_id,
-                    AudioChunkEvent(
-                        gen_id=gen_id,
-                        seq=chunk.seq,
-                        data=chunk.data,
-                        format=chunk.format,
-                        emotion=emotion,
-                    ),
-                )
-                sentence_ms += wav_duration_ms(chunk.data)
-                seq = chunk.seq + 1
-
-        await self._send(
-            gen_id,
-            SubtitleEvent(
-                gen_id=gen_id,
-                text=sentence,
-                start_ms=elapsed_ms,
-                end_ms=elapsed_ms + sentence_ms,
-            ),
-        )
-        return seq, elapsed_ms + sentence_ms
 
     async def _advance_stage(self, gen_id: int, user_text: str, recorder: SpanRecorder) -> None:
         """Классификация ответа моделью, решение о переходе — кодом (§5)."""

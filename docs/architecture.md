@@ -20,8 +20,9 @@
          │
          ├─► ai-service  POST /character/reply  (SSE, быстрая модель)
          │      └─ токены ──► sentence_splitter
-         │                       └─► speech-service  WS /tts/stream
-         │                              └─ чанки аудио
+         │                       └─► один speech-service WS /tts/stream на реплику
+         │                              ├─ предложения поступают до text_end
+         │                              └─ аудио + character timestamps
          │
          ├─ token       { gen_id, text } ────────────────► браузер
          ├─ audio_chunk { gen_id, seq, data, emotion } ──► браузер
@@ -47,6 +48,10 @@
 Транспорты: браузер ⇄ gateway — WebSocket; gateway ⇄ speech — WebSocket
 (чанки должны стримиться); gateway ⇄ ai — HTTP + SSE; gateway ⇄ scenario —
 обычный HTTP.
+
+TTS stream живёт одну полную реплику персонажа, а не одно предложение. Это
+сохраняет состояние голоса и громкость между предложениями; `text_end` уходит
+после завершения LLM, при этом первый звук приходит ещё во время генерации.
 
 ## Три решения, которые стоит понимать
 

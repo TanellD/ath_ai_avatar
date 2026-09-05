@@ -23,11 +23,13 @@ Node-сервере. Здесь — не порт того же кода, а с�
     async for chunk in connection.receive_audio_chunks(): ...   # сырые байты
 """
 
+import asyncio
 import io
 import re
 import uuid
 import wave
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
 from ath_contracts import Emotion, EmotionIntensity
 from soniox import AsyncSonioxClient
@@ -88,6 +90,36 @@ _TURN_PAUSE_RE = re.compile(
 )
 
 
+class TimestampControlTagFilter:
+    """Убирает Soniox control tags из отображаемого timestamp-текста.
+
+    Один тег может быть разрезан между соседними realtime-событиями, поэтому
+    состояние хранится на протяжении всего TTS stream.
+    """
+
+    def __init__(self) -> None:
+        self._inside_tag = False
+
+    def apply(
+        self, characters: list[str], starts: list[float], ends: list[float]
+    ) -> tuple[str, list[float], list[float]]:
+        visible: list[str] = []
+        visible_starts: list[float] = []
+        visible_ends: list[float] = []
+        for character, start, end in zip(characters, starts, ends, strict=False):
+            if self._inside_tag:
+                if character == "]":
+                    self._inside_tag = False
+                continue
+            if character == "[":
+                self._inside_tag = True
+                continue
+            visible.append(character)
+            visible_starts.append(start)
+            visible_ends.append(end)
+        return "".join(visible), visible_starts, visible_ends
+
+
 def with_enhanced_prosody(text: str) -> str:
     """Добавить паузы только в TTS-копию текста на смысловых границах."""
     with_intro_pauses = _INTRODUCTORY_PAUSE_RE.sub(r"\1\2, [pause] ", text)
@@ -103,6 +135,30 @@ def text_with_emotion(
     """Добавить управляющий тег только в запрос Soniox, не в текст сессии."""
     spoken_text = with_enhanced_prosody(text) if enhanced_prosody else text
     return f"{_EMOTION_TAGS[emotion][intensity]} {spoken_text}"
+
+
+async def spoken_text_chunks(
+    texts: AsyncIterator[str],
+    emotion: Emotion,
+    intensity: EmotionIntensity,
+    enhanced_prosody: bool,
+) -> AsyncIterator[str]:
+    """Подготовить LLM-части для одного Soniox stream.
+
+    Emotion-теги задают подачу всей реплики и поэтому отправляются ровно один
+    раз. Пробел между предложениями нужен, потому что SentenceSplitter отдаёт
+    очищенные строки.
+    """
+    first = True
+    async for text in texts:
+        spoken = with_enhanced_prosody(text) if enhanced_prosody else text
+        if not spoken.strip():
+            continue
+        if first:
+            yield f"{_EMOTION_TAGS[emotion][intensity]} {spoken}"
+            first = False
+        else:
+            yield f" {spoken}"
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
@@ -149,6 +205,22 @@ class SonioxTtsProvider(TtsProvider):
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
         enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
+        async def one_text() -> AsyncIterator[str]:
+            yield text
+
+        async for chunk in self.synthesize_stream(
+            one_text(), voice_id, emotion, intensity, enhanced_prosody
+        ):
+            yield chunk
+
+    async def synthesize_stream(
+        self,
+        texts: AsyncIterator[str],
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
+    ) -> AsyncIterator[AudioChunk]:
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
             model=_MODEL,
@@ -156,6 +228,7 @@ class SonioxTtsProvider(TtsProvider):
             voice=voice_id or self._default_voice,
             audio_format="pcm_s16le",
             sample_rate=self._sample_rate,
+            return_timestamps=True,
         )
 
         # Отмена (§6): при task.cancel() со стороны gateway CancelledError
@@ -163,28 +236,74 @@ class SonioxTtsProvider(TtsProvider):
         # вызывает __aexit__ соединения на разворачивании стека — отдельно
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
-            await connection.send_text_chunks(
-                text_with_emotion(text, emotion, intensity, enhanced_prosody), text_end=True
+            sender = asyncio.create_task(
+                connection.send_text_chunks(
+                    spoken_text_chunks(texts, emotion, intensity, enhanced_prosody),
+                    text_end=True,
+                )
             )
+            events = connection.receive_events().__aiter__()
+            pending: AudioChunk | None = None
+            received_audio = False
+            timestamp_filter = TimestampControlTagFilter()
+            try:
+                while True:
+                    receiver = asyncio.create_task(anext(events))
+                    if sender is not None:
+                        done, _ = await asyncio.wait(
+                            {sender, receiver}, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if sender in done:
+                            try:
+                                sender.result()
+                            except BaseException:
+                                receiver.cancel()
+                                with suppress(asyncio.CancelledError):
+                                    await receiver
+                                raise
+                            sender = None
+                    try:
+                        event = await receiver
+                    except StopAsyncIteration:
+                        break
 
-            # Однокусковый lookahead: SDK не помечает последний чанк сам —
-            # is_final узнаём только когда async-итератор исчерпан, то есть
-            # на кусок позже. Без этого некому было бы поставить is_final=True.
-            pending: bytes | None = None
-            async for chunk in connection.receive_audio_chunks():
-                if pending is not None:
-                    yield AudioChunk(
-                        data=_pcm_to_wav(pending, self._sample_rate),
+                    pcm = event.audio_bytes()
+                    if pcm is None:
+                        continue
+                    received_audio = True
+                    timestamps = event.timestamps
+                    if timestamps is None:
+                        aligned_text, starts, ends = "", [], []
+                    else:
+                        aligned_text, starts, ends = timestamp_filter.apply(
+                            timestamps.characters,
+                            timestamps.character_start_times_seconds,
+                            timestamps.character_end_times_seconds,
+                        )
+                    chunk = AudioChunk(
+                        data=_pcm_to_wav(pcm, self._sample_rate),
                         sample_rate=self._sample_rate,
-                        is_final=False,
+                        subtitle_text=aligned_text,
+                        subtitle_start_ms=round(starts[0] * 1000) if starts else None,
+                        subtitle_end_ms=round(ends[-1] * 1000) if ends else None,
                     )
-                pending = chunk
+                    if pending is not None:
+                        yield pending
+                    pending = chunk
+            finally:
+                if sender is not None:
+                    sender.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await sender
 
             if pending is not None:
                 yield AudioChunk(
-                    data=_pcm_to_wav(pending, self._sample_rate),
-                    sample_rate=self._sample_rate,
+                    data=pending.data,
+                    sample_rate=pending.sample_rate,
                     is_final=True,
+                    subtitle_text=pending.subtitle_text,
+                    subtitle_start_ms=pending.subtitle_start_ms,
+                    subtitle_end_ms=pending.subtitle_end_ms,
                 )
-            else:
-                log.warning("tts.soniox.empty_response", chars=len(text))
+            elif not received_audio:
+                log.warning("tts.soniox.empty_response")

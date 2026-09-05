@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { PlaybackClock } from '@/audio/PlaybackClock';
 import type { SubtitleEvent } from '@/contracts/events';
+import { joinCueText } from '@/subtitles/cueText';
 
 export interface ChatTurn {
   role: 'user' | 'agent';
@@ -56,10 +57,7 @@ export function ChatPanel({ transcript, cues, clock, isAgentReplying }: Props) {
     // не считаем сами. Тот же принцип, что в Subtitles.tsx.
     const tick = () => {
       const positionMs = clock.positionMs();
-      const text = cues
-        .filter((cue) => cue.start_ms <= positionMs)
-        .map((cue) => cue.text)
-        .join(' ');
+      const text = joinCueText(cues.filter((cue) => cue.start_ms <= positionMs));
       setSyncedText(text);
       frameRef.current = requestAnimationFrame(tick);
     };

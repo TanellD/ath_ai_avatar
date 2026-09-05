@@ -3,17 +3,18 @@
 WebSocket, а не HTTP, потому что чанки должны идти по мере синтеза: TTS
 озвучивает ответ по частям, пользователь не ждёт генерации целиком (§3).
 
-Соединение открывается на предложение и закрывается по его завершении.
-Держать одно долгоживущее соединение на сессию заманчиво, но тогда отмена
-поколения требует протокола отмены внутри самого соединения — а так её делает
-закрытие сокета при CancelledError.
+Одиночный вызов используется лабораторией и recovery-аудио. Основной pipeline
+держит один stream на всю реплику и отправляет в него предложения по мере
+генерации LLM. При CancelledError соединение закрывается вместе с задачей.
 
 [STT] В голосовой фазе здесь появится второе направление — стрим микрофонного
 аудио в STT. См. docs/stt-phase.md.
 """
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
 import httpx
 import websockets
@@ -23,6 +24,7 @@ from ath_contracts.api import (
     SttServiceEvent,
     TtsChunk,
     TtsRequest,
+    TtsTextChunk,
     parse_stt_service_event,
 )
 
@@ -64,8 +66,48 @@ class SpeechClient:
             async for raw in ws:
                 chunk = TtsChunk.model_validate(json.loads(raw))
                 yield chunk
-                if chunk.is_final:
-                    return
+
+    async def stream_tts_reply(
+        self,
+        gen_id: int,
+        seq: int,
+        texts: AsyncIterator[str],
+        voice_id: str | None,
+        emotion: Emotion = Emotion.NEUTRAL,
+    ) -> AsyncIterator[TtsChunk]:
+        """Один непрерывный TTS stream на всю реплику персонажа."""
+        async with websockets.connect(f"{self._ws_url}/tts/stream") as ws:
+            await ws.send(
+                TtsRequest(
+                    gen_id=gen_id,
+                    seq=seq,
+                    text="",
+                    text_end=False,
+                    voice_id=voice_id,
+                    emotion=emotion,
+                ).model_dump_json()
+            )
+
+            async def send_text() -> None:
+                try:
+                    async for text in texts:
+                        await ws.send(TtsTextChunk(text=text).model_dump_json())
+                    await ws.send(TtsTextChunk(text="", text_end=True).model_dump_json())
+                except Exception:
+                    await ws.close()
+                    raise
+
+            sender = asyncio.create_task(send_text())
+            try:
+                async for raw in ws:
+                    chunk = TtsChunk.model_validate(json.loads(raw))
+                    yield chunk
+                await sender
+            finally:
+                if not sender.done():
+                    sender.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await sender
 
     async def open_stt(self, request: SttOpenRequest) -> "SttStream":
         ws = await websockets.connect(f"{self._ws_url}/stt/stream")

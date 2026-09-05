@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { PlaybackClock } from '@/audio/PlaybackClock';
 import type { SubtitleEvent } from '@/contracts/events';
+import { currentCueSentence, joinCueText } from '@/subtitles/cueText';
 
 interface Props {
   clock: PlaybackClock;
@@ -30,8 +31,8 @@ export function Subtitles({ clock, cues, frozen }: Props) {
 
     const tick = () => {
       const positionMs = clock.positionMs();
-      const active = cues.find((cue) => positionMs >= cue.start_ms && positionMs < cue.end_ms);
-      if (active) setText(active.text);
+      const visible = cues.filter((cue) => cue.start_ms <= positionMs);
+      if (visible.length) setText(currentCueSentence(joinCueText(visible)));
       frameRef.current = requestAnimationFrame(tick);
     };
 
