@@ -183,7 +183,7 @@ export function EmotionLab() {
 
   const selectEmotion = (next: (typeof EMOTIONS)[number]) => {
     setEmotion(next.value);
-    const samples = isTom ? TOM_SAMPLES[next.value] : next;
+    const samples = usesMaleVoice ? TOM_SAMPLES[next.value] : next;
     setText(sampleLength === 'long' ? samples.longSample : samples.sample);
     rig?.setEmotion(next.value);
   };
@@ -191,7 +191,7 @@ export function EmotionLab() {
   const selectSampleLength = (next: SampleLength) => {
     setSampleLength(next);
     const current = EMOTIONS.find((item) => item.value === emotion) ?? EMOTIONS[0];
-    const samples = isTom ? TOM_SAMPLES[current.value] : current;
+    const samples = usesMaleVoice ? TOM_SAMPLES[current.value] : current;
     setText(next === 'long' ? samples.longSample : samples.sample);
   };
 
