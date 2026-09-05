@@ -21,11 +21,14 @@ import wave
 from collections.abc import Awaitable, Callable, Coroutine
 
 from ath_contracts import (
+    Action,
     ActionEvent,
     AudioChunkEvent,
     CancelEvent,
     Classification,
+    ReportEvent,
     ServerEvent,
+    SessionStatus,
     SubtitleEvent,
     TokenEvent,
     Turn,
@@ -36,7 +39,7 @@ from app.clients.ai_client import AiClient
 from app.clients.speech_client import SpeechClient
 from app.core.logging import get_logger
 from app.db.engine import session_factory
-from app.db.repositories import SqlSessionRepository
+from app.db.repositories import SqlReportRepository, SqlSessionRepository
 from app.orchestrator.context_window import build_context
 from app.orchestrator.sentence_splitter import SentenceSplitter
 from app.orchestrator.session_manager import LiveSession
@@ -262,6 +265,43 @@ class TurnPipeline:
                 stage_id=self._session.current_stage_id,
             ),
         )
+
+        if transition.action is Action.EVALUATE:
+            await self._finish_and_evaluate(gen_id)
+
+    async def _finish_and_evaluate(self, gen_id: int) -> None:
+        """Единственный вызов сильной модели, после конца сценария (§5).
+
+        Без этого шага `action: evaluate` уходит в сокет, а
+        `GET /sessions/{id}/report` так и остаётся 404 навсегда — ФСМ решает
+        "пора оценивать", но раньше никто это решение не подхватывал.
+
+        `_raw_send`, а не `_send`: отчёт — не аудио-чанк поколения, которое
+        можно потерять из-за перебивания. Отчёт формируется РОВНО один раз,
+        и клиент должен получить его даже если это конкретное `gen_id` успело
+        устареть (например, пользователь уже начал печатать что-то ещё).
+        """
+        session = self._session
+        stage = f'{session.scenario.title}: финальная оценка'
+        async with SpanRecorder(session.session_id, gen_id).span("evaluate", stage):
+            report = await self._ai.evaluate(
+                session_id=session.session_id,
+                scenario=session.scenario,
+                transcript=session.turns,
+                duration_sec=session.elapsed_sec,
+                stages_completed=len(session.stage_history),
+                stages_total=len(session.scenario.stages),
+            )
+
+        session.status = SessionStatus.FINISHED
+        async with session_factory()() as db:
+            await SqlReportRepository(db).save(report)
+            await SqlSessionRepository(db).save_snapshot(session.snapshot())
+
+        await self._raw_send(
+            ReportEvent(gen_id=gen_id, session_id=session.session_id, report=report)
+        )
+        log.info("pipeline.session_finished", session_id=session.session_id)
 
     async def _send(self, gen_id: int, event: ServerEvent) -> None:
         """Отправка с проверкой поколения.
