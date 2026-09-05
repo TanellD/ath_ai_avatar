@@ -26,28 +26,38 @@ body {
   overflow: hidden;
 }
 
-.app {
+.app--fullbleed {
   display: flex;
   flex-direction: column;
   height: 100vh;
 }
 
-/* --------------------------------------------------------------- шапка */
+/* ------------------------------------------------------------- сайдбар-шелл
+   По макету front/Дашборд методиста.dc.html. Сайдбар — flex: none фиксированной
+   ширины, .app__body рядом занимает всё остальное и сам скроллится. */
 
-.app__nav {
-  flex: none;
-  margin: 16px 24px 0;
-  padding: 14px 22px;
-  border-radius: var(--r-lg);
+.app--shell {
   display: flex;
-  align-items: center;
-  gap: 28px;
+  height: 100vh;
+  gap: 20px;
+  padding: 20px;
+}
+
+.sidebar {
+  width: 240px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 16px;
+  border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 
 .app__brand,
-.session__brand {
+.session__brand,
+.sidebar__brand {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -57,8 +67,14 @@ body {
   color: var(--ink);
 }
 
+.sidebar__brand {
+  padding: 0 10px;
+  margin-bottom: 12px;
+}
+
 .app__brand small,
-.session__brand small {
+.session__brand small,
+.sidebar__brand small {
   display: block;
   font-size: 12px;
   font-weight: 600;
@@ -79,36 +95,46 @@ body {
   box-shadow: 0 10px 22px -8px rgba(36, 86, 230, 0.55);
 }
 
-.app__nav-links {
+.sidebar__nav {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.app__nav-link {
-  padding: 9px 16px;
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10.5px 14px;
   border-radius: 999px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 14.5px;
+  font-weight: 600;
   color: var(--ink-2);
   transition:
     background 0.2s var(--ease),
     color 0.2s var(--ease);
 }
 
-.app__nav-link:hover {
+.sidebar__link:hover {
   background: var(--surface-2);
 }
 
-.app__nav-link--active {
+.sidebar__link--active {
   background: var(--blue);
   color: #fff;
+  box-shadow: 0 10px 22px -8px rgba(36, 86, 230, 0.55);
 }
 
-.app__nav-link--muted {
+.sidebar__debug-link {
+  margin-top: auto;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--ink-3);
-  font-size: 13px;
+}
+
+.sidebar__debug-link:hover {
+  color: var(--ink-2);
 }
 
 .app__body {
@@ -149,6 +175,73 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 18px;
+}
+
+/* ------------------------------------------------------- журнал сессий */
+
+.sessions-table {
+  padding: 8px 16px;
+}
+
+.sessions-table__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.sessions-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1.1fr 0.8fr 0.8fr 0.9fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 8px;
+  border-top: 1px solid var(--line);
+  border-radius: 14px;
+  transition: background 0.2s var(--ease);
+}
+
+.sessions-row:first-child {
+  border-top: none;
+}
+
+/* .row-hover — из макета front/Дашборд методиста.dc.html, там был локальным
+   <style>; здесь общий для всех табличных списков методиста. */
+.row-hover:hover {
+  background: var(--surface-2);
+}
+
+.sessions-row__person {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.sessions-row__scenario,
+.sessions-row__date,
+.sessions-row__stage,
+.sessions-row__turns {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.sessions-status {
+  background: var(--btn-gray);
+  color: var(--ink-2);
+}
+
+.sessions-status--finished {
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+}
+
+.sessions-status--abandoned {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.arrow-btn--disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* --------------------------------------------------------------- сессия */
