@@ -30,7 +30,7 @@ async def character_reply(payload: CharacterReplyRequest, request: Request):
     settings = get_settings()
     provider = request.app.state.llm
 
-    system = build_character_system(payload.persona, payload.stage)
+    system = build_character_system(payload.persona, payload.stage, payload.knowledge_context)
     messages = build_messages(payload.history, payload.summary, payload.user_text)
 
     async def event_stream() -> AsyncIterator[dict[str, str]]:

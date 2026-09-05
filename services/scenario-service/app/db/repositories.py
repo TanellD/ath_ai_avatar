@@ -35,6 +35,9 @@ class SqlScenarioRepository:
                 persona_name=row.persona_name,
                 stages_count=row.stages_count,
                 rubric_count=row.rubric_count,
+                # payload уже загружен вместе со строкой — читаем флаг оттуда,
+                # а не заводим для него отдельную колонку (см. models.py).
+                knowledge_base_enabled=row.payload.get("knowledge_base_enabled", False),
             )
             for row in rows
         ]

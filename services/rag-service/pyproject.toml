@@ -1,0 +1,53 @@
+[project]
+name = "ath-rag-service"
+version = "0.1.0"
+description = "База знаний сценария: чанкинг, эмбеддинги, ChromaDB (issue #11)"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "httpx>=0.27",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.5",
+    "structlog>=24.4",
+    "python-multipart>=0.0.12",
+    # >=1.0: версии 0.4/0.5 тянут chroma-hnswlib и компилируют C-расширение
+    # на установке (нужен MSVC Build Tools) — на Windows без него ставится
+    # только сборкой из исходников и падает. 1.x ставится готовым колесом.
+    "chromadb>=1.0",
+    "ath-contracts",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24", "ruff>=0.7"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "RET", "SIM", "RUF", "ANN001", "BLE001"]
+ignore = [
+    # Файлы лежат на bind-mount с Windows и приезжают с битом +x. Правило
+    # ловит эту особенность монтирования, а не проблему в коде.
+    "EXE002",
+    # Depends(...) в сигнатуре — штатная идиома FastAPI, а не мутабельный
+    # аргумент по умолчанию.
+    "B008",
+    # Проект документирован по-русски. Правила ловят кириллицу как «символ,
+    # похожий на латинский», и срабатывают на каждой строке комментариев.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]

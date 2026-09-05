@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.clients.ai_client import AiClient
+from app.clients.rag_client import RagClient
 from app.clients.scenario_client import ScenarioClient
 from app.clients.speech_client import SpeechClient
 from app.core.config import get_settings
@@ -36,12 +37,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.scenario = ScenarioClient(
         settings.scenario_service_url, settings.downstream_timeout_sec
     )
+    app.state.rag = RagClient(settings.rag_service_url, settings.downstream_timeout_sec)
 
     log.info(
         "gateway.started",
         speech=settings.speech_service_url,
         ai=settings.ai_service_url,
         scenario=settings.scenario_service_url,
+        rag=settings.rag_service_url,
     )
 
     try:
@@ -50,5 +53,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await app.state.ai.aclose()
         await app.state.speech.aclose()
         await app.state.scenario.aclose()
+        await app.state.rag.aclose()
         await dispose_engine()
         log.info("gateway.stopped")

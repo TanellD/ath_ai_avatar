@@ -46,6 +46,7 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         session=session,
         ai=app.state.ai,
         speech=app.state.speech,
+        rag=app.state.rag,
         send=send,
         max_context_turns=get_settings().max_context_turns,
     )

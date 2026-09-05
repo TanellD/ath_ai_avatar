@@ -35,6 +35,13 @@ from ath_contracts.events import (
     UserMessage,
     parse_client_event,
 )
+from ath_contracts.knowledge import (
+    KnowledgeDocInfo,
+    KnowledgeListResponse,
+    KnowledgeQueryRequest,
+    KnowledgeQueryResponse,
+    KnowledgeUploadResponse,
+)
 from ath_contracts.report import AudioRef, CriterionScore, Report
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 from ath_contracts.session import SessionState, StageHistoryEntry, Turn
@@ -49,6 +56,11 @@ __all__ = [
     "ClientEvent",
     "CriterionScore",
     "ErrorEvent",
+    "KnowledgeDocInfo",
+    "KnowledgeListResponse",
+    "KnowledgeQueryRequest",
+    "KnowledgeQueryResponse",
+    "KnowledgeUploadResponse",
     "Mood",
     "Persona",
     "Ping",

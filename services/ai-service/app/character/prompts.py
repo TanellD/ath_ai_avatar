@@ -24,6 +24,15 @@ _CHARACTER_SYSTEM = """\
 - Не выходи из роли ни при каких обстоятельствах.
 - Не используй разметку, списки и эмодзи: твой текст будет озвучен вслух.
 {difficulty_hint}
+{knowledge_block}"""
+
+_KNOWLEDGE_BLOCK = """
+У тебя есть доступ к следующим фактам из базы знаний (регламент, прайс-лист —
+то, что реально знал бы человек в твоей роли). Используй их только если они
+относятся к разговору, и не зачитывай их списком — вплетай в свою реплику
+естественно, как то, что ты и так знаешь:
+
+{chunks}
 """
 
 _DIFFICULTY_HINTS = {
@@ -35,8 +44,21 @@ _DIFFICULTY_HINTS = {
 }
 
 
-def build_character_system(persona: Persona, stage: Stage) -> str:
-    """Системный промпт реплики персонажа."""
+def build_character_system(
+    persona: Persona, stage: Stage, knowledge_context: list[str] | None = None
+) -> str:
+    """Системный промпт реплики персонажа.
+
+    `knowledge_context` — фрагменты из RAG (issue #11), уже отобранные
+    gateway'ем по тексту реплики пользователя. Пусто, если у сценария не
+    включена база знаний — тогда `knowledge_block` пропадает совсем, а не
+    остаётся пустым заголовком.
+    """
+    knowledge_block = (
+        _KNOWLEDGE_BLOCK.format(chunks="\n".join(f"- {c}" for c in knowledge_context))
+        if knowledge_context
+        else ""
+    )
     return _CHARACTER_SYSTEM.format(
         name=persona.name,
         role=persona.role,
@@ -44,6 +66,7 @@ def build_character_system(persona: Persona, stage: Stage) -> str:
         mood=persona.mood.value,
         stage_goal=stage.goal,
         difficulty_hint=_DIFFICULTY_HINTS.get(persona.difficulty, _DIFFICULTY_HINTS[3]),
+        knowledge_block=knowledge_block,
     )
 
 

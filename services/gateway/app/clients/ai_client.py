@@ -53,6 +53,7 @@ class AiClient:
         history: list[Turn],
         summary: str,
         user_text: str,
+        knowledge_context: list[str] | None = None,
     ) -> AsyncIterator[str]:
         """Поток токенов реплики персонажа (быстрая модель, §5).
 
@@ -66,6 +67,7 @@ class AiClient:
             history=history,
             summary=summary,
             user_text=user_text,
+            knowledge_context=knowledge_context or [],
         )
 
         async with aconnect_sse(
@@ -94,6 +96,7 @@ class AiClient:
         duration_sec: int,
         stages_completed: int,
         stages_total: int,
+        knowledge_context: list[str] | None = None,
     ) -> Report:
         """Один вызов сильной модели после завершения сессии (§5)."""
         payload = EvaluateRequest(
@@ -103,6 +106,7 @@ class AiClient:
             duration_sec=duration_sec,
             stages_completed=stages_completed,
             stages_total=stages_total,
+            knowledge_context=knowledge_context or [],
         )
         response = await self._client.post(
             "/evaluate", json=payload.model_dump(mode="json"), timeout=120.0

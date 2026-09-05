@@ -36,6 +36,7 @@ from ath_contracts import (
 )
 
 from app.clients.ai_client import AiClient
+from app.clients.rag_client import RagClient
 from app.clients.speech_client import SpeechClient
 from app.core.logging import get_logger
 from app.db.engine import session_factory
@@ -76,12 +77,14 @@ class TurnPipeline:
         session: LiveSession,
         ai: AiClient,
         speech: SpeechClient,
+        rag: RagClient,
         send: SendFn,
         max_context_turns: int,
     ) -> None:
         self._session = session
         self._ai = ai
         self._speech = speech
+        self._rag = rag
         self._raw_send = send
         self._max_context_turns = max_context_turns
         # Держит ссылки на fire-and-forget задачи (запись хода в БД), пока
@@ -164,6 +167,7 @@ class TurnPipeline:
         context = build_context(
             self._session.turns, self._max_context_turns, self._session.summary
         )
+        knowledge_context = await self._query_knowledge(user_text, top_k=3)
 
         splitter = SentenceSplitter()
         full_text: list[str] = []
@@ -183,6 +187,7 @@ class TurnPipeline:
                 history=context.recent,
                 summary=context.summary,
                 user_text=user_text,
+                knowledge_context=knowledge_context,
             ):
                 full_text.append(token)
                 await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
@@ -282,6 +287,12 @@ class TurnPipeline:
         устареть (например, пользователь уже начал печатать что-то ещё).
         """
         session = self._session
+        # Для оценки нет одной «текущей реплики» как в _speak — запрос к базе
+        # знаний собираем из формулировок рубрики: судье нужен регламент по
+        # тем же темам, по которым он выставляет баллы (issue #11).
+        rubric_query = " ".join(item.description for item in session.scenario.rubric)
+        knowledge_context = await self._query_knowledge(rubric_query, top_k=5)
+
         stage = f'{session.scenario.title}: финальная оценка'
         async with SpanRecorder(session.session_id, gen_id).span("evaluate", stage):
             report = await self._ai.evaluate(
@@ -291,6 +302,7 @@ class TurnPipeline:
                 duration_sec=session.elapsed_sec,
                 stages_completed=len(session.stage_history),
                 stages_total=len(session.scenario.stages),
+                knowledge_context=knowledge_context,
             )
 
         session.status = SessionStatus.FINISHED
@@ -302,6 +314,16 @@ class TurnPipeline:
             ReportEvent(gen_id=gen_id, session_id=session.session_id, report=report)
         )
         log.info("pipeline.session_finished", session_id=session.session_id)
+
+    async def _query_knowledge(self, query: str, top_k: int) -> list[str]:
+        """RAG (issue #11) — только если методист включил галочку у сценария.
+
+        Без этой проверки rag-service дёргался бы на каждый ход каждой
+        сессии, даже когда у сценария нет и не будет документа — лишний
+        сетевой вызов на пустое место."""
+        if not self._session.scenario.knowledge_base_enabled:
+            return []
+        return await self._rag.query(self._session.scenario.id, query, top_k)
 
     async def _send(self, gen_id: int, event: ServerEvent) -> None:
         """Отправка с проверкой поколения.

@@ -27,7 +27,7 @@ async def evaluate(payload: EvaluateRequest, request: Request) -> EvaluateRespon
     provider = request.app.state.llm
 
     raw = await provider.complete_json(
-        system=build_evaluation_system(payload.scenario),
+        system=build_evaluation_system(payload.scenario, payload.knowledge_context),
         messages=[{"role": "user", "content": build_transcript_message(payload.transcript)}],
         model=settings.llm_strong_model,
         max_tokens=settings.evaluation_max_tokens,

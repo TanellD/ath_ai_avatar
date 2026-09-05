@@ -23,6 +23,14 @@ class CharacterReplyRequest(BaseModel):
     history: list[Turn] = Field(description="Скользящее окно, уже подготовленное gateway (§5)")
     summary: str = Field(default="", description="Сжатая выжимка вытесненных ходов")
     user_text: str
+    knowledge_context: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Фрагменты базы знаний сценария (RAG, issue #11), уже отобранные "
+            "gateway'ем через scenario-service по тексту реплики пользователя. "
+            "Пусто, если knowledge_base_enabled=false у сценария."
+        ),
+    )
 
 
 class CharacterReplyDone(BaseModel):
@@ -54,6 +62,13 @@ class EvaluateRequest(BaseModel):
     duration_sec: int
     stages_completed: int
     stages_total: int
+    knowledge_context: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Фрагменты базы знаний сценария (RAG, issue #11) — судья сверяет "
+            "ответы сотрудника с регламентом, а не только с рубрикой."
+        ),
+    )
 
 
 class EvaluateResponse(BaseModel):
@@ -98,6 +113,7 @@ class ScenarioSummary(BaseModel):
     persona_name: str
     stages_count: int
     rubric_count: int
+    knowledge_base_enabled: bool = False
 
 
 class ScenarioListResponse(BaseModel):

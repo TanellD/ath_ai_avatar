@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     speech_service_url: str = "http://speech-service:8010"
     ai_service_url: str = "http://ai-service:8030"
     scenario_service_url: str = "http://scenario-service:8050"
+    rag_service_url: str = "http://rag-service:8060"
 
     # Строка, а не list[str], намеренно: pydantic-settings разбирает поля
     # составных типов из переменных окружения как JSON, ДО валидаторов. Список

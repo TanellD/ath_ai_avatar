@@ -182,6 +182,8 @@ export interface Scenario {
   persona: Persona;
   stages: Stage[];
   rubric: RubricItem[];
+  /** Галочка методиста «использовать базу знаний» (issue #11, RAG). */
+  knowledge_base_enabled: boolean;
 }
 
 export interface ScenarioSummary {
@@ -190,4 +192,5 @@ export interface ScenarioSummary {
   persona_name: string;
   stages_count: number;
   rubric_count: number;
+  knowledge_base_enabled: boolean;
 }

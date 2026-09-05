@@ -36,6 +36,7 @@ services:
       SPEECH_SERVICE_URL: http://speech-service:8010
       AI_SERVICE_URL: http://ai-service:8030
       SCENARIO_SERVICE_URL: http://scenario-service:8050
+      RAG_SERVICE_URL: http://rag-service:8060
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
       MAX_CONTEXT_TURNS: ${MAX_CONTEXT_TURNS:-6}
     volumes:
@@ -44,6 +45,7 @@ services:
       speech-service: {condition: service_healthy}
       ai-service: {condition: service_healthy}
       scenario-service: {condition: service_healthy}
+      rag-service: {condition: service_healthy}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -130,6 +132,36 @@ services:
       retries: 5
       start_period: 20s
 
+  # ------------------------------------------------------------- rag-service
+  # База знаний сценария (issue #11) — чанкинг, эмбеддинги, ChromaDB.
+  # Осознанный выход за Claude.md §4 (там разрешён только простейший поиск по
+  # короткому документу) — отдельный сервис, а не часть scenario-service,
+  # чтобы тяжёлая зависимость (chromadb) не тянулась в процесс, которому она
+  # не нужна большую часть времени (RAG — опциональная галочка, не всегда
+  # включена).
+  rag-service:
+    <<: *python-common
+    build:
+      context: .
+      dockerfile: services/rag-service/Dockerfile
+    ports:
+      - "${RAG_PORT:-8060}:8060"
+    environment:
+      <<: *python-env
+      SERVICE_NAME: rag-service
+      EMBEDDINGS_BASE_URL: ${EMBEDDINGS_BASE_URL:-${OPENAI_COMPATIBLE_BASE_URL:-https://api.vsellm.ru/v1}}
+      EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-${OPENAI_COMPATIBLE_API_KEY:-}}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-nomic-embed-text}
+      CHROMA_PATH: /data/chroma
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8060/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
   # --------------------------------------------------------------- frontend
   frontend:
     build:
@@ -142,6 +174,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
         VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
         VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-http://localhost:8050}
+        VITE_RAG_API_URL: ${VITE_RAG_API_URL:-http://localhost:8060}
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-8080}:80"

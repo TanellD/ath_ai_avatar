@@ -47,3 +47,15 @@ class Scenario(BaseModel):
     persona: Persona
     stages: list[Stage] = Field(min_length=1)
     rubric: list[RubricItem] = Field(min_length=1)
+    knowledge_base_enabled: bool = Field(
+        default=False,
+        description=(
+            "Галочка методиста «использовать базу знаний» (issue #11). Когда "
+            "включена, gateway перед репликой персонажа и перед итоговой "
+            "оценкой достаёт релевантные фрагменты загруженного документа "
+            "через RAG (scenario-service, ChromaDB) и передаёт их в ai-service "
+            "как knowledge_context. Осознанный выход за Claude.md §4, который "
+            "разрешает только простейший поиск по короткому документу — здесь "
+            "полноценная векторная БД с эмбеддингами."
+        ),
+    )

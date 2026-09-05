@@ -51,6 +51,18 @@ services:
     environment:
       LOG_FORMAT: console
 
+  rag-service:
+    build:
+      target: dev
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8060 --reload --reload-dir /app/app --reload-dir /opt/packages
+    volumes:
+      - ./services/rag-service/app:/app/app
+      - ./services/rag-service/tests:/app/tests
+      - ./packages:/opt/packages
+      - ./data:/data
+    environment:
+      LOG_FORMAT: console
+
   frontend:
     build:
       target: dev
@@ -67,6 +79,7 @@ services:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
       VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
       VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-http://localhost:8050}
+      VITE_RAG_API_URL: ${VITE_RAG_API_URL:-http://localhost:8060}
 
 volumes:
   frontend_node_modules:

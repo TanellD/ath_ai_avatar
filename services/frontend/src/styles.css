@@ -177,6 +177,63 @@ body {
   gap: 18px;
 }
 
+/* --------------------------------------------------- база знаний (RAG) */
+
+.knowledge-panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.knowledge-panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.knowledge-panel__toggle input {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  accent-color: var(--blue);
+}
+
+.knowledge-panel__body {
+  margin-top: 10px;
+}
+
+.knowledge-panel__doc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.knowledge-panel__remove {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.knowledge-panel__upload {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--blue);
+  cursor: pointer;
+}
+
+.knowledge-panel__upload input {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  max-width: 100%;
+}
+
 /* ------------------------------------------------------- журнал сессий */
 
 .sessions-table {

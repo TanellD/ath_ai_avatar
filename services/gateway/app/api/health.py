@@ -42,6 +42,11 @@ async def ready(request: Request, response: Response) -> dict[str, object]:
         except Exception as exc:  # noqa: BLE001
             dependencies[name] = f"fail: {exc}"
 
+    # rag-service сюда сознательно не включён: он опционален (галочка
+    # knowledge_base_enabled у конкретного сценария, issue #11), и его
+    # недоступность не должна валить /ready всего gateway — RagClient.query()
+    # сам деградирует до пустого knowledge_context при ошибке.
+
     ok = all(value == "ok" for value in dependencies.values())
     if not ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

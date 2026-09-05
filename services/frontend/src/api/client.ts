@@ -15,10 +15,12 @@ import type {
   Span,
 } from '@/contracts/admin';
 import type { Report, Scenario, ScenarioSummary } from '@/contracts/events';
+import type { KnowledgeDocInfo } from '@/contracts/knowledge';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000';
 const SCENARIO_URL = import.meta.env.VITE_SCENARIO_API_URL ?? 'http://localhost:8050';
+const RAG_URL = import.meta.env.VITE_RAG_API_URL ?? 'http://localhost:8060';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -108,5 +110,38 @@ export const scenarioApi = {
       `${SCENARIO_URL}/scenarios/${scenarioId}/copy?new_id=${encodeURIComponent(newId)}`,
       { method: 'POST' },
     );
+  },
+};
+
+/**
+ * База знаний сценария (RAG, issue #11) — отдельный сервис (rag-service),
+ * браузер обращается к нему напрямую, как и к scenario-service (см.
+ * CORS-мидлварь в его main.py). Сам retrieval во время сессии браузера не
+ * касается — это делает gateway из pipeline.py.
+ */
+export const knowledgeApi = {
+  async list(scenarioId: string): Promise<KnowledgeDocInfo[]> {
+    const data = await request<{ items: KnowledgeDocInfo[] }>(
+      `${RAG_URL}/scenarios/${scenarioId}/knowledge`,
+    );
+    return data.items;
+  },
+
+  async upload(scenarioId: string, file: File): Promise<KnowledgeDocInfo> {
+    const form = new FormData();
+    form.append('file', file);
+    const response = await fetch(`${RAG_URL}/scenarios/${scenarioId}/knowledge`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}: ${await response.text()}`);
+    }
+    const data = (await response.json()) as { doc: KnowledgeDocInfo };
+    return data.doc;
+  },
+
+  remove(scenarioId: string): Promise<void> {
+    return request(`${RAG_URL}/scenarios/${scenarioId}/knowledge`, { method: 'DELETE' });
   },
 };

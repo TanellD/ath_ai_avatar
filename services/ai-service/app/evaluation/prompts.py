@@ -38,19 +38,33 @@ _EVALUATION_SYSTEM = """\
 
 Рубрика:
 {rubric}
+{knowledge_block}"""
+
+_KNOWLEDGE_BLOCK = """
+База знаний сценария (регламент, прайс-лист) — используй её, чтобы проверить
+ФАКТИЧЕСКУЮ точность реплик сотрудника (например, назвал ли он верную цену
+или условие), а не только форму ответа:
+
+{chunks}
 """
 
 
-def build_evaluation_system(scenario: Scenario) -> str:
+def build_evaluation_system(scenario: Scenario, knowledge_context: list[str] | None = None) -> str:
     rubric_lines = [
         f"- {item.id} «{item.name}» (шкала 0-{item.scale}, вес {item.weight}): {item.description}"
         for item in scenario.rubric
     ]
+    knowledge_block = (
+        _KNOWLEDGE_BLOCK.format(chunks="\n".join(f"- {c}" for c in knowledge_context))
+        if knowledge_context
+        else ""
+    )
     return _EVALUATION_SYSTEM.format(
         title=scenario.title,
         persona_name=scenario.persona.name,
         persona_role=scenario.persona.role,
         rubric="\n".join(rubric_lines),
+        knowledge_block=knowledge_block,
     )
 
 
