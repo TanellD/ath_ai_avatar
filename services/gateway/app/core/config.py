@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # ответа персонажа целиком — 0.85-2.2 с (§9).
     downstream_timeout_sec: float = 30.0
 
+    # Voice transport guards; benchmark may tighten these defaults later.
+    voice_max_capture_seconds: int = 20
+    voice_max_frame_bytes: int = 32_000
+    stt_language: str = "ru"
+
     @cached_property
     def cors_origin_list(self) -> list[str]:
         """Разбор CORS_ORIGINS: значения через запятую."""

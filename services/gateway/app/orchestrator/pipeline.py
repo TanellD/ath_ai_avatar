@@ -102,26 +102,52 @@ class TurnPipeline:
         и намеренно: они обязаны укладываться в 300 мс без сетевого
         round-trip. Здесь начинается серверная половина протокола.
         """
-        generations = self._session.generations
-
-        # Шаг 3: новое поколение. Инкремент ПЕРВЫМ делом — с этого момента
-        # is_stale() уже запрещает отправку хвоста старого поколения.
-        gen_id = generations.bump()
-
-        # Шаг 4: снять активные стримы LLM и TTS предыдущего поколения.
-        if interrupts is not None:
-            await generations.cancel(interrupts)
-            # Шаг 5: сообщить клиенту, какое поколение отменено — на случай,
-            # если он ещё не знает о новом.
-            await self._raw_send(CancelEvent(gen_id=interrupts))
+        gen_id = await self.begin_user_turn(interrupts)
 
         user_turn = self._session.add_turn(TurnRole.USER, text)
         # Не await: запись в БД не должна задерживать обработку следующего
         # события в цикле приёма — от этого зависит бюджет barge-in (§9).
         self._fire_and_forget(self._persist_turn(user_turn, gen_id))
 
+        self._start_pipeline(gen_id, text)
+
+    async def begin_user_turn(self, interrupts: int | None) -> int:
+        """Один authoritative bump для text или PTT начала."""
+        generations = self._session.generations
+        gen_id = generations.bump()
+        if interrupts is not None:
+            await generations.cancel(interrupts)
+            await self._raw_send(CancelEvent(gen_id=interrupts))
+        return gen_id
+
+    async def handle_voice_final(
+        self,
+        *,
+        gen_id: int,
+        capture_id: str,
+        text: str,
+        confidence: float | None,
+    ) -> bool:
+        """Commit final transcript once, then reuse the normal dialogue pipeline."""
+        if self._session.generations.is_stale(gen_id) or not text.strip():
+            return False
+        turn = self._session.make_turn(
+            TurnRole.USER, text.strip(), stt_confidence=confidence
+        )
+        index = len(self._session.turns)
+        async with session_factory()() as db:
+            inserted = await SqlSessionRepository(db).commit_voice_turn(
+                self._session.session_id, capture_id, index, turn, gen_id
+            )
+        if not inserted:
+            return False
+        self._session.accept_turn(turn)
+        self._start_pipeline(gen_id, turn.text)
+        return True
+
+    def _start_pipeline(self, gen_id: int, text: str) -> None:
         task = asyncio.create_task(self._run_turn(gen_id, text))
-        generations.register(gen_id, task)
+        self._session.generations.register(gen_id, task)
 
     # -------------------------------------------------------------- внутри
 

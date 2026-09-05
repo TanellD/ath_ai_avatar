@@ -26,6 +26,7 @@ import { gatewayApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
+import { useMicCapture } from '@/audio/mic/useMicCapture';
 import { TalkingHeadAvatar, type AvatarPlaybackHandle } from '@/avatar/TalkingHeadAvatar';
 import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
 import { ConsentBanner } from '@/components/ConsentBanner';
@@ -44,6 +45,23 @@ interface AudioRig {
   setEmotion: AvatarPlaybackHandle['setEmotion'];
 }
 
+interface VoiceTimingMarks {
+  captureId: string;
+  genId: number;
+  captureStartedAt: number;
+  speechEndedAt?: number;
+  firstPartialRecorded: boolean;
+  responseAudioRecorded: boolean;
+}
+
+interface VoiceMetrics {
+  stopMs?: number;
+  ackMs?: number;
+  firstPartialMs?: number;
+  finalizationMs?: number;
+  responseTtfaMs?: number;
+}
+
 export function TraineeSession() {
   const { scenarioId = '' } = useParams();
 
@@ -53,6 +71,9 @@ export function TraineeSession() {
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
   const [pushToTalk, setPushToTalk] = useState(false);
+  const [voiceActive, setVoiceActive] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState('');
+  const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetrics | null>(null);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
   const [audio, setAudio] = useState<AudioRig | null>(null);
 
@@ -63,6 +84,9 @@ export function TraineeSession() {
    */
   const genRef = useRef(0);
   const emotionGenerationRef = useRef<number | null>(null);
+  const activeCaptureRef = useRef<string | null>(null);
+  const captureEndingRef = useRef(false);
+  const voiceTimingRef = useRef<VoiceTimingMarks | null>(null);
 
   const handleAvatarReady = useCallback((handle: AvatarPlaybackHandle) => {
     const clock = new PlaybackClock(handle.audioCtx);
@@ -71,8 +95,23 @@ export function TraineeSession() {
     // байты уже ОТПРАВЛЕНЫ, а не когда они доиграли — раньше индикатор либо
     // не гас вовсе (обычный переход stay/next_stage не трогал playback), либо
     // гас слишком рано. Теперь состояние идёт от факта тишины в колонках.
-    const queue = new AudioQueue(handle.audioCtx, clock, handle.destination, () =>
-      setPlayback('idle'),
+    const queue = new AudioQueue(
+      handle.audioCtx,
+      clock,
+      handle.destination,
+      () => setPlayback('idle'),
+      (genId, leadMs) => {
+        const timing = voiceTimingRef.current;
+        if (
+          !timing?.speechEndedAt
+          || timing.genId !== genId
+          || timing.responseAudioRecorded
+        ) return;
+        timing.responseAudioRecorded = true;
+        const responseTtfaMs = Math.round(performance.now() + leadMs - timing.speechEndedAt);
+        setVoiceMetrics((current) => ({ ...current, responseTtfaMs }));
+        console.info('[voice-metric]', { capture_id: timing.captureId, response_ttfa_ms: responseTtfaMs });
+      },
     );
     setAudio({ clock, queue, resetFace: handle.resetFace, setEmotion: handle.setEmotion });
   }, []);
@@ -147,12 +186,61 @@ export function TraineeSession() {
           if (audio && event.gen_id !== genRef.current) audio.queue.stopAll();
           break;
 
+        case 'speech_started':
+          if (voiceTimingRef.current?.captureId === event.capture_id) {
+            const ackMs = Math.round(performance.now() - voiceTimingRef.current.captureStartedAt);
+            setVoiceMetrics((current) => ({ ...current, ackMs }));
+          }
+          if (!captureEndingRef.current) setPlayback('listening');
+          break;
+
+        case 'transcript':
+          if (
+            !event.is_final
+            && voiceTimingRef.current?.captureId === event.capture_id
+            && !voiceTimingRef.current.firstPartialRecorded
+          ) {
+            voiceTimingRef.current.firstPartialRecorded = true;
+            const firstPartialMs = Math.round(
+              performance.now() - voiceTimingRef.current.captureStartedAt,
+            );
+            setVoiceMetrics((current) => ({ ...current, firstPartialMs }));
+          }
+          setVoiceDraft(event.is_final ? '' : event.text);
+          if (event.is_final) {
+            const timing = voiceTimingRef.current;
+            if (timing?.captureId === event.capture_id && timing.speechEndedAt) {
+              const finalizationMs = Math.round(performance.now() - timing.speechEndedAt);
+              setVoiceMetrics((current) => ({ ...current, finalizationMs }));
+              console.info('[voice-metric]', {
+                capture_id: timing.captureId,
+                finalization_ms: finalizationMs,
+              });
+            }
+            activeCaptureRef.current = null;
+            captureEndingRef.current = false;
+            setVoiceActive(false);
+            if (event.text.trim()) {
+              setTranscript((lines) => [...lines, { role: 'user', text: event.text.trim() }]);
+              setPlayback('thinking');
+            } else {
+              setPlayback('idle');
+              setError({ type: 'audio', message: 'Речь не распознана, попробуйте ещё раз' });
+            }
+          }
+          break;
+
         case 'report':
           setPlayback('idle');
           // TODO: перевести методиста на экран отчёта / показать ссылку.
           break;
 
         case 'error':
+          if (event.code.startsWith('stt_') || event.code.includes('voice_capture')) {
+            activeCaptureRef.current = null;
+            captureEndingRef.current = false;
+            setVoiceActive(false);
+          }
           setError({ type: 'server', message: event.message, details: event.code });
           break;
 
@@ -163,17 +251,39 @@ export function TraineeSession() {
     [audio],
   );
 
-  const { state: connection, sendUserMessage } = useSessionSocket({
+  const {
+    state: connection,
+    sendUserMessage,
+    sendSpeechStart,
+    sendSpeechEnd,
+    sendSpeechAbort,
+    sendAudio,
+  } = useSessionSocket({
     sessionId,
     onEvent: handleEvent,
     currentGeneration: () => genRef.current,
     onError: setError,
   });
 
+  const { start: startMic, stop: stopMic, level: micLevel } = useMicCapture({
+    onFrame: (frame) => {
+      if (activeCaptureRef.current && !captureEndingRef.current) sendAudio(frame);
+    },
+    onError: (message) => {
+      setError({ type: 'audio', message });
+    },
+  });
+
   useEffect(() => {
     if (connection === 'open') setPlayback((current) => (current === 'disconnected' ? 'idle' : current));
-    if (connection === 'closed') setPlayback('disconnected');
-  }, [connection]);
+    if (connection === 'closed') {
+      activeCaptureRef.current = null;
+      captureEndingRef.current = false;
+      setVoiceActive(false);
+      void stopMic();
+      setPlayback('disconnected');
+    }
+  }, [connection, stopMic]);
 
   // ----------------------------------------------------- отправка = перебивание
 
@@ -182,6 +292,15 @@ export function TraineeSession() {
       // MessageComposer держит disabled, пока audio === null (аватар ещё
       // грузится) — это защита от невозможного состояния, а не рабочий путь.
       if (!audio) return;
+
+      const voiceCapture = activeCaptureRef.current;
+      if (voiceCapture) {
+        activeCaptureRef.current = null;
+        captureEndingRef.current = false;
+        setVoiceActive(false);
+        sendSpeechAbort(voiceCapture);
+        void stopMic();
+      }
 
       const interrupted = audio.clock.isPlaying ? genRef.current : null;
 
@@ -206,8 +325,77 @@ export function TraineeSession() {
       setSubtitlesFrozen(false);
       setPlayback('thinking');
     },
-    [audio, sendUserMessage],
+    [audio, sendSpeechAbort, sendUserMessage, stopMic],
   );
+
+  const handleVoiceStart = useCallback(() => {
+    if (!audio || connection !== 'open' || activeCaptureRef.current) return;
+    const captureId = crypto.randomUUID();
+    const captureStartedAt = performance.now();
+    const wasPlaying = audio.clock.isPlaying;
+    activeCaptureRef.current = captureId;
+    captureEndingRef.current = false;
+    setVoiceActive(true);
+    setVoiceDraft('');
+
+    const interrupted = wasPlaying ? genRef.current : null;
+    cancelPlayback({
+      queue: audio.queue,
+      freezeSubtitles: () => setSubtitlesFrozen(true),
+      resetFace: audio.resetFace,
+    });
+    genRef.current += 1;
+    const stopMs = wasPlaying ? Math.round(performance.now() - captureStartedAt) : undefined;
+    voiceTimingRef.current = {
+      captureId,
+      genId: genRef.current,
+      captureStartedAt,
+      firstPartialRecorded: false,
+      responseAudioRecorded: false,
+    };
+    setVoiceMetrics({ stopMs });
+    audio.queue.startGeneration(genRef.current);
+    setCues([]);
+    sendSpeechStart(captureId, interrupted);
+    setPlayback('listening');
+
+    void startMic().catch(() => {
+      if (activeCaptureRef.current === captureId) {
+        activeCaptureRef.current = null;
+        captureEndingRef.current = false;
+        setVoiceActive(false);
+        sendSpeechAbort(captureId);
+        setPlayback('idle');
+      }
+    });
+  }, [audio, connection, sendSpeechAbort, sendSpeechStart, startMic]);
+
+  const handleVoiceEnd = useCallback(() => {
+    const captureId = activeCaptureRef.current;
+    if (!captureId || captureEndingRef.current) return;
+    captureEndingRef.current = true;
+    if (voiceTimingRef.current?.captureId === captureId) {
+      voiceTimingRef.current.speechEndedAt = performance.now();
+    }
+    setVoiceActive(false);
+    setPlayback('recognizing');
+    void stopMic().finally(() => {
+      // Soniox recommends about 200 ms of trailing silence before manual
+      // finalize so that the last phoneme isn't clipped.
+      sendAudio(new ArrayBuffer(6_400));
+      sendSpeechEnd(captureId);
+    });
+  }, [sendAudio, sendSpeechEnd, stopMic]);
+
+  useEffect(() => {
+    const finalizeWhenHidden = () => {
+      if (document.visibilityState === 'hidden' && activeCaptureRef.current) {
+        handleVoiceEnd();
+      }
+    };
+    document.addEventListener('visibilitychange', finalizeWhenHidden);
+    return () => document.removeEventListener('visibilitychange', finalizeWhenHidden);
+  }, [handleVoiceEnd]);
 
   // ------------------------------------------------------------------ рендер
 
@@ -215,7 +403,15 @@ export function TraineeSession() {
     <main className="session">
       <header className="session__header">
         <PlaybackIndicator state={playback} />
-        <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} />
+        <PushToTalkToggle
+          enabled={pushToTalk}
+          onChange={setPushToTalk}
+          active={voiceActive}
+          level={micLevel}
+          onStart={handleVoiceStart}
+          onEnd={handleVoiceEnd}
+          disabled={connection !== 'open' || !audio}
+        />
       </header>
 
       <ConsentBanner />
@@ -245,10 +441,20 @@ export function TraineeSession() {
       </section>
 
       <MessageComposer
-        disabled={connection !== 'open' || !audio}
+        disabled={connection !== 'open' || !audio || voiceActive}
         isAgentSpeaking={playback === 'speaking'}
         onSubmit={handleSubmit}
       />
+      {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
+      {voiceMetrics && (
+        <p className="voice-metrics">
+          Voice: ACK {formatMetric(voiceMetrics.ackMs)} · partial{' '}
+          {formatMetric(voiceMetrics.firstPartialMs)} · final{' '}
+          {formatMetric(voiceMetrics.finalizationMs)} · ответ{' '}
+          {formatMetric(voiceMetrics.responseTtfaMs)}
+          {voiceMetrics.stopMs !== undefined && ` · остановка ${voiceMetrics.stopMs} мс`}
+        </p>
+      )}
     </main>
   );
 }
@@ -260,4 +466,8 @@ function appendAgentToken(lines: ChatTurn[], token: string): ChatTurn[] {
     return [...lines.slice(0, -1), { ...last, text: last.text + token }];
   }
   return [...lines, { role: 'agent', text: token }];
+}
+
+function formatMetric(value: number | undefined): string {
+  return value === undefined ? '—' : `${value} мс`;
 }

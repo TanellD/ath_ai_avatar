@@ -30,12 +30,16 @@ class Settings(BaseSettings):
     soniox_voice: str = "Nina"
     soniox_language: str = "ru"
 
-    # ------------------------------------------------------------- [STT]
-    # Голосовой ввод — следующая фаза. Поля объявлены, но не читаются ничем:
-    # см. app/stt/README.md и docs/stt-phase.md.
-    # stt_provider: str = "deepgram"
-    # deepgram_api_key: str = ""
-    # stt_language: str = "ru"
+    # ------------------------------------------------------------- STT
+    stt_provider: str = Field(default="mock", description="mock | soniox")
+    stt_language: str = "ru"
+    soniox_stt_model: str = "stt-rt-v5"
+    soniox_stt_websocket_url: str = "wss://stt-rt.soniox.com/transcribe-websocket"
+
+    # Safety limits are deliberately conservative dev defaults. Product values
+    # are pinned only after our own benchmark (docs/voice-input-plan.md).
+    voice_max_capture_seconds: int = 20
+    voice_max_frame_bytes: int = 32_000
 
 
 @lru_cache

@@ -4,12 +4,11 @@
 персонажем по заданному сценарию. Методист получает историю разговора и
 итоговую оценку с цитатой под каждым баллом.
 
-Постановка целиком — [Claude.md](Claude.md). Читать перед любой задачей по коду.
+Актуальная архитектура — [docs/architecture.md](docs/architecture.md), план
+голосового ввода — [docs/voice-input-plan.md](docs/voice-input-plan.md).
 
-> **Текущая фаза: текстовый ввод.** Claude.md описывает голосовой ввод как
-> основной; STT, микрофон и VAD пока существуют только как определения
-> интерфейсов. Что именно сокращено и как это включить —
-> [docs/stt-phase.md](docs/stt-phase.md).
+Текстовый ввод работает как прежде. Первый голосовой режим — push-to-talk с
+Soniox STT; GigaAM failover и hands-free добавляются следующими фазами.
 
 ## Запуск
 
@@ -67,6 +66,7 @@ TTS — Soniox (реализован, тот же провайдер, что п�
 ```dotenv
 TTS_PROVIDER=soniox
 SONIOX_API_KEY=...
+STT_PROVIDER=soniox
 ```
 
 `TTS_PROVIDER=elevenlabs|yandex` остаются заглушками — описание, что нужно
@@ -108,7 +108,7 @@ npm run dev                    # смотрит на localhost:8000 и :8050 п�
 packages/contracts/     общие контракты данных (Claude.md §7) — источник истины
 services/
   gateway/              оркестратор: gen_id, автомат этапов, WebSocket сессии
-  speech-service/       TTS. Пространство STT объявлено без реализации
+  speech-service/       потоковые TTS и STT
   ai-service/           реплики персонажа, классификация, итоговая оценка
   scenario-service/     сценарии, шаблоны, рубрики методиста
   frontend/             React + Vite

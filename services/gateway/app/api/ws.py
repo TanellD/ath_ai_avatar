@@ -1,4 +1,4 @@
-"""WebSocket сессии — Claude.md §6, §7.
+"""WebSocket сессии: JSON control/events и binary microphone PCM.
 
 Одно соединение на сессию, JSON-события в обе стороны. Референсный проект
 держит два сокета (аудио отдельно от событий) — нам это не нужно, пока ввод
@@ -10,7 +10,19 @@ upgrade-обработчике. См. docs/stt-phase.md.
 внутри пайплайна.
 """
 
-from ath_contracts import ErrorEvent, Ping, ServerEvent, UserMessage, parse_client_event
+import asyncio
+import json
+
+from ath_contracts import (
+    ErrorEvent,
+    Ping,
+    ServerEvent,
+    SpeechAbort,
+    SpeechEnd,
+    SpeechStart,
+    UserMessage,
+    parse_client_event,
+)
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -20,6 +32,7 @@ from app.core.logging import bind_session_context, clear_session_context, get_lo
 from app.db.engine import session_factory
 from app.db.repositories import SqlSessionRepository
 from app.orchestrator.pipeline import TurnPipeline
+from app.orchestrator.voice_turns import VoiceTurnRegistry
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -39,8 +52,11 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         if session is None:
             return
 
+    send_lock = asyncio.Lock()
+
     async def send(event: ServerEvent) -> None:
-        await websocket.send_json(event.model_dump(mode="json"))
+        async with send_lock:
+            await websocket.send_json(event.model_dump(mode="json"))
 
     pipeline = TurnPipeline(
         session=session,
@@ -48,6 +64,16 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         speech=app.state.speech,
         send=send,
         max_context_turns=get_settings().max_context_turns,
+    )
+    settings = get_settings()
+    voice = VoiceTurnRegistry(
+        session_id=session_id,
+        pipeline=pipeline,
+        speech=app.state.speech,
+        send=send,
+        max_capture_seconds=settings.voice_max_capture_seconds,
+        max_frame_bytes=settings.voice_max_frame_bytes,
+        language=settings.stt_language,
     )
 
     log.info("ws.connected", scenario_id=session.scenario.id)
@@ -57,7 +83,18 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
 
     try:
         while True:
-            raw = await websocket.receive_json()
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            frame = message.get("bytes")
+            if frame is not None:
+                await voice.push(frame)
+                continue
+            try:
+                raw = json.loads(message.get("text") or "")
+            except json.JSONDecodeError:
+                await send(ErrorEvent(code="invalid_event", message="Ожидался JSON control frame"))
+                continue
 
             try:
                 event = parse_client_event(raw)
@@ -74,10 +111,17 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
                 # Триггер отмены (§6). Сейчас это отправка реплики, в голосовой
                 # фазе — VAD onset; всё, что ниже, не изменится.
                 await pipeline.handle_user_message(event.text, event.interrupts)
+            elif isinstance(event, SpeechStart):
+                await voice.start(event)
+            elif isinstance(event, SpeechEnd):
+                await voice.end(str(event.capture_id))
+            elif isinstance(event, SpeechAbort):
+                await voice.abort(str(event.capture_id))
 
     except WebSocketDisconnect:
         log.info("ws.disconnected")
     finally:
+        await voice.aclose()
         await session.generations.cancel_all()
         await _persist(session)
         clear_session_context()

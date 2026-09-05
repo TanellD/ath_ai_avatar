@@ -10,6 +10,7 @@
 """
 
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -42,26 +43,36 @@ class Ping(BaseModel):
     type: Literal["ping"] = "ping"
 
 
-# --- [STT] Голосовая фаза — объявлено, не подключено. docs/stt-phase.md -----
-#
-# class SpeechStart(BaseModel):
-#     """Onset речи от клиентского VAD. Клиент уже локально остановил звук."""
-#     type: Literal["speech_start"] = "speech_start"
-#     interrupts: int | None = None
-#
-# class UserAudio(BaseModel):
-#     """Бинарные чанки речи, по порядку."""
-#     type: Literal["user_audio"] = "user_audio"
-#     seq: int
-#     data: bytes
-#     format: str
-#
-# class SpeechEnd(BaseModel):
-#     """VAD endpoint. Сигнал STT финализировать транскрипт."""
-#     type: Literal["speech_end"] = "speech_end"
+class SpeechStart(BaseModel):
+    """Открыть одну voice capture; следующие WS binary frames относятся к ней."""
+
+    type: Literal["speech_start"] = "speech_start"
+    capture_id: UUID
+    interrupts: int | None = None
+    mode: Literal["ptt", "hands_free_candidate"] = "ptt"
+    audio_format: Literal["pcm_s16le"] = "pcm_s16le"
+    sample_rate: Literal[16000] = 16000
+    num_channels: Literal[1] = 1
 
 
-ClientEvent = Annotated[UserMessage | Ping, Field(discriminator="type")]
+class SpeechEnd(BaseModel):
+    """Идемпотентный запрос finalization активной capture."""
+
+    type: Literal["speech_end"] = "speech_end"
+    capture_id: UUID
+
+
+class SpeechAbort(BaseModel):
+    """Идемпотентно отменить capture без commit transcript."""
+
+    type: Literal["speech_abort"] = "speech_abort"
+    capture_id: UUID
+
+
+ClientEvent = Annotated[
+    UserMessage | SpeechStart | SpeechEnd | SpeechAbort | Ping,
+    Field(discriminator="type"),
+]
 
 _client_adapter: TypeAdapter[ClientEvent] = TypeAdapter(ClientEvent)
 
@@ -118,9 +129,20 @@ class TranscriptEvent(BaseModel):
 
     type: Literal["transcript"] = "transcript"
     gen_id: int
+    capture_id: UUID
+    provider_epoch: int = Field(ge=0)
+    provider: str = Field(min_length=1)
     text: str
     is_final: bool
     stt_confidence: float | None = None
+
+
+class SpeechStartedEvent(BaseModel):
+    """Gateway принял capture и связал её с authoritative generation."""
+
+    type: Literal["speech_started"] = "speech_started"
+    gen_id: int
+    capture_id: UUID
 
 
 class ActionEvent(BaseModel):
@@ -157,6 +179,7 @@ ServerEvent = Annotated[
     TokenEvent
     | AudioChunkEvent
     | SubtitleEvent
+    | SpeechStartedEvent
     | TranscriptEvent
     | ActionEvent
     | CancelEvent

@@ -33,13 +33,27 @@ export interface Ping {
   type: 'ping';
 }
 
-export type ClientEvent = UserMessage | Ping;
+export interface SpeechStart {
+  type: 'speech_start';
+  capture_id: string;
+  interrupts: number | null;
+  mode: 'ptt' | 'hands_free_candidate';
+  audio_format: 'pcm_s16le';
+  sample_rate: 16000;
+  num_channels: 1;
+}
 
-// [STT] Голосовая фаза — объявлено в питоновском контракте, здесь появится
-// вместе с реализацией. См. docs/stt-phase.md.
-//   speech_start { interrupts }
-//   user_audio   { seq, data, format }
-//   speech_end   {}
+export interface SpeechEnd {
+  type: 'speech_end';
+  capture_id: string;
+}
+
+export interface SpeechAbort {
+  type: 'speech_abort';
+  capture_id: string;
+}
+
+export type ClientEvent = UserMessage | SpeechStart | SpeechEnd | SpeechAbort | Ping;
 
 // --------------------------------------------------------- сервер → клиент
 
@@ -72,9 +86,18 @@ export interface SubtitleEvent {
 export interface TranscriptEvent {
   type: 'transcript';
   gen_id: number;
+  capture_id: string;
+  provider_epoch: number;
+  provider: string;
   text: string;
   is_final: boolean;
   stt_confidence: number | null;
+}
+
+export interface SpeechStartedEvent {
+  type: 'speech_started';
+  gen_id: number;
+  capture_id: string;
 }
 
 export interface ActionEvent {
@@ -107,6 +130,7 @@ export type ServerEvent =
   | TokenEvent
   | AudioChunkEvent
   | SubtitleEvent
+  | SpeechStartedEvent
   | TranscriptEvent
   | ActionEvent
   | CancelEvent

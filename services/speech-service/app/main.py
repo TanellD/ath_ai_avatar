@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import health, tts_ws
+from app.api import health, stt_ws, tts_ws
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.tts.factory import create_tts_provider
@@ -31,16 +31,14 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="ATH Speech Service",
-        description="Потоковый TTS. STT — определение интерфейса без реализации.",
+        description="Потоковые TTS и STT.",
         version="0.1.0",
         lifespan=lifespan,
     )
 
     app.include_router(health.router)
     app.include_router(tts_ws.router)
-
-    # [STT] Здесь появится app.include_router(stt_ws.router).
-    # См. app/stt/README.md и docs/stt-phase.md.
+    app.include_router(stt_ws.router)
 
     return app
 

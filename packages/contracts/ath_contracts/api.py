@@ -1,11 +1,14 @@
-"""Контракты HTTP между сервисами.
+"""Контракты HTTP/WebSocket между сервисами.
 
 Отдельно от §7: это не продуктовые контракты, а внутренние границы сервисов.
 Держим их здесь по той же причине — чтобы у gateway и ai-service не завелось
 двух разных представлений об одном и том же теле запроса.
 """
 
-from pydantic import BaseModel, Field
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, Field, TypeAdapter
 
 from ath_contracts.enums import Action, Classification, Emotion, EmotionIntensity
 from ath_contracts.report import Report
@@ -95,6 +98,76 @@ class TtsChunk(BaseModel):
     format: str = "wav"
     sample_rate: int = 24000
     is_final: bool = False
+
+
+class SttOpenRequest(BaseModel):
+    """Первый JSON-кадр gateway → speech-service перед binary PCM."""
+
+    type: Literal["open"] = "open"
+    session_id: str
+    capture_id: UUID
+    provider_epoch: int = Field(ge=0)
+    language: str = "ru"
+    context_terms: list[str] = Field(default_factory=list)
+    audio_format: Literal["pcm_s16le"] = "pcm_s16le"
+    sample_rate: Literal[16000] = 16000
+    num_channels: Literal[1] = 1
+
+
+class SttProgressEvent(BaseModel):
+    type: Literal["progress"] = "progress"
+    capture_id: UUID
+    provider_epoch: int
+    provider: str
+    audio_samples_processed: int
+
+
+class SttTranscriptEvent(BaseModel):
+    type: Literal["transcript"] = "transcript"
+    capture_id: UUID
+    provider_epoch: int
+    provider: str
+    text: str
+    confidence: float | None = None
+
+
+class SttEndpointEvent(BaseModel):
+    type: Literal["endpoint"] = "endpoint"
+    capture_id: UUID
+    provider_epoch: int
+    provider: str
+    kind: Literal["semantic", "manual", "local_vad"]
+
+
+class SttFinalEvent(BaseModel):
+    type: Literal["final"] = "final"
+    capture_id: UUID
+    provider_epoch: int
+    provider: str
+    text: str
+    confidence: float | None = None
+
+
+class SttFaultEvent(BaseModel):
+    type: Literal["fault"] = "fault"
+    capture_id: UUID
+    provider_epoch: int
+    provider: str
+    kind: str
+    retryable: bool
+    message: str
+    provider_request_id: str | None = None
+
+
+SttServiceEvent = Annotated[
+    SttProgressEvent | SttTranscriptEvent | SttEndpointEvent | SttFinalEvent | SttFaultEvent,
+    Field(discriminator="type"),
+]
+_stt_service_adapter: TypeAdapter[SttServiceEvent] = TypeAdapter(SttServiceEvent)
+
+
+def parse_stt_service_event(data: object) -> SttServiceEvent:
+    return _stt_service_adapter.validate_python(data)
 
 
 # --------------------------------------------------------- scenario-service

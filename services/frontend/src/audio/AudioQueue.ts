@@ -56,6 +56,8 @@ export class AudioQueue {
    * приходит, когда байты ОТПРАВЛЕНЫ, а не когда они доиграли).
    */
   private readonly onIdle?: () => void;
+  private readonly onFirstAudioScheduled?: (genId: number, leadMs: number) => void;
+  private firstAudioReported = false;
 
   /**
    * @param destination Куда подключать декодированные источники. По умолчанию
@@ -69,12 +71,14 @@ export class AudioQueue {
     clock: import('./PlaybackClock').PlaybackClock,
     destination?: AudioNode,
     onIdle?: () => void,
+    onFirstAudioScheduled?: (genId: number, leadMs: number) => void,
   ) {
     this.context = context;
     this.clock = clock;
     this.gain = context.createGain();
     this.gain.connect(destination ?? context.destination);
     this.onIdle = onIdle;
+    this.onFirstAudioScheduled = onFirstAudioScheduled;
   }
 
   get generation(): number {
@@ -93,6 +97,7 @@ export class AudioQueue {
    */
   startGeneration(genId: number): void {
     this.currentGeneration = genId;
+    this.firstAudioReported = false;
   }
 
   /**
@@ -124,6 +129,11 @@ export class AudioQueue {
       const startAt = this.clock.nextStartTime();
       source.start(startAt);
       this.clock.noteScheduled(startAt, buffer.duration);
+      if (!this.firstAudioReported) {
+        this.firstAudioReported = true;
+        const leadMs = Math.max(0, (startAt - this.context.currentTime) * 1000);
+        this.onFirstAudioScheduled?.(chunk.genId, leadMs);
+      }
 
       this.sources.add(source);
       source.onended = () => {
@@ -160,6 +170,7 @@ export class AudioQueue {
     }
     this.sources.clear();
     this.clock.reset();
+    this.firstAudioReported = false;
     this.onIdle?.();
   }
 }

@@ -33,5 +33,12 @@ Thumbs.db
 # Логи
 *.log
 
+# Локальный STT benchmark: записи могут содержать голос/персональные данные
+benchmarks/stt/audio/*
+!benchmarks/stt/audio/.gitkeep
+benchmarks/stt/results/*
+!benchmarks/stt/results/.gitkeep
+benchmarks/stt/manifest.local.jsonl
+
 # reference
 tatarby-main

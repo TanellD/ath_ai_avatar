@@ -12,7 +12,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { gatewayApi } from '@/api/client';
-import type { ClientEvent, ServerEvent, UserMessage } from '@/contracts/events';
+import type {
+  ClientEvent,
+  ServerEvent,
+  SpeechAbort,
+  SpeechEnd,
+  SpeechStart,
+  UserMessage,
+} from '@/contracts/events';
 import { sessionError, type SessionError } from '@/types/errors';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed';
@@ -102,5 +109,52 @@ export function useSessionSocket({
     [send],
   );
 
-  return { state, send, sendUserMessage };
+  const sendSpeechStart = useCallback(
+    (captureId: string, interrupts: number | null) => {
+      const event: SpeechStart = {
+        type: 'speech_start',
+        capture_id: captureId,
+        interrupts,
+        mode: 'ptt',
+        audio_format: 'pcm_s16le',
+        sample_rate: 16000,
+        num_channels: 1,
+      };
+      send(event);
+    },
+    [send],
+  );
+
+  const sendSpeechEnd = useCallback(
+    (captureId: string) => {
+      const event: SpeechEnd = { type: 'speech_end', capture_id: captureId };
+      send(event);
+    },
+    [send],
+  );
+
+  const sendSpeechAbort = useCallback(
+    (captureId: string) => {
+      const event: SpeechAbort = { type: 'speech_abort', capture_id: captureId };
+      send(event);
+    },
+    [send],
+  );
+
+  const sendAudio = useCallback((frame: ArrayBuffer) => {
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(frame);
+    return true;
+  }, []);
+
+  return {
+    state,
+    send,
+    sendUserMessage,
+    sendSpeechStart,
+    sendSpeechEnd,
+    sendSpeechAbort,
+    sendAudio,
+  };
 }

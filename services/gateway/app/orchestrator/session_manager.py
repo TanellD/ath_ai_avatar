@@ -51,16 +51,29 @@ class LiveSession:
         return int(time.monotonic() - self.started_at)
 
     def add_turn(self, role: TurnRole, text: str) -> Turn:
-        turn = Turn(
+        turn = self.make_turn(role, text)
+        self.accept_turn(turn)
+        return turn
+
+    def make_turn(
+        self,
+        role: TurnRole,
+        text: str,
+        *,
+        stt_confidence: float | None = None,
+    ) -> Turn:
+        return Turn(
             role=role,
             text=text,
             stage_id=self.current_stage_id,
             ts=time.monotonic() - self.started_at,
+            stt_confidence=stt_confidence,
         )
+
+    def accept_turn(self, turn: Turn) -> None:
         self.turns.append(turn)
-        if role is TurnRole.USER:
+        if turn.role is TurnRole.USER:
             self.turns_in_stage += 1
-        return turn
 
     def leave_stage(self, exit_reason: StageExit, next_stage_id: str) -> None:
         """Зафиксировать выход с этапа и перейти на следующий."""

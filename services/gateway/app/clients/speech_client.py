@@ -18,7 +18,13 @@ from collections.abc import AsyncIterator
 import httpx
 import websockets
 from ath_contracts import Emotion
-from ath_contracts.api import TtsChunk, TtsRequest
+from ath_contracts.api import (
+    SttOpenRequest,
+    SttServiceEvent,
+    TtsChunk,
+    TtsRequest,
+    parse_stt_service_event,
+)
 
 from app.core.logging import get_logger
 
@@ -60,3 +66,28 @@ class SpeechClient:
                 yield chunk
                 if chunk.is_final:
                     return
+
+    async def open_stt(self, request: SttOpenRequest) -> "SttStream":
+        ws = await websockets.connect(f"{self._ws_url}/stt/stream")
+        await ws.send(request.model_dump_json())
+        return SttStream(ws)
+
+
+class SttStream:
+    """Одна gateway → speech-service capture."""
+
+    def __init__(self, websocket) -> None:  # noqa: ANN001
+        self._ws = websocket
+
+    async def push(self, pcm: bytes) -> None:
+        await self._ws.send(pcm)
+
+    async def finalize(self) -> None:
+        await self._ws.send('{"type":"finalize"}')
+
+    async def events(self) -> AsyncIterator[SttServiceEvent]:
+        async for raw in self._ws:
+            yield parse_stt_service_event(json.loads(raw))
+
+    async def aclose(self) -> None:
+        await self._ws.close()

@@ -1,34 +1,53 @@
+import type { CSSProperties } from 'react';
+
 /**
- * Push-to-talk — консервативный запасной режим из Claude.md §6.
- *
- *   «Если AEC/эхо капризничают перед защитой: сотрудник удерживает клавишу,
- *    пока говорит. Это возвращает детерминизм текстового ввода (явный сигнал
- *    начала и конца, нет ложных срабатываний) ценой естественности.»
- *
- * Компонент существует с самого начала намеренно. Запасной режим, который надо
- * писать в последний вечер перед защитой, — это не запасной режим.
- *
- * [STT] Сейчас переключатель ни на что не влияет: голосового ввода нет.
- * Заготовка удерживает место в интерфейсе и в состоянии сессии.
+ * Toggle-to-talk: первый клик начинает явную PTT capture, второй завершает.
+ * Такой вариант сохраняет детерминированные границы реплики и нормально
+ * работает с тачпадом и клавиатурой, где удержание кнопки неудобно.
  */
 
 interface Props {
   enabled: boolean;
   onChange: (enabled: boolean) => void;
-  /** В текстовой фазе — true: переключать нечего. */
+  active: boolean;
+  level: number;
+  onStart: () => void;
+  onEnd: () => void;
   disabled?: boolean;
 }
 
-export function PushToTalkToggle({ enabled, onChange, disabled = true }: Props) {
+export function PushToTalkToggle({
+  enabled,
+  onChange,
+  active,
+  level,
+  onStart,
+  onEnd,
+  disabled = false,
+}: Props) {
   return (
-    <label className="ptt">
-      <input
-        type="checkbox"
-        checked={enabled}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span>Push-to-talk {disabled && '(доступно при голосовом вводе)'}</span>
-    </label>
+    <div className="ptt">
+      <label>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled || active}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span>Голосовой ввод</span>
+      </label>
+      {enabled && (
+        <button
+          type="button"
+          className={`ptt__button${active ? ' ptt__button--active' : ''}`}
+          disabled={disabled}
+          aria-pressed={active}
+          onClick={active ? onEnd : onStart}
+          style={{ '--mic-level': String(level) } as CSSProperties}
+        >
+          {active ? 'Закончить запись' : 'Начать говорить'}
+        </button>
+      )}
+    </div>
   );
 }
