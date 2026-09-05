@@ -26,7 +26,12 @@ import { gatewayApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
-import { TalkingHeadAvatar, type AvatarPlaybackHandle } from '@/avatar/TalkingHeadAvatar';
+import {
+  AVATAR_MODELS,
+  TalkingHeadAvatar,
+  type AvatarModelConfig,
+  type AvatarPlaybackHandle,
+} from '@/avatar/TalkingHeadAvatar';
 import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
 import { ConsentBanner } from '@/components/ConsentBanner';
 import { MessageComposer } from '@/components/MessageComposer';
@@ -55,6 +60,7 @@ export function TraineeSession() {
   const [pushToTalk, setPushToTalk] = useState(false);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
   const [audio, setAudio] = useState<AudioRig | null>(null);
+  const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(AVATAR_MODELS.aith);
 
   /**
    * Текущее поколение. Именно ref, а не useState: значение читается в
@@ -193,7 +199,7 @@ export function TraineeSession() {
       });
 
       // Шаг 2: сообщаем серверу, какое поколение перебиваем.
-      sendUserMessage(text, interrupted);
+      sendUserMessage(text, interrupted, avatarModel.id);
 
       // Новое поколение сервер присвоит сам; локально готовим очередь принять
       // его чанки. Инкремент здесь совпадает с серверным, потому что счётчик
@@ -206,8 +212,18 @@ export function TraineeSession() {
       setSubtitlesFrozen(false);
       setPlayback('thinking');
     },
-    [audio, sendUserMessage],
+    [audio, avatarModel.id, sendUserMessage],
   );
+
+  const switchAvatar = () => {
+    if (!audio || playback !== 'idle') return;
+    audio.queue.stopAll();
+    audio.resetFace();
+    setAudio(null);
+    setAvatarModel((current) =>
+      current.id === AVATAR_MODELS.aith.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith,
+    );
+  };
 
   // ------------------------------------------------------------------ рендер
 
@@ -215,7 +231,17 @@ export function TraineeSession() {
     <main className="session">
       <header className="session__header">
         <PlaybackIndicator state={playback} />
-        <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} />
+        <div className="session__header-actions">
+          <button
+            type="button"
+            className="avatar-switch"
+            onClick={switchAvatar}
+            disabled={!audio || playback !== 'idle'}
+          >
+            Переключить на {avatarModel.id === AVATAR_MODELS.aith.id ? 'Tom' : 'avatar-aith'}
+          </button>
+          <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} />
+        </div>
       </header>
 
       <ConsentBanner />
@@ -236,6 +262,8 @@ export function TraineeSession() {
 
         <div className="session__stage">
           <TalkingHeadAvatar
+            key={avatarModel.id}
+            model={avatarModel}
             isSpeaking={playback === 'speaking'}
             onReady={handleAvatarReady}
             onError={handleAvatarError}

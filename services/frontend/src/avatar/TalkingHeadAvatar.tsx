@@ -25,6 +25,14 @@
  */
 
 import { useEffect, useRef } from 'react';
+import {
+  AnimationMixer,
+  LoopOnce,
+  type AnimationClip,
+  type Object3D,
+  type Quaternion,
+  type Vector3,
+} from 'three';
 
 // Обычный import, а не URL: этот файл в src/, а не в public/. Vite не даёт
 // импортировать файлы из public/ как ES-модуль в dev-режиме («This file is
@@ -32,11 +40,74 @@ import { useEffect, useRef } from 'react';
 // Ворклет-часть того же рантайма (headworklet.mjs и его зависимости) как раз
 // грузится так и поэтому осталась в public/ — см. README рядом с обоими.
 import { HeadAudio } from '@/vendor/headaudio/headaudio.mjs';
-import type { Emotion } from '@/contracts/events';
+import type { AvatarId, Emotion } from '@/contracts/events';
 
-const AVATAR_URL = '/assets/avatar/avatar-aith.glb';
 const HEADAUDIO_WORKLET_URL = '/vendor/headaudio/headworklet.mjs';
 const HEADAUDIO_MODEL_URL = '/vendor/headaudio/model-en-mixed.bin';
+
+export type CameraView = 'head' | 'upper' | 'mid' | 'full';
+
+/** Поправка камеры под пропорции конкретной модели — своя на каждый план. */
+export interface CameraTuning {
+  cameraDistance: number;
+  cameraY: number;
+}
+
+export interface AvatarModelConfig {
+  id: AvatarId;
+  label: string;
+  url: string;
+  humanoidPose: boolean;
+  cameraView: CameraView;
+  /**
+   * setView() считает план от avatarHeight, но размеры кадра зашиты
+   * константами под человеческую голову. Модель с другими пропорциями
+   * промахивается в каждом плане по-своему, поэтому поправка — не одна
+   * пара чисел, а таблица.
+   */
+  cameraTuning: Record<CameraView, CameraTuning>;
+  embeddedIdleAnimations?: boolean;
+}
+
+export const AVATAR_MODELS = {
+  aith: {
+    id: 'avatar-aith',
+    label: 'avatar-aith (основная)',
+    url: '/assets/avatar/avatar-aith.glb',
+    humanoidPose: true,
+    cameraView: 'head',
+    // Человекоподобная модель — планы TalkingHead рассчитаны ровно на неё,
+    // поправка не нужна.
+    cameraTuning: {
+      head: { cameraDistance: 0, cameraY: 0 },
+      upper: { cameraDistance: 0, cameraY: 0 },
+      mid: { cameraDistance: 0, cameraY: 0 },
+      full: { cameraDistance: 0, cameraY: 0 },
+    },
+  },
+  tom: {
+    id: 'tom-avatar',
+    label: 'Tom (тестовая)',
+    url: '/assets/avatar/tom_avatar.glb',
+    humanoidPose: false,
+    cameraView: 'head',
+    // Голова Тома 0.616 против ~0.23 у человека при почти том же уровне глаз
+    // (1.448 против 1.482): avatarHeight выходит нормальным, а кадр — нет.
+    // Числа посчитаны из формулы setView() под фактическую геометрию GLB:
+    // центр головы y = 1.392, глубина z = 0.215, рост 1.70.
+    cameraTuning: {
+      head: { cameraDistance: 2.62, cameraY: 0.82 },
+      upper: { cameraDistance: 1.14, cameraY: 0.59 },
+      mid: { cameraDistance: -0.36, cameraY: 0.18 },
+      full: { cameraDistance: -0.35, cameraY: 0.15 },
+    },
+    // Второй AnimationMixer конфликтует с системой поз TalkingHead: оба пишут
+    // в одни кости, и побеждает тот, кто записал последним. Пока выключено —
+    // Том стоит в собственной rest-позе. Возвращать idle-движение следует
+    // через штатный head.mixer, а не отдельным микшером.
+    embeddedIdleAnimations: false,
+  },
+} as const satisfies Record<string, AvatarModelConfig>;
 
 /** Что аватар отдаёт наверх, когда готов принимать звук. */
 export interface AvatarPlaybackHandle {
@@ -47,19 +118,29 @@ export interface AvatarPlaybackHandle {
   resetFace: () => void;
   /** Применить эмоцию реплики к мимике TalkingHead. */
   setEmotion: (emotion: Emotion) => void;
+  /** Сменить крупность плана с поправкой под пропорции текущей модели. */
+  setView: (view: CameraView) => void;
 }
 
 interface Props {
+  /** Профиль модели фиксируется на время жизни компонента. */
+  model?: AvatarModelConfig;
   /** Во время речи держать зрительный контакт с пользователем, а не с курсором. */
   isSpeaking: boolean;
   onReady: (handle: AvatarPlaybackHandle) => void;
   onError: (message: string) => void;
 }
 
-export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
+export function TalkingHeadAvatar({
+  model = AVATAR_MODELS.aith,
+  isSpeaking,
+  onReady,
+  onError,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
   const cursorGazeRef = useRef<CursorGazeController | null>(null);
+  const avatarCleanupRef = useRef<(() => void) | null>(null);
   const isSpeakingRef = useRef(isSpeaking);
 
   useEffect(() => {
@@ -85,7 +166,13 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
     // оставался заблокирован навсегда. startedRef один справляется с задачей
     // «выполнить ровно один раз», без риска убить единственную попытку.
     if (!container) return;
-    if (startedRef.current) return () => cursorGazeRef.current?.detach();
+    if (startedRef.current) {
+      return () => {
+        cursorGazeRef.current?.detach();
+        avatarCleanupRef.current?.();
+        avatarCleanupRef.current = null;
+      };
+    }
     startedRef.current = true;
 
     // Отдельная не-nullable привязка: container сам по себе типизирован как
@@ -96,11 +183,16 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
     async function setup() {
       try {
         const { TalkingHead } = await import('@met4citizen/talkinghead');
+        let embeddedIdle: EmbeddedIdleController | null = null;
+
+        const initialTuning = model.cameraTuning[model.cameraView];
 
         const head = new TalkingHead(mount, {
           ttsEndpoint: 'N/A',
           lipsyncModules: [],
-          cameraView: 'head',
+          cameraView: model.cameraView,
+          cameraDistance: initialTuning.cameraDistance,
+          cameraY: initialTuning.cameraY,
           mixerGainSpeech: 3,
           modelFPS: 60,
           cameraRotateEnable: false,
@@ -136,28 +228,71 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
           }
         };
 
-        head.opt.update = headaudio.update.bind(headaudio);
+        if (!model.humanoidPose) prepareNonHumanoidPose(head);
+
+        head.opt.update = (dt: number) => {
+          headaudio.update(dt);
+          embeddedIdle?.update(dt);
+        };
 
         headaudio.onstarted = () => {
           head.lookAtCamera(500);
-          head.speakWithHands();
+          if (model.humanoidPose) head.speakWithHands();
         };
 
         await head.showAvatar({
-          url: AVATAR_URL,
+          url: model.url,
           body: 'F',
           avatarMood: 'neutral',
         });
 
+        if (!model.humanoidPose) {
+          stabilizeNonHumanoidPose(head);
+          if (model.embeddedIdleAnimations) {
+            embeddedIdle = playEmbeddedIdleAnimations(head);
+            avatarCleanupRef.current = () => embeddedIdle?.dispose();
+          }
+        }
+
         const cursorGaze = attachCursorGaze(head, mount);
         cursorGazeRef.current = cursorGaze;
         cursorGaze.setEnabled(!isSpeakingRef.current);
+
+        // TalkingHead.onResize() не защищён от нулевого размера контейнера:
+        // при сворачивании окна clientWidth/clientHeight дают 0, camera.aspect
+        // становится NaN, и OrbitControls остаются в испорченном состоянии —
+        // после разворачивания аватар оказывается вне кадра. Возвращаем камеру
+        // на место, как только контейнер снова получает ненулевой размер.
+        let currentView: CameraView = model.cameraView;
+        const applyView = (view: CameraView) => {
+          currentView = view;
+          const tuning = model.cameraTuning[view];
+          head.setView(view, {
+            cameraDistance: tuning.cameraDistance,
+            cameraY: tuning.cameraY,
+          });
+        };
+
+        let hadSize = mount.clientWidth > 0 && mount.clientHeight > 0;
+        const sizeGuard = new ResizeObserver(() => {
+          const hasSize = mount.clientWidth > 0 && mount.clientHeight > 0;
+          if (hasSize && !hadSize) applyView(currentView);
+          hadSize = hasSize;
+        });
+        sizeGuard.observe(mount);
+
+        const disposeIdle = avatarCleanupRef.current;
+        avatarCleanupRef.current = () => {
+          sizeGuard.disconnect();
+          disposeIdle?.();
+        };
 
         onReady({
           audioCtx: head.audioCtx,
           destination: head.audioSpeechGainNode,
           resetFace: () => headaudio.resetAll(),
           setEmotion: (emotion) => applyEmotion(head, emotion),
+          setView: applyView,
         });
       } catch (error) {
         onError(error instanceof Error ? error.message : 'Не удалось загрузить аватара');
@@ -168,10 +303,117 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
 
     // TalkingHead не даёт полного dispose(), но глобальные обработчики взгляда
     // снять можем и обязаны: иначе после навигации они продолжат держать head.
-    return () => cursorGazeRef.current?.detach();
-  }, [onReady, onError]);
+    return () => {
+      cursorGazeRef.current?.detach();
+      avatarCleanupRef.current?.();
+      avatarCleanupRef.current = null;
+    };
+  }, [model, onReady, onError]);
 
   return <div ref={containerRef} className="avatar" />;
+}
+
+type TimedPoseTransform = (Vector3 | Quaternion) & { t?: number; d?: number };
+
+interface NonHumanoidRuntime {
+  animClock: number;
+  animations: AnimationClip[];
+  animQueue: Array<{ template?: { name?: string }; ts: number[] }>;
+  armature: Object3D;
+  scene: Object3D;
+  poseAvatar: { props: Record<string, TimedPoseTransform> };
+  poseBase: { props: Record<string, TimedPoseTransform> };
+  poseTarget: { props: Record<string, TimedPoseTransform> };
+  poseDelta: { props: Record<string, { x: number; y: number; z: number }> };
+  updatePoseDelta: () => void;
+}
+
+interface EmbeddedIdleController {
+  update(dt: number): void;
+  dispose(): void;
+}
+
+function asNonHumanoidRuntime(head: unknown): NonHumanoidRuntime {
+  return head as NonHumanoidRuntime;
+}
+
+/**
+ * В npm-сборке TalkingHead 1.7.0 нет callback `onpreprocess`, поэтому очищаем
+ * человеческую базовую позу до showAvatar(). Его штатная ветка `else` сама
+ * снимет исходные трансформации костей Tom до первого кадра.
+ */
+function prepareNonHumanoidPose(head: unknown): void {
+  asNonHumanoidRuntime(head).poseBase.props = {};
+}
+
+/** Зафиксировать нативную базу Tom и оставить из pose-delta только поворот головы. */
+function stabilizeNonHumanoidPose(head: unknown): void {
+  const runtime = asNonHumanoidRuntime(head);
+
+  for (const [key, original] of Object.entries(runtime.poseBase.props)) {
+    const base = original.clone() as TimedPoseTransform;
+    const target = original.clone() as TimedPoseTransform;
+    target.t = runtime.animClock;
+    target.d = 0;
+    runtime.poseBase.props[key] = base;
+    runtime.poseTarget.props[key] = target;
+    runtime.poseAvatar.props[key]?.copy(original);
+  }
+
+  const proceduralPose = runtime.animQueue.find((item) => item.template?.name === 'pose');
+  if (proceduralPose) proceduralPose.ts[0] = Infinity;
+
+  const updatePoseDelta = runtime.updatePoseDelta.bind(runtime);
+  runtime.updatePoseDelta = () => {
+    for (const [key, delta] of Object.entries(runtime.poseDelta.props)) {
+      if (key === 'Head.quaternion') continue;
+      delta.x = 0;
+      delta.y = 0;
+      delta.z = 0;
+    }
+    updatePoseDelta();
+  };
+}
+
+/** Последовательно проигрывать только авторские idle-клипы из GLB Tom. */
+function playEmbeddedIdleAnimations(head: unknown): EmbeddedIdleController {
+  const runtime = asNonHumanoidRuntime(head);
+  const clips = runtime.animations.filter((clip) => clip.name.toLowerCase().includes('idle'));
+  if (clips.length === 0) {
+    return { update: () => undefined, dispose: () => undefined };
+  }
+
+  let animationRoot = runtime.armature;
+  while (animationRoot.parent && animationRoot.parent !== runtime.scene) {
+    animationRoot = animationRoot.parent;
+  }
+
+  const mixer = new AnimationMixer(animationRoot);
+  const nativeHipsPosition = runtime.poseBase.props['Hips.position']?.clone();
+  let clipIndex = 0;
+
+  const playNext = () => {
+    mixer.stopAllAction();
+    const clip = clips[clipIndex % clips.length];
+    clipIndex += 1;
+    mixer.clipAction(clip).reset().setLoop(LoopOnce, 1).fadeIn(0.15).play();
+  };
+
+  mixer.addEventListener('finished', playNext);
+  playNext();
+
+  return {
+    update: (dt: number) => {
+      if (nativeHipsPosition) {
+        runtime.poseAvatar.props['Hips.position']?.copy(nativeHipsPosition);
+      }
+      mixer.update(dt / 1000);
+    },
+    dispose: () => {
+      mixer.removeEventListener('finished', playNext);
+      mixer.stopAllAction();
+    },
+  };
 }
 
 interface EmotionHead {

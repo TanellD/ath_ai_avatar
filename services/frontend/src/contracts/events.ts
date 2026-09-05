@@ -14,6 +14,7 @@ export type SessionStatus = 'active' | 'finished' | 'abandoned';
 export type TurnRole = 'user' | 'agent';
 export type Mood = 'neutral' | 'irritated' | 'friendly';
 export type Emotion = Mood | 'angry' | 'sad' | 'excited' | 'surprised';
+export type AvatarId = 'avatar-aith' | 'tom-avatar';
 
 // --------------------------------------------------------- клиент → сервер
 
@@ -27,6 +28,8 @@ export interface UserMessage {
   type: 'user_message';
   text: string;
   interrupts: number | null;
+  /** Профиль рендера; сервер сам выбирает связанный с ним голос. */
+  avatar_id: AvatarId;
 }
 
 export interface Ping {
