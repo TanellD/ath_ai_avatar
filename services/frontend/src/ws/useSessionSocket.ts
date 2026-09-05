@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { gatewayApi } from '@/api/client';
 import type {
+  AvatarId,
   ClientEvent,
   ServerEvent,
   SpeechAbort,
@@ -102,19 +103,20 @@ export function useSessionSocket({
   }, []);
 
   const sendUserMessage = useCallback(
-    (text: string, interrupts: number | null) => {
-      const event: UserMessage = { type: 'user_message', text, interrupts };
+    (text: string, interrupts: number | null, avatarId: AvatarId) => {
+      const event: UserMessage = { type: 'user_message', text, interrupts, avatar_id: avatarId };
       send(event);
     },
     [send],
   );
 
   const sendSpeechStart = useCallback(
-    (captureId: string, interrupts: number | null) => {
+    (captureId: string, interrupts: number | null, avatarId: AvatarId) => {
       const event: SpeechStart = {
         type: 'speech_start',
         capture_id: captureId,
         interrupts,
+        avatar_id: avatarId,
         mode: 'ptt',
         audio_format: 'pcm_s16le',
         sample_rate: 16000,

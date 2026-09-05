@@ -10,7 +10,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ath_contracts.avatar import AvatarProfile
 from ath_contracts.enums import Action, Classification, Emotion, EmotionIntensity
 from ath_contracts.report import Report
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
@@ -205,10 +204,6 @@ class ScenarioSummary(BaseModel):
 
 class ScenarioListResponse(BaseModel):
     items: list[ScenarioSummary]
-
-
-class AvatarListResponse(BaseModel):
-    items: list[AvatarProfile]
 
 
 # ------------------------------------------------------------------ gateway

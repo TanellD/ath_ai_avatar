@@ -707,6 +707,26 @@ body {
   pointer-events: none;
 }
 
+.session__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar-switch {
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.avatar-switch:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 .app__nav-tool {
   margin-left: 16px;
 }

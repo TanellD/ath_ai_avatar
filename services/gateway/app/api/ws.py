@@ -22,8 +22,6 @@ from ath_contracts import (
     SpeechStart,
     UserMessage,
     parse_client_event,
-    resolve_recovery_line,
-    resolve_voice,
 )
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -77,8 +75,7 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         recovery=VoiceRecoveryPlayer(
             speech=app.state.speech,
             send=send,
-            voice_id=resolve_voice(session.scenario.persona, session.avatar),
-            text=resolve_recovery_line(session.scenario.persona, session.avatar),
+            session=session,
             cache_dir=settings.voice_recovery_dir,
         ),
         max_capture_seconds=settings.voice_max_capture_seconds,
@@ -120,8 +117,13 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
             if isinstance(event, UserMessage):
                 # Триггер отмены (§6). Сейчас это отправка реплики, в голосовой
                 # фазе — VAD onset; всё, что ниже, не изменится.
-                await pipeline.handle_user_message(event.text, event.interrupts)
+                session.avatar_id = event.avatar_id
+                await pipeline.handle_user_message(
+                    event.text, event.interrupts, avatar_id=event.avatar_id
+                )
             elif isinstance(event, SpeechStart):
+                # Голосовой ход должен звучать тем же голосом, что и текстовый.
+                session.avatar_id = event.avatar_id
                 await voice.start(event)
             elif isinstance(event, SpeechEnd):
                 await voice.end(str(event.capture_id))
@@ -157,17 +159,7 @@ async def _restore_session(websocket: WebSocket, session_id: str):
         await websocket.close(code=4404, reason="scenario not found")
         return None
 
-    # Профиль аватара нужен и обычной речи, и заготовке «повторите» — иначе
-    # они зазвучали бы разными голосами.
-    try:
-        avatar = await websocket.app.state.scenario.get_avatar(scenario.persona.avatar_id)
-    except Exception as exc:  # noqa: BLE001 - косметика не должна ронять сессию
-        log.warning("ws.avatar_lookup_failed", error_type=type(exc).__name__)
-        avatar = None
-    if avatar is None:
-        log.warning("ws.avatar_missing", avatar_id=scenario.persona.avatar_id)
-
-    session = websocket.app.state.sessions.create(session_id, scenario, avatar)
+    session = websocket.app.state.sessions.create(session_id, scenario)
     session.current_stage_id = state.current_stage
     return session
 

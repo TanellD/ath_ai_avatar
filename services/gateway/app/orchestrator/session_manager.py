@@ -10,7 +10,6 @@ import time
 from dataclasses import dataclass, field
 
 from ath_contracts import (
-    AvatarProfile,
     Scenario,
     SessionState,
     SessionStatus,
@@ -20,6 +19,7 @@ from ath_contracts import (
     TurnRole,
 )
 
+from app.orchestrator.avatar_voice import DEFAULT_AVATAR_ID
 from app.orchestrator.fsm import StageMachine
 from app.orchestrator.generation import GenerationRegistry
 
@@ -28,7 +28,8 @@ from app.orchestrator.generation import GenerationRegistry
 class LiveSession:
     session_id: str
     scenario: Scenario
-    avatar: AvatarProfile | None = None
+    avatar_id: str = DEFAULT_AVATAR_ID
+    """Профиль аватара, выбранный учеником. Общий для текста и голоса."""
     generations: GenerationRegistry = field(default_factory=GenerationRegistry)
     started_at: float = field(default_factory=time.monotonic)
 
@@ -108,10 +109,8 @@ class SessionRegistry:
     def __init__(self) -> None:
         self._sessions: dict[str, LiveSession] = {}
 
-    def create(
-        self, session_id: str, scenario: Scenario, avatar: AvatarProfile | None = None
-    ) -> LiveSession:
-        session = LiveSession(session_id=session_id, scenario=scenario, avatar=avatar)
+    def create(self, session_id: str, scenario: Scenario) -> LiveSession:
+        session = LiveSession(session_id=session_id, scenario=scenario)
         self._sessions[session_id] = session
         return session
 

@@ -14,6 +14,7 @@ export type SessionStatus = 'active' | 'finished' | 'abandoned';
 export type TurnRole = 'user' | 'agent';
 export type Mood = 'neutral' | 'irritated' | 'friendly';
 export type Emotion = Mood | 'angry' | 'sad' | 'excited' | 'surprised';
+export type AvatarId = 'avatar-aith' | 'tom-avatar';
 
 // --------------------------------------------------------- клиент → сервер
 
@@ -27,6 +28,8 @@ export interface UserMessage {
   type: 'user_message';
   text: string;
   interrupts: number | null;
+  /** Профиль рендера; сервер сам выбирает связанный с ним голос. */
+  avatar_id: AvatarId;
 }
 
 export interface Ping {
@@ -37,6 +40,8 @@ export interface SpeechStart {
   type: 'speech_start';
   capture_id: string;
   interrupts: number | null;
+  /** Голос обязан совпадать с текстовым вводом: у голосового хода своего user_message нет. */
+  avatar_id: AvatarId;
   mode: 'ptt' | 'hands_free_candidate';
   audio_format: 'pcm_s16le';
   sample_rate: 16000;
@@ -194,27 +199,13 @@ export interface Report {
   stages_total: number;
 }
 
-/** Внешность и голос по умолчанию. Одна запись на модель, переиспользуется сценариями. */
-export interface AvatarProfile {
-  id: string;
-  title: string;
-  model_url: string;
-  body: 'F' | 'M';
-  voice_id: string | null;
-  recovery_line: string | null;
-}
-
 export interface Persona {
   name: string;
   role: string;
   character: string;
   mood: Mood;
   difficulty: number;
-  avatar_id: string;
-  /** Перекрывает голос аватара; null — берётся голос аватара. */
   voice_id: string | null;
-  /** Перекрывает фразу аватара на случай потерянной реплики. */
-  recovery_line: string | null;
 }
 
 export interface Stage {

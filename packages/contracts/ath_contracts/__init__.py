@@ -23,6 +23,8 @@ from ath_contracts.enums import (
     TurnRole,
 )
 from ath_contracts.events import (
+    DEFAULT_AVATAR_ID,
+    AvatarId,
     ActionEvent,
     AudioChunkEvent,
     CancelEvent,
@@ -43,13 +45,6 @@ from ath_contracts.events import (
     parse_client_event,
 )
 from ath_contracts.report import AudioRef, CriterionScore, Report
-from ath_contracts.avatar import (
-    DEFAULT_AVATAR_ID,
-    DEFAULT_RECOVERY_LINE,
-    AvatarProfile,
-    resolve_recovery_line,
-    resolve_voice,
-)
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 from ath_contracts.session import SessionState, StageHistoryEntry, Turn
 
@@ -57,6 +52,8 @@ __all__ = [
     "Action",
     "ActionEvent",
     "AudioChunkEvent",
+    "AvatarId",
+    "DEFAULT_AVATAR_ID",
     "AudioRef",
     "CancelEvent",
     "Classification",
@@ -66,12 +63,7 @@ __all__ = [
     "EmotionIntensity",
     "ErrorEvent",
     "Mood",
-    "AvatarProfile",
-    "DEFAULT_AVATAR_ID",
-    "DEFAULT_RECOVERY_LINE",
     "Persona",
-    "resolve_recovery_line",
-    "resolve_voice",
     "Ping",
     "Report",
     "ReportEvent",

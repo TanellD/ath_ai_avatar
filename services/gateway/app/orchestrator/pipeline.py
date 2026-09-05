@@ -31,7 +31,6 @@ from ath_contracts import (
     TokenEvent,
     Turn,
     TurnRole,
-    resolve_voice,
 )
 from ath_contracts.api import CharacterReplyMeta
 
@@ -40,6 +39,7 @@ from app.clients.speech_client import SpeechClient
 from app.core.logging import get_logger
 from app.db.engine import session_factory
 from app.db.repositories import SqlSessionRepository
+from app.orchestrator.avatar_voice import voice_for
 from app.orchestrator.context_window import build_context
 from app.orchestrator.sentence_splitter import SentenceSplitter
 from app.orchestrator.session_manager import LiveSession
@@ -49,7 +49,6 @@ log = get_logger(__name__)
 
 SendFn = Callable[[ServerEvent], Awaitable[None]]
 """Отправка события в сокет. Передаётся снаружи, чтобы pipeline не знал про FastAPI."""
-
 
 def wav_duration_ms(data_b64: str) -> int:
     """Длительность WAV-чанка в миллисекундах — из заголовка, не из длины текста.
@@ -96,7 +95,9 @@ class TurnPipeline:
 
     # ------------------------------------------------------------------ API
 
-    async def handle_user_message(self, text: str, interrupts: int | None) -> None:
+    async def handle_user_message(
+        self, text: str, interrupts: int | None, avatar_id: str = "avatar-aith"
+    ) -> None:
         """Точка входа хода. Реализует §6, шаги 3-5.
 
         Шаги 1-2 (локальная остановка звука и отправка события) — на клиенте,
@@ -110,7 +111,7 @@ class TurnPipeline:
         # события в цикле приёма — от этого зависит бюджет barge-in (§9).
         self._fire_and_forget(self._persist_turn(user_turn, gen_id))
 
-        self._start_pipeline(gen_id, text)
+        self._start_pipeline(gen_id, text, avatar_id)
 
     async def begin_user_turn(self, interrupts: int | None) -> int:
         """Один authoritative bump для text или PTT начала."""
@@ -143,20 +144,22 @@ class TurnPipeline:
         if not inserted:
             return False
         self._session.accept_turn(turn)
-        self._start_pipeline(gen_id, turn.text)
+        # Голосовой ход берёт аватар из сессии: выбор приезжает на speech_start,
+        # а не на user_message, но голос обязан быть тем же самым.
+        self._start_pipeline(gen_id, turn.text, self._session.avatar_id)
         return True
 
-    def _start_pipeline(self, gen_id: int, text: str) -> None:
-        task = asyncio.create_task(self._run_turn(gen_id, text))
+    def _start_pipeline(self, gen_id: int, text: str, avatar_id: str) -> None:
+        task = asyncio.create_task(self._run_turn(gen_id, text, avatar_id))
         self._session.generations.register(gen_id, task)
 
     # -------------------------------------------------------------- внутри
 
-    async def _run_turn(self, gen_id: int, user_text: str) -> None:
+    async def _run_turn(self, gen_id: int, user_text: str, avatar_id: str) -> None:
         """Один ход целиком. Отменяется целиком по task.cancel()."""
         recorder = SpanRecorder(self._session.session_id, gen_id)
         try:
-            await self._speak(gen_id, user_text, recorder)
+            await self._speak(gen_id, user_text, avatar_id, recorder)
             await self._advance_stage(gen_id, user_text, recorder)
         except asyncio.CancelledError:
             log.info("pipeline.turn_cancelled", gen_id=gen_id)
@@ -177,7 +180,9 @@ class TurnPipeline:
         except Exception:
             log.exception("pipeline.persist_turn_failed", gen_id=gen_id)
 
-    async def _speak(self, gen_id: int, user_text: str, recorder: SpanRecorder) -> None:
+    async def _speak(
+        self, gen_id: int, user_text: str, avatar_id: str, recorder: SpanRecorder
+    ) -> None:
         """Реплика персонажа: токены LLM → предложения → чанки TTS.
 
         TODO: обвязка готова, тела клиентов — заглушки. Что здесь должно
@@ -194,6 +199,7 @@ class TurnPipeline:
         splitter = SentenceSplitter()
         full_text: list[str] = []
         emotion = Emotion(self._session.scenario.persona.mood.value)
+        voice_id = voice_for(avatar_id, self._session.scenario.persona)
         seq = 0
         elapsed_ms = 0
         """Сколько аудио этого поколения уже отправлено — начало отсчёта для
@@ -221,13 +227,13 @@ class TurnPipeline:
 
                 for sentence in splitter.feed(token):
                     seq, elapsed_ms = await self._synthesize(
-                        gen_id, sentence, seq, elapsed_ms, emotion, recorder
+                        gen_id, sentence, seq, elapsed_ms, emotion, voice_id, recorder
                     )
 
             tail = splitter.flush()
             if tail:
                 seq, elapsed_ms = await self._synthesize(
-                    gen_id, tail, seq, elapsed_ms, emotion, recorder
+                    gen_id, tail, seq, elapsed_ms, emotion, voice_id, recorder
                 )
 
         agent_turn = self._session.add_turn(TurnRole.AGENT, "".join(full_text))
@@ -240,6 +246,7 @@ class TurnPipeline:
         seq: int,
         elapsed_ms: int,
         emotion: Emotion,
+        voice_id: str | None,
         recorder: SpanRecorder,
     ) -> tuple[int, int]:
         """Озвучить одно предложение, отдавая чанки по мере готовности (§10).
@@ -254,7 +261,7 @@ class TurnPipeline:
                 gen_id=gen_id,
                 seq=seq,
                 text=sentence,
-                voice_id=resolve_voice(self._session.scenario.persona, self._session.avatar),
+                voice_id=voice_id,
                 emotion=emotion,
             ):
                 await self._send(

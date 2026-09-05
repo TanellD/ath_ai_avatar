@@ -14,48 +14,38 @@ import sys
 from pathlib import Path
 
 import httpx
-from ath_contracts import (
-    DEFAULT_RECOVERY_LINE,
-    AvatarProfile,
-    Emotion,
-    Scenario,
-    resolve_recovery_line,
-    resolve_voice,
-)
+from ath_contracts import Emotion, Scenario
 
 from app.clients.speech_client import SpeechClient
 from app.core.config import get_settings
+from app.orchestrator.avatar_voice import known_profiles, voice_for
 from app.orchestrator.voice_recovery import write_cache
 
 
 async def collect(scenario_service_url: str, timeout: float) -> set[tuple[str | None, str]]:
-    """Все пары «голос + фраза», которые может потребоваться озвучить."""
+    """Все пары «голос + фраза», которые может потребоваться озвучить.
+
+    Ученик переключает аватар посреди сессии, поэтому нужны все сочетания
+    профиля с персоной, а не только исходное.
+    """
+    profiles = known_profiles()
     wanted: set[tuple[str | None, str]] = set()
     async with httpx.AsyncClient(base_url=scenario_service_url, timeout=timeout) as client:
-        avatars_response = await client.get("/avatars")
-        avatars_response.raise_for_status()
-        avatars = {
-            item["id"]: AvatarProfile.model_validate(item)
-            for item in avatars_response.json()["items"]
-        }
-        for avatar in avatars.values():
-            wanted.add((avatar.voice_id, avatar.recovery_line or DEFAULT_RECOVERY_LINE))
-
         listing = await client.get("/scenarios")
         listing.raise_for_status()
         for item in listing.json()["items"]:
             response = await client.get(f"/scenarios/{item['id']}")
             response.raise_for_status()
             persona = Scenario.model_validate(response.json()).persona
-            avatar = avatars.get(persona.avatar_id)
-            wanted.add((resolve_voice(persona, avatar), resolve_recovery_line(persona, avatar)))
+            for avatar_id, line in profiles:
+                wanted.add((voice_for(avatar_id, persona), line))
     return wanted
 
 
 async def render(cache_dir: Path, *, scenario_service_url: str, timeout: float) -> int:
     wanted = await collect(scenario_service_url, timeout)
     if not wanted:
-        print("ни аватаров, ни сценариев — нечего озвучивать", file=sys.stderr)
+        print("сценариев нет — нечего озвучивать", file=sys.stderr)
         return 1
 
     settings = get_settings()

@@ -22,6 +22,13 @@ from ath_contracts.report import Report
 # ---------------------------------------------------------------------------
 
 
+AvatarId = Literal["avatar-aith", "tom-avatar"]
+"""Профили аватаров. Рендер-настройки живут на клиенте (AVATAR_MODELS),
+сервер знает только, какой голос и какие служебные реплики с ними связаны."""
+
+DEFAULT_AVATAR_ID: AvatarId = "avatar-aith"
+
+
 class UserMessage(BaseModel):
     """Реплика пользователя. Отправка = перебивание.
 
@@ -37,6 +44,10 @@ class UserMessage(BaseModel):
         default=None,
         description="gen_id перебиваемого поколения, либо None если персонаж молчал",
     )
+    avatar_id: AvatarId = Field(
+        default=DEFAULT_AVATAR_ID,
+        description="Профиль аватара; gateway выбирает связанный с ним голос",
+    )
 
 
 class Ping(BaseModel):
@@ -49,6 +60,9 @@ class SpeechStart(BaseModel):
     type: Literal["speech_start"] = "speech_start"
     capture_id: UUID
     interrupts: int | None = None
+    # Голос обязан совпадать с текстовым вводом, поэтому профиль приезжает и
+    # сюда: у голосового хода своего user_message нет.
+    avatar_id: AvatarId = DEFAULT_AVATAR_ID
     mode: Literal["ptt", "hands_free_candidate"] = "ptt"
     audio_format: Literal["pcm_s16le"] = "pcm_s16le"
     sample_rate: Literal[16000] = 16000

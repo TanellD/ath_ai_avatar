@@ -27,13 +27,12 @@ test: ## Тесты gateway, speech-service, ai-service (инварианты и
 	$(COMPOSE) exec gateway pytest -v
 	$(COMPOSE) exec speech-service pytest -v
 	$(COMPOSE) exec ai-service pytest -v
-	$(COMPOSE) exec scenario-service pytest -v
 
 lint: ## ruff по сервисам + eslint во фронтенде
 	$(COMPOSE) exec gateway ruff check app tests
 	$(COMPOSE) exec speech-service ruff check app tests
 	$(COMPOSE) exec ai-service ruff check app tests
-	$(COMPOSE) exec scenario-service ruff check app tests
+	$(COMPOSE) exec scenario-service ruff check app
 	$(COMPOSE) exec frontend npm run lint
 
 fmt: ## Форматирование

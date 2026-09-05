@@ -19,7 +19,9 @@ from ath_contracts import AudioChunkEvent, Emotion, SubtitleEvent
 
 from app.clients.speech_client import SpeechClient
 from app.core.logging import get_logger
+from app.orchestrator.avatar_voice import recovery_line_for, voice_for
 from app.orchestrator.pipeline import SendFn, wav_duration_ms
+from app.orchestrator.session_manager import LiveSession
 
 log = get_logger(__name__)
 
@@ -37,15 +39,23 @@ class VoiceRecoveryPlayer:
         *,
         speech: SpeechClient,
         send: SendFn,
-        voice_id: str | None,
-        text: str,
+        session: LiveSession,
         cache_dir: str | Path,
     ) -> None:
         self._speech = speech
         self._send = send
-        self._voice_id = voice_id
-        self._text = text
+        self._session = session
         self._cache_dir = Path(cache_dir)
+
+    @property
+    def _voice_id(self) -> str | None:
+        # Читаем на каждом обращении, а не в конструкторе: ученик может
+        # переключить аватар посреди сессии, и голос обязан поехать за ним.
+        return voice_for(self._session.avatar_id, self._session.scenario.persona)
+
+    @property
+    def _text(self) -> str:
+        return recovery_line_for(self._session.avatar_id)
 
     @property
     def _path(self) -> Path:

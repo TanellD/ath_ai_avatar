@@ -4,15 +4,19 @@ import json
 import wave
 from pathlib import Path
 
-from ath_contracts import (
-    DEFAULT_RECOVERY_LINE,
-    AvatarProfile,
-    Persona,
-    resolve_recovery_line,
-    resolve_voice,
-)
+from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 
+from app.orchestrator.avatar_voice import (
+    DEFAULT_AVATAR_ID,
+    DEFAULT_RECOVERY_LINE,
+    known_profiles,
+    recovery_line_for,
+    voice_for,
+)
+from app.orchestrator.session_manager import LiveSession
 from app.orchestrator.voice_recovery import VoiceRecoveryPlayer, cache_name, write_cache
+
+TOM = "tom-avatar"
 
 
 def _wav(ms: int) -> str:
@@ -39,16 +43,26 @@ class FakeSpeech:
             yield type("Chunk", (), {"data": data, "seq": index})()
 
 
-def _player(
-    tmp_path: Path, speech: FakeSpeech, *, voice_id: str | None, text: str = DEFAULT_RECOVERY_LINE
-) -> tuple:
+def _session(voice_id: str | None = None) -> LiveSession:
+    persona = Persona(name="Ирина", role="закупщик", character="скептична", voice_id=voice_id)
+    scenario = Scenario(
+        id="s",
+        title="t",
+        persona=persona,
+        stages=[Stage(id="one", goal="g", agent_opening="o", completion_criteria="c")],
+        rubric=[RubricItem(id="r", name="Критерий", description="d")],
+    )
+    return LiveSession(session_id="session", scenario=scenario)
+
+
+def _player(tmp_path: Path, speech: FakeSpeech, session: LiveSession) -> tuple:
     sent = []
 
     async def send(event) -> None:  # noqa: ANN001
         sent.append(event)
 
     return VoiceRecoveryPlayer(
-        speech=speech, send=send, voice_id=voice_id, text=text, cache_dir=tmp_path
+        speech=speech, send=send, session=session, cache_dir=tmp_path
     ), sent
 
 
@@ -56,51 +70,39 @@ def test_default_line_avoids_gendered_past_tense() -> None:
     # Одна фраза обслуживает персонажей любого рода, поэтому «не расслышал»
     # и «не расслышала» одинаково не годятся.
     assert "расслышал" not in DEFAULT_RECOVERY_LINE
-    bare = Persona(name="Ирина", role="закупщик", character="скептична")
-    assert resolve_recovery_line(bare, None) == DEFAULT_RECOVERY_LINE
+    assert recovery_line_for(DEFAULT_AVATAR_ID) == DEFAULT_RECOVERY_LINE
 
 
-def test_avatar_supplies_voice_and_line_when_persona_is_silent() -> None:
-    tom_avatar = AvatarProfile(
-        id="tom",
-        title="Кот Том",
-        model_url="/assets/avatar/tom.glb",
-        voice_id="TomVoice",
-        recovery_line="Мур? Не расслышал. Повтори-ка.",
-    )
-    tom = Persona(name="Том", role="кот", character="ленив", avatar_id="tom")
+def test_tom_speaks_in_his_own_voice_and_words() -> None:
+    persona = Persona(name="Ирина", role="закупщик", character="скептична", voice_id="Reese")
 
-    assert resolve_voice(tom, tom_avatar) == "TomVoice"
-    assert resolve_recovery_line(tom, tom_avatar) == "Мур? Не расслышал. Повтори-ка."
+    assert voice_for(TOM, persona) == "Daniel"
+    assert recovery_line_for(TOM) != DEFAULT_RECOVERY_LINE
+    # Профиль перекрывает голос персонажа: иначе кот заговорил бы Ириной.
+    assert voice_for(DEFAULT_AVATAR_ID, persona) == "Reese"
 
 
-def test_persona_overrides_the_avatar() -> None:
-    # Одна модель может достаться разным характерам, поэтому персона имеет
-    # право звучать иначе, чем аватар по умолчанию.
-    avatar = AvatarProfile(id="aith", title="Базовый", model_url="/a.glb", voice_id="Reese")
-    pavel = Persona(
-        name="Павел",
-        role="кандидат",
-        character="волнуется",
-        voice_id="OtherVoice",
-        recovery_line="Извините, повторите?",
-    )
-
-    assert resolve_voice(pavel, avatar) == "OtherVoice"
-    assert resolve_recovery_line(pavel, avatar) == "Извините, повторите?"
+def test_prerender_covers_every_profile() -> None:
+    ids = {avatar_id for avatar_id, _ in known_profiles()}
+    assert {DEFAULT_AVATAR_ID, TOM} <= ids
 
 
-def test_cache_key_separates_voices_and_lines() -> None:
-    text = DEFAULT_RECOVERY_LINE
-    assert cache_name("Reese", text) != cache_name("TomVoice", text)
-    assert cache_name("Reese", text) != cache_name("Reese", "другая фраза")
-    assert cache_name(None, text) == cache_name(None, text)
+def test_switching_avatar_mid_session_changes_the_recovery_voice(tmp_path: Path) -> None:
+    session = _session(voice_id="Reese")
+    player, _sent = _player(tmp_path, FakeSpeech(), session)
+
+    before = player._path
+    session.avatar_id = TOM
+    # Ученик может переключить аватар посреди сессии, и заготовка обязана
+    # поехать за ним, а не остаться с голосом предыдущего.
+    assert player._path != before
 
 
 async def test_prerendered_line_plays_without_touching_tts(tmp_path: Path) -> None:
+    session = _session(voice_id="Reese")
     write_cache(tmp_path, "Reese", DEFAULT_RECOVERY_LINE, [_wav(500), _wav(300)])
     speech = FakeSpeech(fail=True)
-    player, sent = _player(tmp_path, speech, voice_id="Reese")
+    player, sent = _player(tmp_path, speech, session)
 
     assert await player.play(gen_id=7) is True
     # Отказ TTS — один из сценариев потери хода, поэтому заготовка обязана
@@ -115,17 +117,18 @@ async def test_prerendered_line_plays_without_touching_tts(tmp_path: Path) -> No
 
 
 async def test_missing_cache_falls_back_to_live_synthesis(tmp_path: Path) -> None:
+    session = _session()
+    session.avatar_id = TOM
     speech = FakeSpeech([_wav(200)])
-    player, sent = _player(tmp_path, speech, voice_id="TomVoice")
+    player, sent = _player(tmp_path, speech, session)
 
     assert await player.play(gen_id=3) is True
-    assert speech.calls[0]["voice_id"] == "TomVoice"
-    assert speech.calls[0]["text"] == DEFAULT_RECOVERY_LINE
+    assert speech.calls[0]["voice_id"] == "Daniel"
     assert [event.type for event in sent] == ["audio_chunk", "subtitle"]
 
 
 async def test_play_reports_failure_when_nothing_can_be_said(tmp_path: Path) -> None:
-    player, sent = _player(tmp_path, FakeSpeech(fail=True), voice_id=None)
+    player, sent = _player(tmp_path, FakeSpeech(fail=True), _session())
 
     # Зовущий обязан узнать, что сказать не удалось, и показать обычную ошибку.
     assert await player.play(gen_id=1) is False
@@ -133,11 +136,19 @@ async def test_play_reports_failure_when_nothing_can_be_said(tmp_path: Path) -> 
 
 
 async def test_malformed_cache_is_ignored_rather_than_crashing(tmp_path: Path) -> None:
+    session = _session(voice_id="Reese")
     path = tmp_path / cache_name("Reese", DEFAULT_RECOVERY_LINE)
     path.write_text(json.dumps({"chunks": "не список"}), encoding="utf-8")
     speech = FakeSpeech([_wav(100)])
-    player, sent = _player(tmp_path, speech, voice_id="Reese")
+    player, sent = _player(tmp_path, speech, session)
 
     assert await player.play(gen_id=2) is True
     assert len(speech.calls) == 1
     assert len(sent) == 2
+
+
+def test_cache_key_separates_voices_and_lines() -> None:
+    text = DEFAULT_RECOVERY_LINE
+    assert cache_name("Reese", text) != cache_name("Daniel", text)
+    assert cache_name("Reese", text) != cache_name("Reese", "другая фраза")
+    assert cache_name(None, text) == cache_name(None, text)
