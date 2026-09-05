@@ -11,6 +11,8 @@ interface Props {
   onChange: (enabled: boolean) => void;
   active: boolean;
   level: number;
+  autoEndOnPause: boolean;
+  onAutoEndOnPauseChange: (enabled: boolean) => void;
   onStart: () => void;
   onEnd: () => void;
   disabled?: boolean;
@@ -21,6 +23,8 @@ export function PushToTalkToggle({
   onChange,
   active,
   level,
+  autoEndOnPause,
+  onAutoEndOnPauseChange,
   onStart,
   onEnd,
   disabled = false,
@@ -37,16 +41,27 @@ export function PushToTalkToggle({
         <span>Голосовой ввод</span>
       </label>
       {enabled && (
-        <button
-          type="button"
-          className={`ptt__button${active ? ' ptt__button--active' : ''}`}
-          disabled={disabled}
-          aria-pressed={active}
-          onClick={active ? onEnd : onStart}
-          style={{ '--mic-level': String(level) } as CSSProperties}
-        >
-          {active ? 'Закончить запись' : 'Начать говорить'}
-        </button>
+        <>
+          <label className="ptt__auto-end">
+            <input
+              type="checkbox"
+              checked={autoEndOnPause}
+              disabled={disabled || active}
+              onChange={(event) => onAutoEndOnPauseChange(event.target.checked)}
+            />
+            <span>Отправлять после паузы</span>
+          </label>
+          <button
+            type="button"
+            className={`ptt__button${active ? ' ptt__button--active' : ''}`}
+            disabled={disabled}
+            aria-pressed={active}
+            onClick={active ? onEnd : onStart}
+            style={{ '--mic-level': String(level) } as CSSProperties}
+          >
+            {active ? 'Закончить запись' : 'Начать говорить'}
+          </button>
+        </>
       )}
     </div>
   );

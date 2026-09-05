@@ -7,8 +7,11 @@
 Актуальная архитектура — [docs/architecture.md](docs/architecture.md), план
 голосового ввода — [docs/voice-input-plan.md](docs/voice-input-plan.md).
 
-Текстовый ввод работает как прежде. Первый голосовой режим — push-to-talk с
-Soniox STT; GigaAM failover и hands-free добавляются следующими фазами.
+Текстовый ввод работает как прежде. Голосовой режим — push-to-talk: Soniox
+realtime STT используется как основной движок, а локальный GigaAM — как
+автоматический fallback. Запись начинается явным кликом и по умолчанию сама
+отправляется после длинной паузы; ручное завершение остаётся. Полный hands-free
+добавляется следующей фазой.
 
 ## Запуск
 
@@ -21,6 +24,28 @@ docker compose up --build
 
 Ключи API не требуются: `TTS_PROVIDER` и `LLM_PROVIDER` по умолчанию `mock`.
 Всё поднимается, отвечает на `/health`, WebSocket подключается.
+
+### Единый запуск демо-режима
+
+Перед самым первым запуском подготовьте локальную модель GigaAM и аварийные
+голосовые реплики. Эта команда также поднимет стек и дождётся healthcheck всех
+сервисов:
+
+```bash
+make demo-prepare
+```
+
+При следующих запусках достаточно одной быстрой команды — модель и recovery-аудио
+останутся в локальных Docker/data-кешах:
+
+```bash
+make demo-up
+```
+
+В Windows без make используются соответственно `.\scripts\dev.cmd demo-prepare`
+и `.\scripts\dev.cmd demo-up`. Остановка — `make down` или
+`.\scripts\dev.cmd down`. CMD-обёртка работает и при стандартном запрете
+исполнения `.ps1` в Windows PowerShell.
 
 | Что | Адрес |
 |---|---|
@@ -60,13 +85,12 @@ LLM_FAST_MODEL=google/gemini-2.5-flash    # имя модели ЭТОГО пр�
 LLM_STRONG_MODEL=google/gemini-2.5-flash
 ```
 
-TTS — Soniox (реализован, тот же провайдер, что подтвердила ветка `poc`,
-голос "Nina"):
+TTS — Soniox (реализован, голос Reese):
 
 ```dotenv
 TTS_PROVIDER=soniox
 SONIOX_API_KEY=...
-STT_PROVIDER=soniox
+STT_PROVIDER=soniox_gigaam
 ```
 
 `TTS_PROVIDER=elevenlabs|yandex` остаются заглушками — описание, что нужно
@@ -121,6 +145,7 @@ tatarby-main/           референсный проект, только для
 
 ```bash
 make up          # docker compose up --build
+make demo-up     # демо-стек с GigaAM, запуск в фоне и ожидание готовности
 make logs        # логи всех сервисов
 make test        # pytest в сервисах + vitest во фронтенде
 make lint        # ruff по сервисам + eslint во фронтенде
@@ -179,7 +204,7 @@ curl -X POST localhost:8010/debug/stt-fault \
 Фраза по умолчанию не содержит прошедшего времени: род персонажа заранее
 неизвестен, а «не расслышал» и «не расслышала» разошлись бы. У Тома своя.
 
-Без make (Windows): `.\scripts\dev.ps1 up`, `.\scripts\dev.ps1 test` и так далее.
+Без make (Windows): `.\scripts\dev.cmd up`, `.\scripts\dev.cmd test` и так далее.
 
 Dev-режим включён по умолчанию (`docker-compose.override.yml`): исходники
 прокинуты внутрь контейнеров, uvicorn и vite перезапускаются на правку.

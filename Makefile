@@ -1,13 +1,19 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help up down restart logs ps build test lint fmt migrate revision contracts clean gigaam-setup voice-recovery-setup voices
+.PHONY: help up demo-up demo-prepare down restart logs ps build test lint fmt migrate revision contracts clean gigaam-setup voice-recovery-setup voices
 
 help: ## Список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 up: ## Поднять всё (dev-режим)
 	$(COMPOSE) up --build
+
+demo-up: ## Поднять готовый к демонстрации стек с GigaAM и дождаться healthcheck
+	$(COMPOSE) --profile gigaam up --build -d --wait --wait-timeout 300
+
+demo-prepare: gigaam-setup demo-up ## Первый запуск: подготовить GigaAM, поднять стек и предрендерить recovery-аудио
+	$(COMPOSE) exec gateway python -m app.scripts.render_voice_recovery
 
 down: ## Остановить и убрать контейнеры
 	$(COMPOSE) down

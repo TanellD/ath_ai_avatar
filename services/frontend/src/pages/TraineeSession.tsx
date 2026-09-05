@@ -28,6 +28,10 @@ import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
 import { useMicCapture } from '@/audio/mic/useMicCapture';
 import {
+  DEFAULT_PAUSE_DETECTOR_CONFIG,
+  PauseDetector,
+} from '@/audio/mic/PauseDetector';
+import {
   AVATAR_MODELS,
   TalkingHeadAvatar,
   type AvatarModelConfig,
@@ -76,6 +80,7 @@ export function TraineeSession() {
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
   const [pushToTalk, setPushToTalk] = useState(false);
+  const [autoEndOnPause, setAutoEndOnPause] = useState(true);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState('');
   // Распознавание ушло на резервный движок без партиалов: черновик больше
@@ -96,6 +101,8 @@ export function TraineeSession() {
   const activeCaptureRef = useRef<string | null>(null);
   const captureEndingRef = useRef(false);
   const voiceTimingRef = useRef<VoiceTimingMarks | null>(null);
+  const pauseDetectorRef = useRef(new PauseDetector());
+  const voiceEndRef = useRef<() => void>(() => undefined);
 
   const handleAvatarReady = useCallback((handle: AvatarPlaybackHandle) => {
     const clock = new PlaybackClock(handle.audioCtx);
@@ -326,7 +333,15 @@ export function TraineeSession() {
 
   const { start: startMic, stop: stopMic, level: micLevel } = useMicCapture({
     onFrame: (frame) => {
-      if (activeCaptureRef.current && !captureEndingRef.current) sendAudio(frame);
+      if (!activeCaptureRef.current || captureEndingRef.current) return;
+      sendAudio(frame);
+      if (autoEndOnPause && pauseDetectorRef.current.push(frame)) {
+        console.info('[voice-metric]', {
+          event: 'client_pause_endpoint',
+          silence_ms: DEFAULT_PAUSE_DETECTOR_CONFIG.endpointSilenceMs,
+        });
+        voiceEndRef.current();
+      }
     },
     onError: (message) => {
       setError({ type: 'audio', message });
@@ -397,6 +412,7 @@ export function TraineeSession() {
     setVoiceActive(true);
     setVoiceDraft('');
     setVoiceBuffered(false);
+    pauseDetectorRef.current.reset();
 
     const interrupted = wasPlaying ? genRef.current : null;
     cancelPlayback({
@@ -446,6 +462,7 @@ export function TraineeSession() {
       sendSpeechEnd(captureId);
     });
   }, [sendAudio, sendSpeechEnd, stopMic]);
+  voiceEndRef.current = handleVoiceEnd;
 
   useEffect(() => {
     const finalizeWhenHidden = () => {
@@ -486,6 +503,8 @@ export function TraineeSession() {
             onChange={setPushToTalk}
             active={voiceActive}
             level={micLevel}
+            autoEndOnPause={autoEndOnPause}
+            onAutoEndOnPauseChange={setAutoEndOnPause}
             onStart={handleVoiceStart}
             onEnd={handleVoiceEnd}
             disabled={connection !== 'open' || !audio}

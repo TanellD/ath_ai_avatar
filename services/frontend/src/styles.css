@@ -298,6 +298,7 @@ body {
 .ptt {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   color: var(--muted);
   font-size: 13px;
@@ -307,6 +308,10 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.ptt__auto-end {
+  white-space: nowrap;
 }
 
 .ptt__button {

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Обёртка над docker compose для Windows — то же, что Makefile, но без make.
+    Windows wrapper for docker compose. Mirrors the Makefile commands.
 
 .EXAMPLE
     .\scripts\dev.ps1 up
@@ -10,7 +10,7 @@
 
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('up', 'down', 'restart', 'logs', 'ps', 'build', 'test', 'lint', 'migrate',
+    [ValidateSet('up', 'demo-up', 'demo-prepare', 'down', 'restart', 'logs', 'ps', 'build', 'test', 'lint', 'migrate',
         'gigaam-setup', 'voice-recovery-setup', 'voices', 'clean', 'help')]
     [string]$Command = 'help',
 
@@ -23,12 +23,20 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 if (-not (Test-Path '.env')) {
-    Write-Host 'Файла .env нет — копирую из .env.example' -ForegroundColor Yellow
+    Write-Host '.env is missing; copying .env.example' -ForegroundColor Yellow
     Copy-Item '.env.example' '.env'
 }
 
 switch ($Command) {
     'up' { docker compose up --build @Rest }
+    'demo-up' {
+        docker compose --profile gigaam up --build -d --wait --wait-timeout 300 @Rest
+    }
+    'demo-prepare' {
+        docker compose --profile gigaam run --rm --no-deps gigaam-worker python -m app.setup_models
+        docker compose --profile gigaam up --build -d --wait --wait-timeout 300 @Rest
+        docker compose exec gateway python -m app.scripts.render_voice_recovery
+    }
     'down' { docker compose down @Rest }
     'restart' { docker compose down; docker compose up --build @Rest }
     'logs' { docker compose logs -f @Rest }
@@ -62,23 +70,25 @@ switch ($Command) {
     }
     default {
         Write-Host @'
-Использование: .\scripts\dev.ps1 <команда>
+Usage: .\scripts\dev.ps1 <command>
 
-  up        поднять всё (dev-режим)
-  down      остановить
-  restart   перезапустить
-  logs      логи (можно указать сервис: logs gateway)
-  ps        состояние контейнеров
-  build     пересобрать образы
-  test      pytest в сервисах + vitest во фронтенде
-  lint      ruff + eslint
-  migrate   применить миграции
+  up            start the development stack
+  demo-up       start the demo stack with GigaAM and wait until healthy
+  demo-prepare  first run: GigaAM weights + stack + recovery audio
+  down          stop the stack
+  restart       restart the stack
+  logs          follow logs (optional service name: logs gateway)
+  ps            show container status
+  build         rebuild images
+  test          run pytest in services and vitest in frontend
+  lint          run ruff and eslint
+  migrate       apply migrations
 
-  gigaam-setup          скачать и сверить веса локального STT (до демо)
-  voice-recovery-setup  озвучить реплики «повторите» (стек должен быть поднят)
-  voices                список голосов TTS — для voice_id нового аватара
+  gigaam-setup          download and verify local STT weights
+  voice-recovery-setup  render recovery lines (stack must be running)
+  voices                list TTS voices for avatar voice_id
 
-  clean     убрать контейнеры, тома и локальные БД
+  clean         remove containers, volumes and local databases
 '@
     }
 }
