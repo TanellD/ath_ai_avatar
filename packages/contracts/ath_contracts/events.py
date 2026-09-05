@@ -83,8 +83,19 @@ class SpeechAbort(BaseModel):
     capture_id: UUID
 
 
+class FinishSession(BaseModel):
+    """Сотрудник заканчивает тренировку досрочно.
+
+    Claude.md §3 требует от агента действие «завершить»; автомат делает это
+    сам, когда пройден последний этап, но разговор может выдохнуться раньше —
+    и тогда без этого события сессия висела бы в active навсегда.
+    """
+
+    type: Literal["finish_session"] = "finish_session"
+
+
 ClientEvent = Annotated[
-    UserMessage | SpeechStart | SpeechEnd | SpeechAbort | Ping,
+    UserMessage | SpeechStart | SpeechEnd | SpeechAbort | Ping | FinishSession,
     Field(discriminator="type"),
 ]
 

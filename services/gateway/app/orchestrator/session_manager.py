@@ -35,6 +35,10 @@ class LiveSession:
 
     current_stage_id: str = ""
     turns_in_stage: int = 0
+    off_topic_streak: int = 0
+    """Сколько реплик подряд классифицированы как off_topic. Влияет только на
+    тон промпта персонажа (§1); автомат этапов об этом счётчике не знает и не
+    должен — возврат в русло делает персонаж, а не fsm.py."""
     turns: list[Turn] = field(default_factory=list)
     stage_history: list[StageHistoryEntry] = field(default_factory=list)
     summary: str = ""
@@ -89,6 +93,7 @@ class LiveSession:
         )
         self.current_stage_id = next_stage_id
         self.turns_in_stage = 0
+        self.off_topic_streak = 0
 
     def adopt(self, state: SessionState) -> None:
         """Поднять сохранённое состояние в память процесса.

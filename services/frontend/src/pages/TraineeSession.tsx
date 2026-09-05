@@ -38,16 +38,18 @@ import {
   type AvatarPlaybackHandle,
 } from '@/avatar/TalkingHeadAvatar';
 import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
-import { ConsentBanner } from '@/components/ConsentBanner';
 import { MessageComposer } from '@/components/MessageComposer';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
 import { PushToTalkToggle } from '@/components/PushToTalkToggle';
+import { SessionEndOverlay } from '@/components/SessionEndOverlay';
+import { SessionStartOverlay } from '@/components/SessionStartOverlay';
 import type { ServerEvent, SubtitleEvent } from '@/contracts/events';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
 import { useSessionSocket } from '@/ws/useSessionSocket';
 
 interface AudioRig {
+  audioCtx: AudioContext;
   clock: PlaybackClock;
   queue: AudioQueue;
   resetFace: () => void;
@@ -89,6 +91,14 @@ export function TraineeSession() {
   const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetrics | null>(null);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
   const [audio, setAudio] = useState<AudioRig | null>(null);
+  /**
+   * Пока false — сокет не открыт, и персонаж молчит. Разделение нужно из-за
+   * автоплея: агент говорит первым (§1), а звук в браузере не пойдёт, пока
+   * пользователь не совершит жест. См. SessionStartOverlay.
+   */
+  const [started, setStarted] = useState(false);
+  /** Тренировка окончена — по кнопке сотрудника или по решению автомата (§3). */
+  const [finished, setFinished] = useState(false);
   const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(AVATAR_MODELS.aith);
 
   /**
@@ -129,31 +139,25 @@ export function TraineeSession() {
         console.info('[voice-metric]', { capture_id: timing.captureId, response_ttfa_ms: responseTtfaMs });
       },
     );
-    setAudio({ clock, queue, resetFace: handle.resetFace, setEmotion: handle.setEmotion });
+    // Оба поля обязательны: audioCtx нужен, чтобы разблокировать автоплей по
+    // клику «Начать» (агент говорит первым), setEmotion — чтобы лицо
+    // отыгрывало эмоцию реплики.
+    setAudio({
+      audioCtx: handle.audioCtx,
+      clock,
+      queue,
+      resetFace: handle.resetFace,
+      setEmotion: handle.setEmotion,
+    });
   }, []);
 
   const handleAvatarError = useCallback((message: string) => {
     setError({ type: 'audio', message: 'Не удалось загрузить аватара', details: message });
   }, []);
 
-  // ------------------------------------------------------------ создание сессии
-
-  useEffect(() => {
-    let cancelled = false;
-
-    gatewayApi
-      .createSession(scenarioId)
-      .then((response) => {
-        if (!cancelled) setSessionId(response.session_id);
-      })
-      .catch((cause: Error) => {
-        if (!cancelled) setError({ type: 'server', message: 'Не удалось начать сессию', details: cause.message });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scenarioId]);
+  // Сессия заводится по нажатию «Начать», а не на монтировании страницы —
+  // см. handleStart. Раньше строка в БД появлялась на каждый заход, и список
+  // тренировок у методиста состоял в основном из пустышек.
 
   // AudioContext больше не наш: им владеет TalkingHeadAvatar (head.audioCtx),
   // закрывать его здесь при размонтировании было бы вмешательством в чужой
@@ -188,6 +192,14 @@ export function TraineeSession() {
           break;
 
         case 'action':
+          // finish — конец тренировки. Приходит сразу, отчёт готовится уже
+          // после него и сотруднику не показывается (см. SessionEndOverlay).
+          if (event.action === 'finish') {
+            audio?.queue.stopAll();
+            setPlayback('idle');
+            setFinished(true);
+            break;
+          }
           // Обычный переход (stay/next_stage) не обязан гасить индикатор —
           // это делает AudioQueue.onIdle, когда реплика реально доиграет.
           // Исключение — предохранитель: если очередь и так уже пуста
@@ -258,8 +270,10 @@ export function TraineeSession() {
           break;
 
         case 'report':
+          // Отчёт сотруднику намеренно не показывается: это экран методиста
+          // (§2), и он уже сохранён на сервере — здесь ловить нечего. Оверлей
+          // конца тренировки поднят раньше, по action: finish.
           setPlayback('idle');
-          // TODO: перевести методиста на экран отчёта / показать ссылку.
           break;
 
         case 'error':
@@ -304,13 +318,14 @@ export function TraineeSession() {
 
   const {
     state: connection,
+    send,
     sendUserMessage,
     sendSpeechStart,
     sendSpeechEnd,
     sendSpeechAbort,
     sendAudio,
   } = useSessionSocket({
-    sessionId,
+    sessionId: started ? sessionId : null,
     onEvent: handleEvent,
     currentGeneration: () => genRef.current,
     onError: setError,
@@ -347,6 +362,51 @@ export function TraineeSession() {
       setError({ type: 'audio', message });
     },
   });
+
+  // Оверлей поднимает не эта функция, а ответное `action: finish` от сервера:
+  // завершает сессию он, и локально угадывать этот момент незачем.
+  const handleFinish = useCallback(() => {
+    send({ type: 'finish_session' });
+  }, [send]);
+
+  const handleStart = useCallback(() => {
+    if (!audio) return;
+
+    // Разблокировка автоплея обязана произойти внутри обработчика клика:
+    // отложенный resume() браузер уже не засчитает как жест пользователя.
+    // Именно поэтому создание сессии ниже идёт ПОСЛЕ resume(), а не до: между
+    // кликом и await'ом жест ещё «свежий», после — уже нет.
+    void audio.audioCtx.resume().catch((cause: Error) => {
+      setError({
+        type: 'audio',
+        message: 'Не удалось включить звук',
+        details: cause.message,
+      });
+    });
+
+    // Персонаж заговорит сам, как только сервер увидит подключение, — своё
+    // поколение он заведёт первым же bump(), поэтому локально ждём gen 1.
+    genRef.current = 1;
+    audio.queue.startGeneration(genRef.current);
+    setPlayback('thinking');
+
+    gatewayApi
+      .createSession(scenarioId)
+      .then((response) => {
+        setSessionId(response.session_id);
+        // Сокет открывается по появлению sessionId вместе со started — до
+        // этого момента открывать нечего.
+        setStarted(true);
+      })
+      .catch((cause: Error) => {
+        setPlayback('disconnected');
+        setError({
+          type: 'server',
+          message: 'Не удалось начать сессию',
+          details: cause.message,
+        });
+      });
+  }, [audio, scenarioId]);
 
   useEffect(() => {
     if (connection === 'open') setPlayback((current) => (current === 'disconnected' ? 'idle' : current));
@@ -389,8 +449,11 @@ export function TraineeSession() {
       sendUserMessage(text, interrupted, avatarModel.id);
 
       // Новое поколение сервер присвоит сам; локально готовим очередь принять
-      // его чанки. Инкремент здесь совпадает с серверным, потому что счётчик
-      // растёт ровно на одно сообщение пользователя.
+      // его чанки. Инкремент совпадает с серверным, потому что счётчик растёт
+      // ровно на два события: открытие сессии (handleStart выставляет 1) и
+      // каждую реплику пользователя. Открытие НОВОГО ЭТАПА поколения не
+      // тратит — оно идёт тем же gen_id, что и ход, который его вызвал
+      // (gateway/app/orchestrator/pipeline.py::_run_turn).
       genRef.current += 1;
       audio.queue.startGeneration(genRef.current);
 
@@ -489,7 +552,9 @@ export function TraineeSession() {
     <main className="session">
       <header className="session__header">
         <PlaybackIndicator state={playback} />
-        <div className="session__header-actions">
+        {/* Обе стороны добавляли сюда свои элементы; обёртка одна —
+            .session__header-actions удалён из styles.css как дубликат. */}
+        <div className="session__controls">
           <button
             type="button"
             className="avatar-switch"
@@ -507,12 +572,18 @@ export function TraineeSession() {
             onAutoEndOnPauseChange={setAutoEndOnPause}
             onStart={handleVoiceStart}
             onEnd={handleVoiceEnd}
-            disabled={connection !== 'open' || !audio}
+            disabled={connection !== 'open' || !audio || finished}
           />
+          <button
+            type="button"
+            className="session__finish"
+            onClick={handleFinish}
+            disabled={connection !== 'open' || finished}
+          >
+            Завершить
+          </button>
         </div>
       </header>
-
-      <ConsentBanner />
 
       {error && (
         <p className="session__error" role="alert">
@@ -541,7 +612,7 @@ export function TraineeSession() {
       </section>
 
       <MessageComposer
-        disabled={connection !== 'open' || !audio || voiceActive}
+        disabled={connection !== 'open' || !audio || voiceActive || finished}
         isAgentSpeaking={playback === 'speaking'}
         onSubmit={handleSubmit}
       />
@@ -562,6 +633,11 @@ export function TraineeSession() {
           {voiceMetrics.stopMs !== undefined && ` · остановка ${voiceMetrics.stopMs} мс`}
         </p>
       )}
+
+      {/* Аватар грузится (13 МБ GLB) под оверлеем, поэтому он смонтирован
+          всегда, а закрывает его этот слой — а не условный рендер сессии. */}
+      {!started && <SessionStartOverlay ready={audio !== null} onStart={handleStart} />}
+      {finished && <SessionEndOverlay />}
     </main>
   );
 }

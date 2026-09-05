@@ -10,7 +10,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ath_contracts.enums import Action, Classification, Emotion, EmotionIntensity
+from ath_contracts.enums import (
+    Action,
+    Classification,
+    Emotion,
+    EmotionIntensity,
+    OpeningKind,
+    SessionStatus,
+)
 from ath_contracts.report import Report
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 from ath_contracts.session import Turn
@@ -25,7 +32,22 @@ class CharacterReplyRequest(BaseModel):
     stage: Stage
     history: list[Turn] = Field(description="Скользящее окно, уже подготовленное gateway (§5)")
     summary: str = Field(default="", description="Сжатая выжимка вытесненных ходов")
-    user_text: str
+    user_text: str = Field(
+        description="Реплика пользователя. Для открывающих реплик (opening_kind != None) "
+        "здесь лежит служебная ремарка режиссёра, а не текст человека: Anthropic "
+        "Messages API отклоняет пустой список сообщений и список, не начинающийся "
+        "с роли user, — см. docs/agent-initiative.md"
+    )
+    opening_kind: OpeningKind | None = Field(
+        default=None,
+        description="Заполнено, только когда персонаж говорит сам, без реплики "
+        "пользователя: начало сессии или переход на новый этап (§1)",
+    )
+    off_topic_streak: int = Field(
+        default=0,
+        description="Сколько реплик подряд классифицированы как off_topic. Влияет "
+        "только на тон промпта — автомат этапов об этом не знает (§5)",
+    )
 
 
 class CharacterReplyDone(BaseModel):
@@ -228,6 +250,26 @@ class CreateSessionResponse(BaseModel):
     session_id: str
     scenario_id: str
     ws_url: str
+
+
+class SessionSummaryItem(BaseModel):
+    """Строка списка сессий у методиста (§2: он получает историю и оценку).
+
+    Не путать с админской сводкой из app/db/admin_repository.py: та —
+    отладочный инструмент со своей формой (gen_id, спаны), эта — продукт.
+    """
+
+    session_id: str
+    scenario_id: str
+    status: SessionStatus
+    turn_count: int
+    created_at: str
+    finished_at: str | None = None
+    has_report: bool = False
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionSummaryItem]
 
 
 class HealthResponse(BaseModel):

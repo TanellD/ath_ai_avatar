@@ -56,13 +56,63 @@ class MockLlmProvider(LlmProvider):
         temperature: float,
         schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Возвращает минимальный валидный ответ по форме запрошенной схемы.
-
-        TODO: сейчас понимает только классификацию. Для /evaluate нужен ответ
-        формы Report — его удобнее собрать в evaluation/report_builder.py из
-        реального транскрипта, чтобы цитаты были настоящими, а не выдуманными
-        заглушкой (иначе тестировать проверяемость отчёта бессмысленно).
-        """
+        """Возвращает минимальный валидный ответ по форме запрошенной схемы."""
         await asyncio.sleep(0.1)
-        log.debug("llm.mock.complete_json")
+
+        properties = (schema or {}).get("properties", {})
+        if "verdict" in properties:
+            log.debug("llm.mock.complete_json", kind="report")
+            return _mock_report(properties, messages)
+
+        log.debug("llm.mock.complete_json", kind="classification")
         return json.loads('{"classification": "incomplete", "reason": "mock provider"}')
+
+
+def _mock_report(properties: dict[str, Any], messages: list[dict[str, str]]) -> dict[str, Any]:
+    """Отчёт-заглушка, который переживёт проверки report_builder.
+
+    Две вещи здесь не косметические:
+
+    - `criterion_id` берётся из enum'а схемы: `build_report_schema` кладёт туда
+      реальные id рубрики сценария, а построитель отчёта проверяет покрытие.
+    - `evidence` обязана быть ДОСЛОВНОЙ подстрокой реплики сотрудника, иначе
+      отчёт отвергается (evaluation/report_builder.py). Поэтому цитата не
+      выдумывается, а берётся из транскрипта в сообщениях — заодно это
+      единственный способ проверять на mock'е ту самую проверяемость отчёта,
+      ради которой цитаты и заведены (§7).
+    """
+    scores_schema = properties.get("scores", {}).get("items", {}).get("properties", {})
+    criterion_ids: list[str] = scores_schema.get("criterion_id", {}).get("enum", [])
+    quote = _first_user_line(messages)
+
+    return {
+        "verdict": "Отчёт заглушки: провайдер LLM не настроен, оценка не проводилась.",
+        "total_score": 0.0,
+        "scores": [
+            {
+                "criterion_id": criterion_id,
+                "score": 0,
+                "evidence": quote,
+                "comment": "Заглушка: реальной оценки не было.",
+            }
+            for criterion_id in criterion_ids
+        ],
+    }
+
+
+def _first_user_line(messages: list[dict[str, str]]) -> str:
+    """Первая реплика сотрудника из транскрипта.
+
+    Формат задаёт evaluation/prompts.py::build_transcript_message —
+    `[{index}] СОТРУДНИК: {text}`. Если сотрудник не сказал ничего (сессию
+    завершили сразу после приветствия персонажа), цитировать нечего: пустая
+    строка не пройдёт валидацию Report, и это правильно — отчёта без реплик
+    сотрудника быть не должно.
+    """
+    marker = "] СОТРУДНИК: "
+    for message in messages:
+        for line in message.get("content", "").splitlines():
+            head, sep, text = line.partition(marker)
+            if sep and head.startswith("["):
+                return text.strip()
+    return ""

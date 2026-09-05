@@ -54,6 +54,8 @@ export function AdminSessionDetail() {
     <main className="page admin-detail">
       <p>
         <Link to="/admin/sessions">← ко всем сессиям</Link>
+        {' · '}
+        <Link to={`/report/${path.session.session_id}`}>отчёт методиста</Link>
       </p>
       <h1>Сессия {path.session.session_id}</h1>
       <p className="admin__hint">

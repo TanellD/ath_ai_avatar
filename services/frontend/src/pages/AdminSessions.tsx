@@ -55,6 +55,7 @@ export function AdminSessions() {
               <th>Этап</th>
               <th>Ходов</th>
               <th>Создана</th>
+              <th>Отчёт</th>
             </tr>
           </thead>
           <tbody>
@@ -75,6 +76,11 @@ export function AdminSessions() {
                 <td>{item.current_stage}</td>
                 <td>{item.turn_count}</td>
                 <td>{new Date(item.created_at).toLocaleString('ru-RU')}</td>
+                <td>
+                  {/* Ссылка безусловная: админка — отладочный инструмент, а
+                      страница отчёта сама скажет «сессия не завершена». */}
+                  <Link to={`/report/${item.session_id}`}>Отчёт</Link>
+                </td>
               </tr>
             ))}
           </tbody>

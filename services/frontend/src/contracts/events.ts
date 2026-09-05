@@ -48,6 +48,14 @@ export interface SpeechStart {
   num_channels: 1;
 }
 
+/**
+ * Сотрудник заканчивает тренировку досрочно (Claude.md §3, «завершить»).
+ * Автомат завершает сессию и сам, когда пройден последний этап.
+ */
+export interface FinishSession {
+  type: 'finish_session';
+}
+
 export interface SpeechEnd {
   type: 'speech_end';
   capture_id: string;
@@ -58,7 +66,13 @@ export interface SpeechAbort {
   capture_id: string;
 }
 
-export type ClientEvent = UserMessage | SpeechStart | SpeechEnd | SpeechAbort | Ping;
+export type ClientEvent =
+  | UserMessage
+  | SpeechStart
+  | SpeechEnd
+  | SpeechAbort
+  | Ping
+  | FinishSession;
 
 // --------------------------------------------------------- сервер → клиент
 
@@ -197,6 +211,21 @@ export interface Report {
   duration_sec: number;
   stages_completed: number;
   stages_total: number;
+  /** Пусто у отчётов, сохранённых до появления поля. Нужен, чтобы подтянуть рубрику. */
+  scenario_id: string;
+  /** Чем посчитано: `anthropic/claude-opus-5`, `mock/...`. Пусто у старых отчётов. */
+  model: string;
+}
+
+/** Строка списка сессий у методиста — зеркало ath_contracts/api.py. */
+export interface SessionSummaryItem {
+  session_id: string;
+  scenario_id: string;
+  status: SessionStatus;
+  turn_count: number;
+  created_at: string;
+  finished_at: string | null;
+  has_report: boolean;
 }
 
 export interface Persona {

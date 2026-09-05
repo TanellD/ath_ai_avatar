@@ -14,11 +14,33 @@ import type {
   SessionSummary,
   Span,
 } from '@/contracts/admin';
-import type { Report, Scenario, ScenarioSummary } from '@/contracts/events';
+import type {
+  Report,
+  Scenario,
+  ScenarioSummary,
+  SessionSummaryItem,
+} from '@/contracts/events';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000';
 const SCENARIO_URL = import.meta.env.VITE_SCENARIO_API_URL ?? 'http://localhost:8050';
+
+/**
+ * Ошибка с кодом ответа.
+ *
+ * Нужна, чтобы отличать «данных ещё нет» от настоящей поломки: у отчёта 404 —
+ * это штатное «сессия не завершена», и показывать на нём текст ошибки нельзя.
+ * Наследуется от Error, поэтому старые `catch (cause: Error)` не трогаем.
+ */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -28,7 +50,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`${response.status} ${response.statusText}: ${body}`);
+    throw new ApiError(response.status, `${response.status} ${response.statusText}: ${body}`);
   }
 
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
@@ -57,8 +79,18 @@ export const gatewayApi = {
     return request(`${API_URL}/sessions/${sessionId}`);
   },
 
+  async listSessions(): Promise<SessionSummaryItem[]> {
+    const data = await request<{ items: SessionSummaryItem[] }>(`${API_URL}/sessions`);
+    return data.items;
+  },
+
   getReport(sessionId: string): Promise<Report> {
     return request(`${API_URL}/sessions/${sessionId}/report`);
+  },
+
+  /** Пересчитать оценку заново — когда отчёт сделан заглушкой или не сделан. */
+  rebuildReport(sessionId: string): Promise<Report> {
+    return request(`${API_URL}/sessions/${sessionId}/report`, { method: 'POST' });
   },
 
   sessionSocketUrl(sessionId: string): string {

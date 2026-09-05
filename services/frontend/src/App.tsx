@@ -6,6 +6,7 @@ import { AvatarLab } from '@/pages/AvatarLab';
 import { EmotionLab } from '@/pages/EmotionLab';
 import { MethodistReport } from '@/pages/MethodistReport';
 import { MethodistScenarios } from '@/pages/MethodistScenarios';
+import { MethodistSessions } from '@/pages/MethodistSessions';
 import { TraineeSession } from '@/pages/TraineeSession';
 
 /**
@@ -23,6 +24,7 @@ export function App() {
     <div className="app">
       <nav className="app__nav">
         <Link to="/scenarios">Сценарии</Link>
+        <Link to="/sessions">Тренировки</Link>
         <Link to="/emotion-lab" className="app__nav-tool">Эмоции</Link>
         <Link to="/avatar-lab" className="app__nav-tool">Модели</Link>
         <Link to="/admin/sessions" className="app__nav-admin">
@@ -34,6 +36,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/scenarios" replace />} />
           <Route path="/scenarios" element={<MethodistScenarios />} />
+          <Route path="/sessions" element={<MethodistSessions />} />
           <Route path="/session/:scenarioId" element={<TraineeSession />} />
           <Route path="/emotion-lab" element={<EmotionLab />} />
           <Route path="/avatar-lab" element={<AvatarLab />} />

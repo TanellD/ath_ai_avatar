@@ -10,6 +10,7 @@ import pytest
 from app.core.config import Settings
 from app.stt.factory import create_stt_provider
 from app.stt.gigaam import GigaAmSttProvider
+from app.tts.cache import CachingTtsProvider
 from app.tts.factory import UnknownProviderError, create_tts_provider
 from app.tts.mock import MockTtsProvider
 from app.tts.soniox import SonioxTtsProvider
@@ -18,7 +19,7 @@ from app.tts.soniox import SonioxTtsProvider
 def test_mock_is_the_default_and_needs_no_keys() -> None:
     assert Settings.model_fields["tts_provider"].default == "mock"
     # Explicit value keeps construction deterministic under a developer's environment.
-    provider = create_tts_provider(Settings(tts_provider="mock"))
+    provider = create_tts_provider(Settings(tts_provider="mock", tts_cache_enabled=False))
     assert isinstance(provider, MockTtsProvider)
     assert provider.name == "mock"
 
@@ -38,6 +39,7 @@ def test_soniox_constructs_with_key_and_no_network_call() -> None:
         soniox_voice="Nina",
         soniox_language="ru",
         tts_sample_rate=24000,
+        tts_cache_enabled=False,
     )
     provider = create_tts_provider(settings)
     assert isinstance(provider, SonioxTtsProvider)
@@ -55,3 +57,10 @@ def test_gigaam_stt_constructs_without_external_credentials() -> None:
     assert isinstance(provider, GigaAmSttProvider)
     assert provider.name == "gigaam"
     assert provider.capabilities.streaming_partials is False
+
+
+def test_cache_wraps_provider_by_default() -> None:
+    """Кэш включён по умолчанию и не подменяет собой выбор провайдера."""
+    provider = create_tts_provider(Settings(tts_provider="mock"))
+    assert isinstance(provider, CachingTtsProvider)
+    assert provider.name == "cached:mock"
