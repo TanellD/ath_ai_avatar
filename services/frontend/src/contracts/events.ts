@@ -14,7 +14,7 @@ export type SessionStatus = 'active' | 'finished' | 'abandoned';
 export type TurnRole = 'user' | 'agent';
 export type Mood = 'neutral' | 'irritated' | 'friendly';
 export type Emotion = Mood | 'angry' | 'sad' | 'excited' | 'surprised';
-export type AvatarId = 'avatar-aith' | 'tom-avatar';
+export type AvatarId = 'avatar-aith' | 'tom-avatar' | 'vincent-avatar';
 
 // --------------------------------------------------------- клиент → сервер
 

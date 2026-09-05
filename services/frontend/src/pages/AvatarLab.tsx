@@ -2,14 +2,12 @@ import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import {
+  AVATAR_MODEL_LIST,
   AVATAR_MODELS,
   TalkingHeadAvatar,
-  type AvatarModelConfig,
   type AvatarPlaybackHandle,
 } from '@/avatar/TalkingHeadAvatar';
 import type { Emotion } from '@/contracts/events';
-
-const MODELS: AvatarModelConfig[] = [AVATAR_MODELS.aith, AVATAR_MODELS.tom];
 
 const EMOTIONS: Array<{ value: Emotion; label: string }> = [
   { value: 'neutral', label: 'Нейтрально' },
@@ -23,7 +21,7 @@ const EMOTIONS: Array<{ value: Emotion; label: string }> = [
 
 function selectedModel() {
   const requested = new URLSearchParams(window.location.search).get('model');
-  return MODELS.find((model) => model.id === requested) ?? MODELS[0];
+  return AVATAR_MODEL_LIST.find((model) => model.id === requested) ?? AVATAR_MODEL_LIST[0];
 }
 
 export function AvatarLab() {
@@ -63,7 +61,7 @@ export function AvatarLab() {
         <label className="emotion-lab__field">
           Модель аватара
           <select value={model.id} onChange={(event) => changeModel(event.target.value)}>
-            {MODELS.map((item) => (
+            {AVATAR_MODEL_LIST.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.label}
               </option>

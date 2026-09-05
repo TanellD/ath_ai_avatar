@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import {
+  AVATAR_MODEL_LIST,
   AVATAR_MODELS,
   TalkingHeadAvatar,
   type AvatarPlaybackHandle,
@@ -145,13 +146,13 @@ interface TtsChunk {
 export function EmotionLab() {
   const requestedModel = new URLSearchParams(window.location.search).get('model');
   const avatarModel =
-    requestedModel === AVATAR_MODELS.tom.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith;
-  const isTom = avatarModel.id === AVATAR_MODELS.tom.id;
-  const voices = isTom ? TOM_VOICES : AITH_VOICES;
+    AVATAR_MODEL_LIST.find((model) => model.id === requestedModel) ?? AVATAR_MODELS.aith;
+  const usesMaleVoice = avatarModel.id !== AVATAR_MODELS.aith.id;
+  const voices = usesMaleVoice ? TOM_VOICES : AITH_VOICES;
   const [emotion, setEmotion] = useState<Emotion>('neutral');
   const [intensity, setIntensity] = useState<EmotionIntensity>('strong');
   const [sampleLength, setSampleLength] = useState<SampleLength>('short');
-  const [voice, setVoice] = useState(isTom ? 'Daniel' : 'Reese');
+  const [voice, setVoice] = useState(usesMaleVoice ? 'Daniel' : 'Reese');
   const [enhancedProsody, setEnhancedProsody] = useState(true);
   const [text, setText] = useState(EMOTIONS[0].sample);
   const [rig, setRig] = useState<LabRig | null>(null);

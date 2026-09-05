@@ -107,7 +107,28 @@ export const AVATAR_MODELS = {
     // через штатный head.mixer, а не отдельным микшером.
     embeddedIdleAnimations: false,
   },
+  vincent: {
+    id: 'vincent-avatar',
+    label: 'Vincent',
+    url: '/assets/avatar/vincent.glb',
+    humanoidPose: true,
+    cameraView: 'head',
+    // Стандартные человеческие пропорции и TalkingHead-совместимый риг:
+    // отдельные кости глаз и полный набор лицевых morph targets.
+    cameraTuning: {
+      head: { cameraDistance: 0, cameraY: 0 },
+      upper: { cameraDistance: 0, cameraY: 0 },
+      mid: { cameraDistance: 0, cameraY: 0 },
+      full: { cameraDistance: 0, cameraY: 0 },
+    },
+  },
 } as const satisfies Record<string, AvatarModelConfig>;
+
+export const AVATAR_MODEL_LIST: AvatarModelConfig[] = [
+  AVATAR_MODELS.aith,
+  AVATAR_MODELS.tom,
+  AVATAR_MODELS.vincent,
+];
 
 /** Что аватар отдаёт наверх, когда готов принимать звук. */
 export interface AvatarPlaybackHandle {

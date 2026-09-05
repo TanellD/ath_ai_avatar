@@ -74,7 +74,7 @@ _OPENING_DIRECTIVE = {
 # Клиент передаёт только профиль аватара, а не произвольный voice_id.
 # Так тестовый Tom получает свой голос, не меняя persona сценария и основной
 # голос avatar-aith.
-_AVATAR_VOICE_OVERRIDES = {"tom-avatar": "Daniel"}
+_AVATAR_VOICE_OVERRIDES = {"tom-avatar": "Daniel", "vincent-avatar": "Daniel"}
 
 _DEFAULT_AVATAR_ID = "avatar-aith"
 """Аватар для реплик, которым не предшествовало сообщение клиента: открытие

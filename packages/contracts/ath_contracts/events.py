@@ -36,7 +36,7 @@ class UserMessage(BaseModel):
         default=None,
         description="gen_id перебиваемого поколения, либо None если персонаж молчал",
     )
-    avatar_id: Literal["avatar-aith", "tom-avatar"] = Field(
+    avatar_id: Literal["avatar-aith", "tom-avatar", "vincent-avatar"] = Field(
         default="avatar-aith",
         description="Профиль аватара; gateway выбирает связанный с ним голос",
     )

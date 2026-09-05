@@ -27,6 +27,7 @@ import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
 import {
+  AVATAR_MODEL_LIST,
   AVATAR_MODELS,
   TalkingHeadAvatar,
   type AvatarModelConfig,
@@ -285,10 +286,17 @@ export function TraineeSession() {
     audio.queue.stopAll();
     audio.resetFace();
     setAudio(null);
-    setAvatarModel((current) =>
-      current.id === AVATAR_MODELS.aith.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith,
-    );
+    setAvatarModel((current) => {
+      const currentIndex = AVATAR_MODEL_LIST.findIndex((model) => model.id === current.id);
+      return AVATAR_MODEL_LIST[(currentIndex + 1) % AVATAR_MODEL_LIST.length];
+    });
   };
+
+  const nextAvatar =
+    AVATAR_MODEL_LIST[
+      (AVATAR_MODEL_LIST.findIndex((model) => model.id === avatarModel.id) + 1) %
+        AVATAR_MODEL_LIST.length
+    ];
 
   // ------------------------------------------------------------------ рендер
 
@@ -305,7 +313,7 @@ export function TraineeSession() {
             onClick={switchAvatar}
             disabled={!audio || playback !== 'idle'}
           >
-            Переключить на {avatarModel.id === AVATAR_MODELS.aith.id ? 'Tom' : 'avatar-aith'}
+            Переключить на {nextAvatar.label}
           </button>
           <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} />
           <button
