@@ -29,6 +29,7 @@ export class AudioQueue {
   private readonly context: AudioContext;
   private readonly clock: import('./PlaybackClock').PlaybackClock;
   private readonly gain: GainNode;
+  private readonly compressor: DynamicsCompressorNode;
 
   private currentGeneration = 0;
 
@@ -76,7 +77,17 @@ export class AudioQueue {
     this.context = context;
     this.clock = clock;
     this.gain = context.createGain();
-    this.gain.connect(destination ?? context.destination);
+    this.compressor = context.createDynamicsCompressor();
+    // Мягко прижимаем только заметно более громкие фрагменты Soniox. Один
+    // постоянный узел на всю сессию сохраняет интонацию внутри реплики и не
+    // создаёт скачка на границе аудиочанков.
+    this.compressor.threshold.value = -22;
+    this.compressor.knee.value = 14;
+    this.compressor.ratio.value = 3;
+    this.compressor.attack.value = 0.008;
+    this.compressor.release.value = 0.2;
+    this.gain.connect(this.compressor);
+    this.compressor.connect(destination ?? context.destination);
     this.onIdle = onIdle;
     this.onFirstAudioScheduled = onFirstAudioScheduled;
   }

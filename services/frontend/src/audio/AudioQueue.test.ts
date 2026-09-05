@@ -23,10 +23,20 @@ interface FakeSource {
 
 function makeContext(decode: (data: ArrayBuffer) => Promise<{ duration: number }>) {
   const sources: FakeSource[] = [];
+  const gain = { connect: vi.fn() };
+  const compressor = {
+    connect: vi.fn(),
+    threshold: { value: 0 },
+    knee: { value: 0 },
+    ratio: { value: 0 },
+    attack: { value: 0 },
+    release: { value: 0 },
+  };
   const context = {
     currentTime: 0,
     destination: {},
-    createGain: () => ({ connect: vi.fn() }),
+    createGain: () => gain,
+    createDynamicsCompressor: () => compressor,
     decodeAudioData: vi.fn(decode),
     createBufferSource: () => {
       const source: FakeSource = {
@@ -41,7 +51,7 @@ function makeContext(decode: (data: ArrayBuffer) => Promise<{ duration: number }
       return source;
     },
   };
-  return { context, sources };
+  return { context, sources, gain, compressor };
 }
 
 function makeClock() {
@@ -53,13 +63,13 @@ function makeClock() {
 }
 
 function build(decode: (data: ArrayBuffer) => Promise<{ duration: number }>) {
-  const { context, sources } = makeContext(decode);
+  const { context, sources, gain, compressor } = makeContext(decode);
   const clock = makeClock();
   const queue = new AudioQueue(
     context as unknown as AudioContext,
     clock as unknown as PlaybackClock,
   );
-  return { queue, sources, clock, context };
+  return { queue, sources, clock, context, gain, compressor };
 }
 
 const CHUNK = { genId: 1, seq: 0, data: btoa('fake-wav-bytes') };
@@ -71,6 +81,15 @@ async function tick(): Promise<void> {
 }
 
 describe('AudioQueue: защита от протухших чанков', () => {
+  it('сглаживает пики одним компрессором на всю очередь', () => {
+    const { context, gain, compressor } = build(async () => ({ duration: 0.1 }));
+
+    expect(gain.connect).toHaveBeenCalledWith(compressor);
+    expect(compressor.connect).toHaveBeenCalledWith(context.destination);
+    expect(compressor.threshold.value).toBe(-22);
+    expect(compressor.ratio.value).toBe(3);
+  });
+
   it('не декодирует чанк чужого поколения', async () => {
     const { queue, context } = build(async () => ({ duration: 0.1 }));
     queue.startGeneration(2);

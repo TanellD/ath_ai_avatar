@@ -15,7 +15,8 @@ from app.llm.openai_compatible import OpenAiCompatibleProvider
 
 
 def test_mock_is_the_default_and_needs_no_keys() -> None:
-    provider = create_llm_provider(Settings())
+    assert Settings.model_fields["llm_provider"].default == "mock"
+    provider = create_llm_provider(Settings(llm_provider="mock"))
     assert isinstance(provider, MockLlmProvider)
     assert provider.name == "mock"
 
