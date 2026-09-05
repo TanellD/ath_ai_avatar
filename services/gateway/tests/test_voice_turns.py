@@ -106,6 +106,28 @@ async def test_speech_end_is_idempotent() -> None:
     await registry.aclose()
 
 
+async def test_late_audio_after_speech_end_is_silently_dropped() -> None:
+    registry, _pipeline, stream, sent = make_registry()
+    capture_id = await start_capture(registry)
+    await registry.end(str(capture_id))
+    sent_before_late_frame = list(sent)
+
+    await registry.push(b"\x00\x00")
+
+    assert stream.frames == []
+    assert sent == sent_before_late_frame
+    await registry.aclose()
+
+
+async def test_audio_without_capture_is_silently_dropped() -> None:
+    registry, _pipeline, stream, sent = make_registry()
+
+    await registry.push(b"\x00\x00")
+
+    assert stream.frames == []
+    assert sent == []
+
+
 async def test_watchdog_finalizes_capture_without_speech_end() -> None:
     registry, _pipeline, stream, _sent = make_registry(max_seconds=0.01)
     await start_capture(registry)

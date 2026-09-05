@@ -277,6 +277,9 @@ export function TraineeSession() {
           break;
 
         case 'error':
+          // Совместимость со старым gateway: запоздалый MediaStream frame
+          // после speech_end — штатная гонка и не должен становиться баннером.
+          if (event.code === 'unexpected_audio') break;
           if (event.code.startsWith('stt_') || event.code.includes('voice_capture')) {
             activeCaptureRef.current = null;
             captureEndingRef.current = false;

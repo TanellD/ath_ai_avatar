@@ -126,8 +126,13 @@ class VoiceTurnRegistry:
         async with self._lock:
             active = self._active
             if active is None or active.finalizing:
-                await self._send(
-                    ErrorEvent(code="unexpected_audio", message="Нет активной голосовой реплики")
+                # Последний MediaStream frame и добавленная клиентом trailing
+                # silence могут добраться уже после speech_end/watchdog. Это
+                # штатная гонка завершения, а не ошибка пользователя.
+                log.debug(
+                    "voice.late_frame_dropped",
+                    frame_bytes=len(frame),
+                    capture_finalizing=active is not None,
                 )
                 return
             if not frame or len(frame) % 2 or len(frame) > self._max_frame_bytes:
