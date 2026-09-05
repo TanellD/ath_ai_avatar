@@ -8,11 +8,7 @@
 
 from ath_contracts import Mood, OpeningKind, Persona, Stage
 
-from app.character.prompts import (
-    build_character_system,
-    build_intro_template,
-    build_messages,
-)
+from app.character.prompts import build_character_system, build_messages
 
 PERSONA = Persona(
     name="Ирина",
@@ -60,14 +56,19 @@ def test_session_start_seeds_agent_opening_and_forbids_leading() -> None:
     assert "раскрывай критерий" in prompt
 
 
-def test_session_start_warns_against_greeting_twice() -> None:
-    """Живой прогон показал двойное «Здравствуйте»: шаблон представления уже
-    поздоровался, а модель повторяла приветствие следом за ориентиром этапа,
-    который сам с него начинается. Промпт обязан этогасить."""
+def test_session_start_leaves_self_introduction_to_the_role() -> None:
+    """Представляться или нет — решает роль, а не шаблон.
+
+    Раньше открывающая реплика начиналась с подставленного «меня зовут N,
+    <роль>». Для кандидата на собеседовании это верно, а для закупщика,
+    которому звонит продавец, — нет: первым представляется звонящий. Шаблон
+    угадывал примерно в половине сценариев, поэтому убран, и промпт теперь
+    прямо говорит решать по роли.
+    """
     prompt = build_character_system(PERSONA, STAGE, opening_kind=OpeningKind.SESSION_START)
 
-    assert build_intro_template(PERSONA) in prompt, "модель должна видеть уже сказанное"
-    assert "Не здоровайся" in prompt
+    assert "решай по роли" in prompt
+    assert "меня зовут" not in prompt, "готового самопредставления в промпте быть не должно"
 
 
 def test_stage_transition_tells_the_character_not_to_reintroduce() -> None:
@@ -97,12 +98,6 @@ def test_opening_block_wins_over_off_topic_nudge() -> None:
     )
     assert "второй раз подряд" not in prompt
     assert "говоришь первым" in prompt
-
-
-def test_intro_template_is_deterministic_and_needs_no_model() -> None:
-    assert build_intro_template(PERSONA) == (
-        "Здравствуйте, меня зовут Ирина, закупщик среднего бизнеса."
-    )
 
 
 def test_messages_start_with_user_role_on_empty_history() -> None:
