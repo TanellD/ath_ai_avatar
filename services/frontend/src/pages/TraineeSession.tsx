@@ -82,7 +82,6 @@ export function TraineeSession() {
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
   const [pushToTalk, setPushToTalk] = useState(false);
-  const [autoEndOnPause, setAutoEndOnPause] = useState(true);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState('');
   // Распознавание ушло на резервный движок без партиалов: черновик больше
@@ -353,7 +352,7 @@ export function TraineeSession() {
     onFrame: (frame) => {
       if (!activeCaptureRef.current || captureEndingRef.current) return;
       sendAudio(frame);
-      if (autoEndOnPause && pauseDetectorRef.current.push(frame)) {
+      if (pauseDetectorRef.current.push(frame)) {
         console.info('[voice-metric]', {
           event: 'client_pause_endpoint',
           silence_ms: DEFAULT_PAUSE_DETECTOR_CONFIG.endpointSilenceMs,
@@ -571,8 +570,6 @@ export function TraineeSession() {
             onChange={setPushToTalk}
             active={voiceActive}
             level={micLevel}
-            autoEndOnPause={autoEndOnPause}
-            onAutoEndOnPauseChange={setAutoEndOnPause}
             onStart={handleVoiceStart}
             onEnd={handleVoiceEnd}
             disabled={connection !== 'open' || !audio || finished}

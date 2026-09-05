@@ -395,10 +395,6 @@ body {
   gap: 6px;
 }
 
-.ptt__auto-end {
-  white-space: nowrap;
-}
-
 .ptt__button {
   position: relative;
   overflow: hidden;
