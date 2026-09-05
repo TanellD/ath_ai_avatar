@@ -8,13 +8,17 @@
 import pytest
 
 from app.core.config import Settings
+from app.stt.factory import create_stt_provider
+from app.stt.gigaam import GigaAmSttProvider
 from app.tts.factory import UnknownProviderError, create_tts_provider
 from app.tts.mock import MockTtsProvider
 from app.tts.soniox import SonioxTtsProvider
 
 
 def test_mock_is_the_default_and_needs_no_keys() -> None:
-    provider = create_tts_provider(Settings())
+    assert Settings.model_fields["tts_provider"].default == "mock"
+    # Explicit value keeps construction deterministic under a developer's environment.
+    provider = create_tts_provider(Settings(tts_provider="mock"))
     assert isinstance(provider, MockTtsProvider)
     assert provider.name == "mock"
 
@@ -44,3 +48,10 @@ def test_unknown_provider_raises() -> None:
     settings = Settings(tts_provider="does-not-exist")
     with pytest.raises(UnknownProviderError):
         create_tts_provider(settings)
+
+
+def test_gigaam_stt_constructs_without_external_credentials() -> None:
+    provider = create_stt_provider(Settings(stt_provider="gigaam"))
+    assert isinstance(provider, GigaAmSttProvider)
+    assert provider.name == "gigaam"
+    assert provider.capabilities.streaming_partials is False

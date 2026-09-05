@@ -109,7 +109,7 @@ async def test_invalid_binary_frame_aborts_capture() -> None:
     assert sent[-1].code == "invalid_audio_frame"
 
 
-async def test_late_provider_epoch_is_dropped_and_final_commits_once() -> None:
+async def test_next_failover_epoch_is_accepted_and_old_epoch_is_dropped() -> None:
     registry, pipeline, stream, sent = make_registry()
     capture_id = await start_capture(registry)
     await registry.end(str(capture_id))
@@ -118,22 +118,32 @@ async def test_late_provider_epoch_is_dropped_and_final_commits_once() -> None:
         SttTranscriptEvent(
             capture_id=capture_id,
             provider_epoch=1,
-            provider="late",
-            text="устаревший текст",
+            provider="gigaam",
+            text="fallback partial",
         )
     )
     await stream.queue.put(
         SttFinalEvent(
             capture_id=capture_id,
             provider_epoch=0,
-            provider="mock",
-            text="актуальный текст",
+            provider="soniox",
+            text="late primary final",
             confidence=0.9,
+        )
+    )
+    await stream.queue.put(
+        SttFinalEvent(
+            capture_id=capture_id,
+            provider_epoch=1,
+            provider="gigaam",
+            text="fallback final",
+            confidence=None,
         )
     )
     await asyncio.sleep(0)
     await asyncio.sleep(0)
 
     transcripts = [event for event in sent if event.type == "transcript"]
-    assert [event.text for event in transcripts] == ["актуальный текст"]
+    assert [event.text for event in transcripts] == ["fallback partial", "fallback final"]
     assert len(pipeline.finals) == 1
+    assert pipeline.finals[0]["text"] == "fallback final"

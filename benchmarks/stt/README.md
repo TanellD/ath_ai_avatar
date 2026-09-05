@@ -18,5 +18,14 @@ python benchmarks/stt/scoring.py `
 Scorer не содержит универсального списка «важных слов» и не подменяет
 продуктовую разметку эвристикой.
 
+Локальный GigaAM запускается через worker и пишет гипотезы отдельно от метрик:
+
+```powershell
+python benchmarks/stt/run_gigaam.py `
+  --manifest benchmarks/stt/manifest.local.jsonl `
+  --output benchmarks/stt/results/gigaam-v3-e2e-ctc.jsonl `
+  --metrics benchmarks/stt/results/gigaam-v3-e2e-ctc.metrics.jsonl
+```
+
 Кроме quality runner каждого provider обязан записывать отдельно cold/warm
 latency, first partial, finalization latency, RTF, RAM и hardware metadata.

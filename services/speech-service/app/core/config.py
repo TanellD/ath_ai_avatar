@@ -31,10 +31,15 @@ class Settings(BaseSettings):
     soniox_language: str = "ru"
 
     # ------------------------------------------------------------- STT
-    stt_provider: str = Field(default="mock", description="mock | soniox")
+    stt_provider: str = Field(
+        default="mock", description="mock | soniox | gigaam | soniox_gigaam"
+    )
     stt_language: str = "ru"
     soniox_stt_model: str = "stt-rt-v5"
     soniox_stt_websocket_url: str = "wss://stt-rt.soniox.com/transcribe-websocket"
+    gigaam_worker_url: str = "http://gigaam-worker:8020"
+    gigaam_timeout_seconds: float = 60.0
+    stt_finalize_timeout_seconds: float = 5.0
 
     # Safety limits are deliberately conservative dev defaults. Product values
     # are pinned only after our own benchmark (docs/voice-input-plan.md).

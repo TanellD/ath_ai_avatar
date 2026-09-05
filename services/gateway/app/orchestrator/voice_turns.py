@@ -196,12 +196,24 @@ class VoiceTurnRegistry:
         terminal_event = False
         try:
             async for event in active.stream.events():
-                if (
-                    self._active is not active
-                    or str(event.capture_id) != active.capture_id
-                    or event.provider_epoch != active.provider_epoch
-                ):
+                if self._active is not active or str(event.capture_id) != active.capture_id:
                     continue
+                if event.provider_epoch < active.provider_epoch:
+                    continue
+                if event.provider_epoch > active.provider_epoch:
+                    # The speech-service owns provider epochs. Only the next epoch
+                    # is a valid in-turn Soniox -> GigaAM transition.
+                    if event.provider_epoch != active.provider_epoch + 1:
+                        continue
+                    active.provider_epoch = event.provider_epoch
+                    active.first_partial_seen = False
+                    log.warning(
+                        "voice.provider_epoch_changed",
+                        capture_id=active.capture_id,
+                        gen_id=active.gen_id,
+                        provider=event.provider,
+                        provider_epoch=active.provider_epoch,
+                    )
                 if isinstance(event, SttTranscriptEvent):
                     if not active.first_partial_seen:
                         active.first_partial_seen = True
