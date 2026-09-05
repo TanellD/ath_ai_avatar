@@ -591,14 +591,14 @@ function attachCursorGaze(head: CursorGazeHead, mount: HTMLElement): CursorGazeC
   }
 
   function focusOnCamera() {
-    // У avatar-aith штатная точка lookAtCamera визуально получается чуть ниже
-    // объектива. Небольшой отрицательный X поднимает взгляд и совсем немного
-    // подбородок, сохраняя естественную позу во время разговора.
+    // У avatar-aith штатная точка lookAtCamera визуально получается ниже
+    // объектива. Отрицательный X поднимает взгляд и немного подбородок,
+    // сохраняя естественную позу во время разговора.
     head.lookAtCamera(200);
     head.setFixedValue('eyesRotateY', 0);
-    head.setFixedValue('eyesRotateX', -0.1);
+    head.setFixedValue('eyesRotateX', -0.16);
     head.setFixedValue('headRotateY', 0);
-    head.setFixedValue('headRotateX', -0.025);
+    head.setFixedValue('headRotateX', -0.04);
   }
 
   window.addEventListener('pointermove', onPointerMove, { passive: true });
