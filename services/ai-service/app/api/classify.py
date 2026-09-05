@@ -36,7 +36,20 @@ async def classify(payload: ClassifyRequest, request: Request) -> ClassifyRespon
         schema=CLASSIFICATION_SCHEMA,
     )
 
-    classification = Classification(result["classification"])
+    # `complete_json` у openai_compatible-провайдера гарантирует только
+    # синтаксически валидный JSON, не соответствие схеме (см. его докстринг) —
+    # модель время от времени отдаёт JSON без ключа classification или со
+    # значением не из enum. Раньше это падало необработанным KeyError/ValueError
+    # прямо здесь, роняло весь ход диалога без единого сигнала клиенту, и
+    # сессия зависала молча — снаружи выглядело как «фронтенд не отвечает».
+    # incomplete — самый безопасный дефолт: автомат просто дожмёт ещё раз,
+    # а не продвинется или не закроет сессию на основании мусора от модели.
+    try:
+        classification = Classification(result["classification"])
+    except (KeyError, ValueError):
+        log.warning("classify.malformed_response", stage_id=payload.stage.id, raw=result)
+        classification = Classification.INCOMPLETE
+
     log.info("classify.done", stage_id=payload.stage.id, classification=classification.value)
 
     return ClassifyResponse(classification=classification, reason=result.get("reason", ""))

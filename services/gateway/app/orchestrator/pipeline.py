@@ -333,6 +333,13 @@ class TurnPipeline:
         есть «ни один чанк старого поколения не воспроизводится» (§6).
         """
         if self._session.generations.is_stale(gen_id):
-            log.debug("pipeline.dropped_stale", gen_id=gen_id, event=event.type)
+            # `event=` как ключевое слово здесь запрещено: structlog резервирует
+            # это имя под сам текст сообщения ("pipeline.dropped_stale"), и
+            # передача одноимённого kwarg падает TypeError'ом прямо в логировании
+            # — на КАЖДОМ отброшенном устаревшем событии, то есть при любом
+            # перебивании/отмене (§6). Снаружи это выглядело как «сессия не
+            # отвечает»: исключение убивало таск хода, а клиент не получал
+            # вообще никакого сигнала.
+            log.debug("pipeline.dropped_stale", gen_id=gen_id, event_type=event.type)
             return
         await self._raw_send(event)
