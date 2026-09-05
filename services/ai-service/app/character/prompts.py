@@ -46,11 +46,9 @@ _DIFFICULTY_HINTS = {
 _OPENING_SESSION_START = """\
 
 Это самое начало разговора — ты говоришь первым, собеседник ещё не сказал ни
-слова.
-
-ВАЖНО: приветствие уже прозвучало отдельной фразой — «{intro}» Не здоровайся
-второй раз и не представляйся заново, продолжай с середины. Ориентир может
-начинаться с приветствия — приветствие из него не бери, бери только суть.
+слова. Открой разговор так, как открыл бы его твой персонаж в этой ситуации:
+представляться или нет, решай по роли. Кандидат на собеседовании называет
+себя; закупщик, которому позвонил продавец, — нет, представляется звонящий.
 
 Одной-двумя фразами задай тон этапа, оттолкнувшись (не дословно!) от ориентира:
 «{agent_opening}»
@@ -89,18 +87,6 @@ _OFF_TOPIC_NUDGE = {
 быть: возврат в русло — работа персонажа, а не автомата."""
 
 
-def build_intro_template(persona: Persona) -> str:
-    """Самопредставление персонажа — детерминированная строка, без LLM.
-
-    Имя и роль фиксированы сценарием, поэтому генерировать их моделью незачем:
-    эта фраза уходит в TTS первой, пока модель ещё только начинает писать
-    продолжение, и снимает вызов LLM с критического пути до первого звука
-    (метрика 1, §9). Побочный выигрыш: текст детерминирован, поэтому его
-    синтез кэшируется в speech-service по (voice_id, sha256(text)).
-    """
-    return f"Здравствуйте, меня зовут {persona.name}, {persona.role}."
-
-
 def build_character_system(
     persona: Persona,
     stage: Stage,
@@ -127,10 +113,7 @@ def build_character_system(
     )
 
     if opening_kind is not None:
-        prompt += _OPENING_BLOCKS[opening_kind].format(
-            agent_opening=stage.agent_opening,
-            intro=build_intro_template(persona),
-        )
+        prompt += _OPENING_BLOCKS[opening_kind].format(agent_opening=stage.agent_opening)
     elif off_topic_streak > 0:
         prompt += _OFF_TOPIC_NUDGE[min(off_topic_streak, max(_OFF_TOPIC_NUDGE))] + "\n"
 
