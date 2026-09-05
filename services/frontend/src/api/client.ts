@@ -40,12 +40,21 @@ export interface CreateSessionResponse {
   ws_url: string;
 }
 
+/** Ровно то, что нужно клиенту после переподключения. */
+export interface SessionGeneration {
+  current_gen: number;
+}
+
 export const gatewayApi = {
   createSession(scenarioId: string): Promise<CreateSessionResponse> {
     return request(`${API_URL}/sessions`, {
       method: 'POST',
       body: JSON.stringify({ scenario_id: scenarioId }),
     });
+  },
+
+  getSession(sessionId: string): Promise<SessionGeneration> {
+    return request(`${API_URL}/sessions/${sessionId}`);
   },
 
   getReport(sessionId: string): Promise<Report> {

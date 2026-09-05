@@ -122,7 +122,7 @@ tatarby-main/           референсный проект, только для
 ```bash
 make up          # docker compose up --build
 make logs        # логи всех сервисов
-make test        # pytest в gateway, speech-service, ai-service
+make test        # pytest в сервисах + vitest во фронтенде
 make lint        # ruff по сервисам + eslint во фронтенде
 make down
 

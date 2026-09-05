@@ -276,6 +276,25 @@ export function TraineeSession() {
     [audio],
   );
 
+  /**
+   * Подтянуть поколение сервера. Свой счётчик клиент ведёт зеркально, но
+   * после обновления страницы он начинается с нуля, а сервер продолжает с
+   * сохранённого значения — и тогда фильтр по gen_id отбросил бы вообще всё.
+   */
+  const syncGeneration = useCallback(async (id: string) => {
+    try {
+      const { current_gen: currentGen } = await gatewayApi.getSession(id);
+      genRef.current = currentGen;
+      audio?.queue.startGeneration(currentGen);
+    } catch (cause) {
+      setError({
+        type: 'server',
+        message: 'Не удалось восстановить состояние сессии',
+        details: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
+  }, [audio]);
+
   const {
     state: connection,
     sendUserMessage,
@@ -288,6 +307,21 @@ export function TraineeSession() {
     onEvent: handleEvent,
     currentGeneration: () => genRef.current,
     onError: setError,
+    onReconnect: () => {
+      // Незавершённая реплика умерла вместе со старым сокетом: продолжать
+      // с середины нечего, поэтому возвращаемся в покой и берём поколение
+      // у сервера заново.
+      audio?.queue.stopAll();
+      activeCaptureRef.current = null;
+      captureEndingRef.current = false;
+      setVoiceActive(false);
+      setVoiceDraft('');
+      setVoiceBuffered(false);
+      setCues([]);
+      setSubtitlesFrozen(false);
+      setPlayback('idle');
+      if (sessionId) void syncGeneration(sessionId);
+    },
   });
 
   const { start: startMic, stop: stopMic, level: micLevel } = useMicCapture({

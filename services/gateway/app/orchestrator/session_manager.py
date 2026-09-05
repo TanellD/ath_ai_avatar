@@ -90,6 +90,27 @@ class LiveSession:
         self.current_stage_id = next_stage_id
         self.turns_in_stage = 0
 
+    def adopt(self, state: SessionState) -> None:
+        """Поднять сохранённое состояние в память процесса.
+
+        Ходы пишутся в БД сразу (`TurnPipeline._persist_turn`), поэтому при
+        обрыве теряется только то, что живёт в памяти процесса: список ходов,
+        история этапов и счётчик поколений. Без их восстановления
+        переподключение даёт персонажа с амнезией.
+        """
+        self.current_stage_id = state.current_stage
+        self.turns = list(state.turns)
+        self.stage_history = list(state.stage_history)
+        self.status = state.status
+        self.generations.restore(state.current_gen)
+        # Текущий этап в истории ещё не зафиксирован, его счётчик считаем по
+        # ходам: leave_stage() пишет turns_spent только на выходе с этапа.
+        self.turns_in_stage = sum(
+            1
+            for turn in self.turns
+            if turn.role is TurnRole.USER and turn.stage_id == self.current_stage_id
+        )
+
     def snapshot(self) -> SessionState:
         """Сериализуемое состояние — для персистентности и для GET /sessions/{id}."""
         return SessionState(

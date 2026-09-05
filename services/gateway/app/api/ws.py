@@ -140,11 +140,7 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
 
 
 async def _restore_session(websocket: WebSocket, session_id: str):
-    """Поднять сессию из БД в память процесса (перезапуск сервера, reconnect).
-
-    TODO: восстанавливать turns и stage_history, а не только идентификаторы —
-    сейчас после переподключения персонаж теряет контекст разговора.
-    """
+    """Поднять сессию из БД в память процесса (перезапуск сервера, reconnect)."""
     async with session_factory()() as db:
         state = await SqlSessionRepository(db).get(session_id)
 
@@ -160,7 +156,13 @@ async def _restore_session(websocket: WebSocket, session_id: str):
         return None
 
     session = websocket.app.state.sessions.create(session_id, scenario)
-    session.current_stage_id = state.current_stage
+    session.adopt(state)
+    log.info(
+        "ws.session_restored",
+        turns=len(session.turns),
+        stage_id=session.current_stage_id,
+        current_gen=session.generations.current,
+    )
     return session
 
 

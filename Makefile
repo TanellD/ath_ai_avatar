@@ -23,10 +23,11 @@ ps: ## Состояние контейнеров
 build: ## Пересобрать образы
 	$(COMPOSE) build
 
-test: ## Тесты gateway, speech-service, ai-service (инварианты и сборка провайдеров)
+test: ## Тесты gateway, speech-service, ai-service и фронтенда (инварианты)
 	$(COMPOSE) exec gateway pytest -v
 	$(COMPOSE) exec speech-service pytest -v
 	$(COMPOSE) exec ai-service pytest -v
+	$(COMPOSE) exec frontend npm test
 
 lint: ## ruff по сервисам + eslint во фронтенде
 	$(COMPOSE) exec gateway ruff check app tests
