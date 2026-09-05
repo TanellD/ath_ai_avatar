@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, TypeAdapter
 
+from ath_contracts.avatar import AvatarProfile
 from ath_contracts.enums import Action, Classification, Emotion, EmotionIntensity
 from ath_contracts.report import Report
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
@@ -148,6 +149,20 @@ class SttFinalEvent(BaseModel):
     confidence: float | None = None
 
 
+class SttProviderSwitchedEvent(BaseModel):
+    """Внутри одной capture speech-service перешёл на резервный провайдер.
+
+    `partials_available` берётся из capabilities нового движка: gateway не
+    должен знать, какие именно провайдеры умеют потоковые партиалы.
+    """
+
+    type: Literal["provider_switched"] = "provider_switched"
+    capture_id: UUID
+    provider_epoch: int
+    provider: str
+    partials_available: bool
+
+
 class SttFaultEvent(BaseModel):
     type: Literal["fault"] = "fault"
     capture_id: UUID
@@ -160,7 +175,12 @@ class SttFaultEvent(BaseModel):
 
 
 SttServiceEvent = Annotated[
-    SttProgressEvent | SttTranscriptEvent | SttEndpointEvent | SttFinalEvent | SttFaultEvent,
+    SttProgressEvent
+    | SttTranscriptEvent
+    | SttEndpointEvent
+    | SttFinalEvent
+    | SttProviderSwitchedEvent
+    | SttFaultEvent,
     Field(discriminator="type"),
 ]
 _stt_service_adapter: TypeAdapter[SttServiceEvent] = TypeAdapter(SttServiceEvent)
@@ -185,6 +205,10 @@ class ScenarioSummary(BaseModel):
 
 class ScenarioListResponse(BaseModel):
     items: list[ScenarioSummary]
+
+
+class AvatarListResponse(BaseModel):
+    items: list[AvatarProfile]
 
 
 # ------------------------------------------------------------------ gateway

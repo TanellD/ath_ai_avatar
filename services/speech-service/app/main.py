@@ -40,6 +40,14 @@ def create_app() -> FastAPI:
     app.include_router(tts_ws.router)
     app.include_router(stt_ws.router)
 
+    # Управляемые сбои STT существуют только в dev-конфигурации: в обычной
+    # эти пути не «запрещены», а отсутствуют.
+    if get_settings().stt_debug_faults_enabled:
+        from app.api import debug_stt
+
+        app.include_router(debug_stt.router)
+        log.warning("speech.debug_faults_enabled")
+
     return app
 
 

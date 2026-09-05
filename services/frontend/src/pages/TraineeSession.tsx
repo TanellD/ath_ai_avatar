@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
-import { gatewayApi } from '@/api/client';
+import { gatewayApi, scenarioApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
@@ -33,7 +33,7 @@ import { ConsentBanner } from '@/components/ConsentBanner';
 import { MessageComposer } from '@/components/MessageComposer';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
 import { PushToTalkToggle } from '@/components/PushToTalkToggle';
-import type { ServerEvent, SubtitleEvent } from '@/contracts/events';
+import type { AvatarProfile, ServerEvent, SubtitleEvent } from '@/contracts/events';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
 import { useSessionSocket } from '@/ws/useSessionSocket';
@@ -73,9 +73,13 @@ export function TraineeSession() {
   const [pushToTalk, setPushToTalk] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState('');
+  // Распознавание ушло на резервный движок без партиалов: черновик больше
+  // не обновляется, и это надо объяснить, а не оставлять экран замершим.
+  const [voiceBuffered, setVoiceBuffered] = useState(false);
   const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetrics | null>(null);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
   const [audio, setAudio] = useState<AudioRig | null>(null);
+  const [avatar, setAvatar] = useState<AvatarProfile | null>(null);
 
   /**
    * Текущее поколение. Именно ref, а не useState: значение читается в
@@ -132,6 +136,19 @@ export function TraineeSession() {
       })
       .catch((cause: Error) => {
         if (!cancelled) setError({ type: 'server', message: 'Не удалось начать сессию', details: cause.message });
+      });
+
+    // Внешность и голос персонажа живут в реестре аватаров: сценарий говорит
+    // только, какой аватар его играет. Модель не блокирует старт сессии —
+    // TalkingHeadAvatar откатится на запасную.
+    scenarioApi
+      .get(scenarioId)
+      .then((scenario) => scenarioApi.getAvatar(scenario.persona.avatar_id))
+      .then((profile) => {
+        if (!cancelled) setAvatar(profile);
+      })
+      .catch(() => {
+        if (!cancelled) setAvatar(null);
       });
 
     return () => {
@@ -194,6 +211,16 @@ export function TraineeSession() {
           if (!captureEndingRef.current) setPlayback('listening');
           break;
 
+        case 'voice_provider_switched':
+          if (!event.partials_available && activeCaptureRef.current === event.capture_id) {
+            // Замерший черновик читается как «меня перестали слышать», и человек
+            // начинает повторять — портит ту самую запись, которую сейчас
+            // расшифровывают. Убираем его и объясняем паузу.
+            setVoiceDraft('');
+            setVoiceBuffered(true);
+          }
+          break;
+
         case 'transcript':
           if (
             !event.is_final
@@ -220,6 +247,7 @@ export function TraineeSession() {
             activeCaptureRef.current = null;
             captureEndingRef.current = false;
             setVoiceActive(false);
+            setVoiceBuffered(false);
             if (event.text.trim()) {
               setTranscript((lines) => [...lines, { role: 'user', text: event.text.trim() }]);
               setPlayback('thinking');
@@ -240,8 +268,13 @@ export function TraineeSession() {
             activeCaptureRef.current = null;
             captureEndingRef.current = false;
             setVoiceActive(false);
+            setVoiceBuffered(false);
           }
-          setError({ type: 'server', message: event.message, details: event.code });
+          // Персонаж уже переспросил вслух — красный баннер поверх этого
+          // сообщил бы об одной неудаче дважды и вывел бы собеседника из роли.
+          if (!event.spoken) {
+            setError({ type: 'server', message: event.message, details: event.code });
+          }
           break;
 
         default:
@@ -337,6 +370,7 @@ export function TraineeSession() {
     captureEndingRef.current = false;
     setVoiceActive(true);
     setVoiceDraft('');
+    setVoiceBuffered(false);
 
     const interrupted = wasPlaying ? genRef.current : null;
     cancelPlayback({
@@ -435,6 +469,8 @@ export function TraineeSession() {
             isSpeaking={playback === 'speaking'}
             onReady={handleAvatarReady}
             onError={handleAvatarError}
+            modelUrl={avatar?.model_url}
+            body={avatar?.body}
           />
           {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
         </div>
@@ -446,6 +482,13 @@ export function TraineeSession() {
         onSubmit={handleSubmit}
       />
       {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
+      {voiceBuffered && (
+        <p className="voice-draft voice-draft--buffered">
+          {playback === 'recognizing'
+            ? 'Расшифровываю запись — это чуть дольше обычного'
+            : 'Говорите, я записываю — текст появится целиком в конце реплики'}
+        </p>
+      )}
       {voiceMetrics && (
         <p className="voice-metrics">
           Voice: ACK {formatMetric(voiceMetrics.ackMs)} · partial{' '}

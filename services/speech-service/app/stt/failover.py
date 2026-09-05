@@ -11,6 +11,7 @@ from app.stt.base import (
     ProviderCapabilities,
     ProviderFault,
     ProviderFaultKind,
+    ProviderSwitched,
     RecognitionIdentity,
     SttProvider,
     SttSessionConfig,
@@ -177,6 +178,14 @@ class FailoverSttProvider(SttProvider):
                 await old.aclose()
             await fallback.open(self._provider_config(fallback, next_epoch))
             self._active = fallback
+            # Сообщаем до replay: у локального движка нет партиалов, и клиент
+            # должен узнать об этом, пока пользователь ещё говорит, а не после.
+            await self._events.put(
+                ProviderSwitched(
+                    identity=self._provider_config(fallback, next_epoch).identity,
+                    capabilities=fallback.capabilities,
+                )
+            )
             if self._audio:
                 await fallback.push(bytes(self._audio))
             if self._finalize_requested:
@@ -241,7 +250,8 @@ class FailoverSttProvider(SttProvider):
                     return
                 if self._using_fallback:
                     assert self._config is not None
-                    identity = self._provider_config(provider, self._config.identity.provider_epoch + 1).identity
+                    fallback_epoch = self._config.identity.provider_epoch + 1
+                    identity = self._provider_config(provider, fallback_epoch).identity
                     await self._emit_event_terminal_locked(
                         ProviderFault(
                             identity=identity,

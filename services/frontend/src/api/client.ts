@@ -14,7 +14,7 @@ import type {
   SessionSummary,
   Span,
 } from '@/contracts/admin';
-import type { Report, Scenario, ScenarioSummary } from '@/contracts/events';
+import type { AvatarProfile, Report, Scenario, ScenarioSummary } from '@/contracts/events';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000';
@@ -94,6 +94,15 @@ export const scenarioApi = {
 
   get(scenarioId: string): Promise<Scenario> {
     return request(`${SCENARIO_URL}/scenarios/${scenarioId}`);
+  },
+
+  async listAvatars(): Promise<AvatarProfile[]> {
+    const data = await request<{ items: AvatarProfile[] }>(`${SCENARIO_URL}/avatars`);
+    return data.items;
+  },
+
+  getAvatar(avatarId: string): Promise<AvatarProfile> {
+    return request(`${SCENARIO_URL}/avatars/${avatarId}`);
   },
 
   save(scenario: Scenario): Promise<Scenario> {

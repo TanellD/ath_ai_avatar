@@ -76,6 +76,18 @@ class FinalizationComplete:
     end_sample: int | None = None
 
 
+@dataclass(frozen=True)
+class ProviderSwitched:
+    """Внутри одной capture управление перешло к другому провайдеру.
+
+    Несёт capabilities нового движка, а не его имя: потребителю важно, что
+    дальше не будет партиалов, а не то, какой именно движок их не отдаёт.
+    """
+
+    identity: RecognitionIdentity
+    capabilities: ProviderCapabilities
+
+
 class ProviderFaultKind(StrEnum):
     CONNECT = "connect"
     AUTHENTICATION = "authentication"
@@ -100,6 +112,7 @@ NormalizedSttEvent = (
     | TranscriptHypothesis
     | EndpointObserved
     | FinalizationComplete
+    | ProviderSwitched
     | ProviderFault
 )
 

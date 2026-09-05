@@ -15,6 +15,7 @@ RUN pip install --index-url https://download.pytorch.org/whl/cpu \
 COPY services/gigaam-worker/pyproject.toml ./pyproject.toml
 RUN mkdir -p app && touch app/__init__.py && pip install -e .
 
+COPY services/gigaam-worker/models.lock.json ./models.lock.json
 COPY services/gigaam-worker/app ./app
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8020"]

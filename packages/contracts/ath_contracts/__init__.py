@@ -38,10 +38,18 @@ from ath_contracts.events import (
     SubtitleEvent,
     TokenEvent,
     TranscriptEvent,
+    VoiceProviderSwitchedEvent,
     UserMessage,
     parse_client_event,
 )
 from ath_contracts.report import AudioRef, CriterionScore, Report
+from ath_contracts.avatar import (
+    DEFAULT_AVATAR_ID,
+    DEFAULT_RECOVERY_LINE,
+    AvatarProfile,
+    resolve_recovery_line,
+    resolve_voice,
+)
 from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
 from ath_contracts.session import SessionState, StageHistoryEntry, Turn
 
@@ -58,7 +66,12 @@ __all__ = [
     "EmotionIntensity",
     "ErrorEvent",
     "Mood",
+    "AvatarProfile",
+    "DEFAULT_AVATAR_ID",
+    "DEFAULT_RECOVERY_LINE",
     "Persona",
+    "resolve_recovery_line",
+    "resolve_voice",
     "Ping",
     "Report",
     "ReportEvent",
@@ -77,6 +90,7 @@ __all__ = [
     "SubtitleEvent",
     "TokenEvent",
     "TranscriptEvent",
+    "VoiceProviderSwitchedEvent",
     "Turn",
     "TurnRole",
     "UserMessage",

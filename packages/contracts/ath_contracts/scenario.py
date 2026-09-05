@@ -5,6 +5,8 @@
 
 from pydantic import BaseModel, Field
 
+from ath_contracts.avatar import DEFAULT_AVATAR_ID
+
 from ath_contracts.enums import Mood
 
 
@@ -16,7 +18,19 @@ class Persona(BaseModel):
     character: str = Field(description="Манера: скептична, перебивает, торгуется")
     mood: Mood = Mood.NEUTRAL
     difficulty: int = Field(default=1, ge=1, le=5)
-    voice_id: str | None = None
+    avatar_id: str = Field(
+        default=DEFAULT_AVATAR_ID, description="Какой аватар играет этого персонажа"
+    )
+    voice_id: str | None = Field(
+        default=None, description="Перекрывает голос аватара; None — берётся голос аватара"
+    )
+    recovery_line: str | None = Field(
+        default=None,
+        description=(
+            "Перекрывает фразу аватара на случай потерянной реплики; "
+            "None — берётся фраза аватара."
+        ),
+    )
 
 
 class Stage(BaseModel):

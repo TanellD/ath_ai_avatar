@@ -32,9 +32,10 @@
 
 ## Не реализовано
 
-Полный corpus/benchmark и ADR параметров, GigaAM worker/cache, provider
-manager/failover/replay, hands-free candidate/duck/echo policy и полный
-fault-injection/browser harness.
+Полный corpus/benchmark и ADR параметров, hands-free candidate/duck/echo policy
+и полный fault-injection/browser harness. GigaAM worker/cache и provider
+failover/replay уже есть: `services/gigaam-worker/`, `app/stt/failover.py`,
+`make gigaam-setup`.
 
 Текстовый `UserMessage`, FSM, `GenerationRegistry`, `AudioQueue`, TalkingHead/
 HeadAudio и TTS сохраняются; Redis/Postgres не добавляются только ради STT.

@@ -1,4 +1,4 @@
-"""_wav_duration_ms — реальная длительность из WAV-заголовка, не оценка по
+"""wav_duration_ms — реальная длительность из WAV-заголовка, не оценка по
 длине текста. От неё зависят тайминги SubtitleEvent (§7), а от них — синхронизация
 текста с голосом на клиенте (панель истории диалога).
 """
@@ -7,7 +7,7 @@ import base64
 import io
 import wave
 
-from app.orchestrator.pipeline import _wav_duration_ms
+from app.orchestrator.pipeline import wav_duration_ms
 
 
 def _make_wav(duration_sec: float, sample_rate: int = 24000) -> str:
@@ -23,15 +23,15 @@ def _make_wav(duration_sec: float, sample_rate: int = 24000) -> str:
 
 def test_duration_matches_known_wav() -> None:
     data = _make_wav(1.5, sample_rate=24000)
-    assert _wav_duration_ms(data) == 1500
+    assert wav_duration_ms(data) == 1500
 
 
 def test_duration_rounds_to_nearest_ms() -> None:
     # 100 сэмплов при 24000 Гц = 4.1666... мс -> округляется до 4.
     data = _make_wav(100 / 24000, sample_rate=24000)
-    assert _wav_duration_ms(data) == 4
+    assert wav_duration_ms(data) == 4
 
 
 def test_different_sample_rate() -> None:
     data = _make_wav(2.0, sample_rate=16000)
-    assert _wav_duration_ms(data) == 2000
+    assert wav_duration_ms(data) == 2000

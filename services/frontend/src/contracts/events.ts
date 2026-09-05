@@ -100,6 +100,19 @@ export interface SpeechStartedEvent {
   capture_id: string;
 }
 
+/**
+ * [STT] Внутри одной capture распознавание ушло на резервный провайдер.
+ * UI ориентируется на `partials_available`, а не на имя движка.
+ */
+export interface VoiceProviderSwitchedEvent {
+  type: 'voice_provider_switched';
+  gen_id: number;
+  capture_id: string;
+  provider_epoch: number;
+  provider: string;
+  partials_available: boolean;
+}
+
 export interface ActionEvent {
   type: 'action';
   gen_id: number;
@@ -124,6 +137,8 @@ export interface ErrorEvent {
   gen_id: number | null;
   code: string;
   message: string;
+  /** Персонаж уже сказал это вслух: сбросить захват, но баннер не показывать. */
+  spoken: boolean;
 }
 
 export type ServerEvent =
@@ -132,6 +147,7 @@ export type ServerEvent =
   | SubtitleEvent
   | SpeechStartedEvent
   | TranscriptEvent
+  | VoiceProviderSwitchedEvent
   | ActionEvent
   | CancelEvent
   | ReportEvent
@@ -178,13 +194,27 @@ export interface Report {
   stages_total: number;
 }
 
+/** Внешность и голос по умолчанию. Одна запись на модель, переиспользуется сценариями. */
+export interface AvatarProfile {
+  id: string;
+  title: string;
+  model_url: string;
+  body: 'F' | 'M';
+  voice_id: string | null;
+  recovery_line: string | null;
+}
+
 export interface Persona {
   name: string;
   role: string;
   character: string;
   mood: Mood;
   difficulty: number;
+  avatar_id: string;
+  /** Перекрывает голос аватара; null — берётся голос аватара. */
   voice_id: string | null;
+  /** Перекрывает фразу аватара на случай потерянной реплики. */
+  recovery_line: string | null;
 }
 
 export interface Stage {

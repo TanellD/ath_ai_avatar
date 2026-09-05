@@ -7,7 +7,10 @@ mirrors ``GigaAMASR.transcribe`` after audio loading and is covered by unit test
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from app.setup_models import ModelSetupError, verify_cache
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,8 @@ class Transcription:
 
 class GigaAmEngine:
     def __init__(self, *, model_name: str, device: str, cache_dir: str) -> None:
+        _require_offline_cache(model_name, cache_dir)
+
         import gigaam
         import torch
 
@@ -44,6 +49,20 @@ class GigaAmEngine:
 
         text = decoded[0][0] if decoded else ""
         return Transcription(text=str(text).strip())
+
+
+def _require_offline_cache(model_name: str, cache_dir: str) -> None:
+    """The normal start is offline.
+
+    Without this guard ``gigaam.load_model`` would quietly pull the checkpoint
+    from the CDN during a demo, and the only symptom would be a stuck ``/ready``.
+    """
+    try:
+        verify_cache(model_name, Path(cache_dir))
+    except ModelSetupError as exc:
+        raise ModelSetupError(
+            f"GigaAM cache is incomplete ({exc}); run `make gigaam-setup` before starting"
+        ) from exc
 
 
 def load_engine(settings: Any) -> GigaAmEngine:

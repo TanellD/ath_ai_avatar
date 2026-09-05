@@ -31,6 +31,7 @@ from ath_contracts import (
     TokenEvent,
     Turn,
     TurnRole,
+    resolve_voice,
 )
 from ath_contracts.api import CharacterReplyMeta
 
@@ -50,7 +51,7 @@ SendFn = Callable[[ServerEvent], Awaitable[None]]
 """Отправка события в сокет. Передаётся снаружи, чтобы pipeline не знал про FastAPI."""
 
 
-def _wav_duration_ms(data_b64: str) -> int:
+def wav_duration_ms(data_b64: str) -> int:
     """Длительность WAV-чанка в миллисекундах — из заголовка, не из длины текста.
 
     Источник тайминга для субтитров (§7: «start_ms, end_ms — тайминги
@@ -253,7 +254,7 @@ class TurnPipeline:
                 gen_id=gen_id,
                 seq=seq,
                 text=sentence,
-                voice_id=self._session.scenario.persona.voice_id,
+                voice_id=resolve_voice(self._session.scenario.persona, self._session.avatar),
                 emotion=emotion,
             ):
                 await self._send(
@@ -266,7 +267,7 @@ class TurnPipeline:
                         emotion=emotion,
                     ),
                 )
-                sentence_ms += _wav_duration_ms(chunk.data)
+                sentence_ms += wav_duration_ms(chunk.data)
                 seq = chunk.seq + 1
 
         await self._send(

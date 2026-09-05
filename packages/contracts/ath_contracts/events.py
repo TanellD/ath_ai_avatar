@@ -145,6 +145,22 @@ class SpeechStartedEvent(BaseModel):
     capture_id: UUID
 
 
+class VoiceProviderSwitchedEvent(BaseModel):
+    """[STT] Внутри одной capture распознавание перешло на резервный провайдер.
+
+    Клиенту важно не имя движка, а то, что партиалов больше не будет: замерший
+    черновик читается как «меня перестали слышать», хотя запись продолжается.
+    UI опирается на `partials_available`, а не на `provider`.
+    """
+
+    type: Literal["voice_provider_switched"] = "voice_provider_switched"
+    gen_id: int
+    capture_id: UUID
+    provider_epoch: int = Field(ge=0)
+    provider: str = Field(min_length=1)
+    partials_available: bool
+
+
 class ActionEvent(BaseModel):
     type: Literal["action"] = "action"
     gen_id: int
@@ -169,10 +185,18 @@ class ReportEvent(BaseModel):
 
 
 class ErrorEvent(BaseModel):
+    """Сбой, о котором нужно сообщить клиенту.
+
+    `spoken=True` означает, что персонаж уже объясняет это вслух своим голосом:
+    клиент обязан сбросить состояние захвата, но не должен показывать баннер —
+    иначе одна и та же неудача сообщается дважды, голосом и красным текстом.
+    """
+
     type: Literal["error"] = "error"
     gen_id: int | None = None
     code: str
     message: str
+    spoken: bool = False
 
 
 ServerEvent = Annotated[
@@ -181,6 +205,7 @@ ServerEvent = Annotated[
     | SubtitleEvent
     | SpeechStartedEvent
     | TranscriptEvent
+    | VoiceProviderSwitchedEvent
     | ActionEvent
     | CancelEvent
     | ReportEvent

@@ -4,12 +4,25 @@ import asyncio
 import time
 from dataclasses import dataclass
 
-from ath_contracts import ErrorEvent, SpeechStart, SpeechStartedEvent, TranscriptEvent
-from ath_contracts.api import SttFaultEvent, SttFinalEvent, SttOpenRequest, SttTranscriptEvent
+from ath_contracts import (
+    ErrorEvent,
+    SpeechStart,
+    SpeechStartedEvent,
+    TranscriptEvent,
+    VoiceProviderSwitchedEvent,
+)
+from ath_contracts.api import (
+    SttFaultEvent,
+    SttFinalEvent,
+    SttOpenRequest,
+    SttProviderSwitchedEvent,
+    SttTranscriptEvent,
+)
 
 from app.clients.speech_client import SpeechClient, SttStream
 from app.core.logging import get_logger
 from app.orchestrator.pipeline import SendFn, TurnPipeline
+from app.orchestrator.voice_recovery import VoiceRecoveryPlayer
 
 log = get_logger(__name__)
 
@@ -41,6 +54,7 @@ class VoiceTurnRegistry:
         max_capture_seconds: int,
         max_frame_bytes: int,
         language: str,
+        recovery: VoiceRecoveryPlayer | None = None,
         context_terms: tuple[str, ...] = (),
     ) -> None:
         self._session_id = session_id
@@ -50,6 +64,7 @@ class VoiceTurnRegistry:
         self._max_frame_bytes = max_frame_bytes
         self._max_capture_seconds = max_capture_seconds
         self._language = language
+        self._recovery = recovery
         self._context_terms = context_terms
         self._active: _ActiveCapture | None = None
         self._lock = asyncio.Lock()
@@ -183,6 +198,22 @@ class VoiceTurnRegistry:
                 )
             )
 
+
+    async def _report_lost_turn(self, active: _ActiveCapture, code: str, message: str) -> None:
+        """Сообщить о потерянном ходе — по возможности голосом персонажа.
+
+        Красный баннер посреди голосового разговора рвёт роль сильнее, чем
+        живая фраза «повторите, пожалуйста». ErrorEvent уходит в любом случае:
+        клиенту нужно сбросить состояние захвата, а `spoken` говорит ему, что
+        показывать баннер поверх уже сказанного не надо.
+        """
+        spoken = False
+        if self._recovery is not None:
+            spoken = await self._recovery.play(active.gen_id)
+        await self._send(
+            ErrorEvent(gen_id=active.gen_id, code=code, message=message, spoken=spoken)
+        )
+
     async def _watchdog(self, active: _ActiveCapture) -> None:
         try:
             await asyncio.sleep(self._max_capture_seconds)
@@ -214,7 +245,19 @@ class VoiceTurnRegistry:
                         provider=event.provider,
                         provider_epoch=active.provider_epoch,
                     )
-                if isinstance(event, SttTranscriptEvent):
+                if isinstance(event, SttProviderSwitchedEvent):
+                    # Клиент узнаёт не про сбой, а про то, что партиалов больше
+                    # не будет: иначе замерший черновик читается как «не слышат».
+                    await self._send(
+                        VoiceProviderSwitchedEvent(
+                            gen_id=active.gen_id,
+                            capture_id=event.capture_id,
+                            provider_epoch=event.provider_epoch,
+                            provider=event.provider,
+                            partials_available=event.partials_available,
+                        )
+                    )
+                elif isinstance(event, SttTranscriptEvent):
                     if not active.first_partial_seen:
                         active.first_partial_seen = True
                         log.info(
@@ -258,6 +301,12 @@ class VoiceTurnRegistry:
                         text=event.text,
                         confidence=event.confidence,
                     )
+                    if not event.text.strip():
+                        # Распознавание отработало, но текста нет. Для человека
+                        # это неотличимо от «меня не услышали», и ход потерян.
+                        await self._report_lost_turn(
+                            active, "stt_empty_final", "Речь не распознана"
+                        )
                     log.info(
                         "voice.final_received",
                         capture_id=active.capture_id,
@@ -269,29 +318,23 @@ class VoiceTurnRegistry:
                     return
                 elif isinstance(event, SttFaultEvent):
                     terminal_event = True
-                    await self._send(
-                        ErrorEvent(
-                            gen_id=active.gen_id,
-                            code=f"stt_{event.kind}",
-                            message="Не удалось распознать речь; используйте текстовый ввод",
-                        )
+                    await self._report_lost_turn(
+                        active,
+                        f"stt_{event.kind}",
+                        "Не удалось распознать речь; используйте текстовый ввод",
                     )
                     return
             if not terminal_event:
-                await self._send(
-                    ErrorEvent(
-                        gen_id=active.gen_id,
-                        code="stt_disconnected",
-                        message="Распознавание прервалось; используйте текстовый ввод",
-                    )
+                await self._report_lost_turn(
+                    active,
+                    "stt_disconnected",
+                    "Распознавание прервалось; используйте текстовый ввод",
                 )
         except Exception:  # noqa: BLE001 - downstream boundary
-            await self._send(
-                ErrorEvent(
-                    gen_id=active.gen_id,
-                    code="stt_disconnected",
-                    message="Распознавание прервалось; используйте текстовый ввод",
-                )
+            await self._report_lost_turn(
+                active,
+                "stt_disconnected",
+                "Распознавание прервалось; используйте текстовый ввод",
             )
         finally:
             await active.stream.aclose()

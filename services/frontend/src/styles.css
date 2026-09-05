@@ -351,6 +351,13 @@ body {
   font-size: 13px;
 }
 
+/* Подсказка о буферизованном распознавании: спокойнее обычного черновика,
+   чтобы не читаться как ошибка. */
+.voice-draft--buffered {
+  font-style: italic;
+  opacity: 0.75;
+}
+
 .voice-metrics {
   flex: none;
   margin: 0;

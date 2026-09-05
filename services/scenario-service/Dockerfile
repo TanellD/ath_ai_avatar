@@ -20,6 +20,7 @@ RUN mkdir -p /data
 
 FROM base AS dev
 RUN pip install -e ".[dev]"
+COPY services/scenario-service/tests ./tests
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8050", "--reload"]
 
 FROM base AS prod

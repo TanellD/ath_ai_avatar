@@ -46,6 +46,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8050 --reload --reload-dir /app/app --reload-dir /opt/packages
     volumes:
       - ./services/scenario-service/app:/app/app
+      - ./services/scenario-service/tests:/app/tests
       - ./packages:/opt/packages
       - ./data:/data
     environment:

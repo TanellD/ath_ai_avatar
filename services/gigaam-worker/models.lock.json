@@ -1,0 +1,27 @@
+{
+  "comment": [
+    "Pinned GigaAM artefacts, verified by `make gigaam-setup` before a demo so",
+    "that the normal worker start stays offline.",
+    "The checkpoint md5 equals _MODEL_HASHES in the official gigaam/__init__.py,",
+    "which is the value gigaam itself asserts in load_model. The sha256 digests",
+    "are ours and also cover the tokenizer, for which upstream publishes none."
+  ],
+  "source": "https://cdn.chatwm.opensmodel.sberdevices.ru/GigaAM",
+  "models": {
+    "v3_e2e_ctc": {
+      "files": [
+        {
+          "name": "v3_e2e_ctc.ckpt",
+          "size": 442404646,
+          "sha256": "73e27ec8f904e486ab063d5bb7c6ab701838b7e5a967ee79b71ccc5aefde146f",
+          "md5": "367074d6498f426d960b25f49531cf68"
+        },
+        {
+          "name": "v3_e2e_ctc_tokenizer.model",
+          "size": 240941,
+          "sha256": "0b9a1960898fbfdf5424ab852ea17445eb3da960fba23e977ff100eb0054fbc8"
+        }
+      ]
+    }
+  }
+}

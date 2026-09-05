@@ -83,6 +83,7 @@ services:
       GIGAAM_WORKER_URL: ${GIGAAM_WORKER_URL:-http://gigaam-worker:8020}
       GIGAAM_TIMEOUT_SECONDS: ${GIGAAM_TIMEOUT_SECONDS:-60}
       STT_FINALIZE_TIMEOUT_SECONDS: ${STT_FINALIZE_TIMEOUT_SECONDS:-5}
+      STT_DEBUG_FAULTS_ENABLED: ${STT_DEBUG_FAULTS_ENABLED:-false}
       VOICE_MAX_CAPTURE_SECONDS: ${VOICE_MAX_CAPTURE_SECONDS:-20}
       VOICE_MAX_FRAME_BYTES: ${VOICE_MAX_FRAME_BYTES:-32000}
     healthcheck:
@@ -118,8 +119,9 @@ services:
       interval: 10s
       timeout: 3s
       retries: 30
-      # The upstream CDN can be slow on the first ~0.9 GB checkpoint download.
-      start_period: 900s
+      # Weights are fetched ahead of time by `make gigaam-setup`, so this only
+      # has to cover loading the checkpoint from the volume onto the CPU.
+      start_period: 180s
 
   # ------------------------------------------------------------- ai-service
   # Разделение моделей из Claude.md §5: быстрая — реплики персонажа,

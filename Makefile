@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 COMPOSE := docker compose
 
-.PHONY: help up down restart logs ps build test lint fmt migrate revision contracts clean
+.PHONY: help up down restart logs ps build test lint fmt migrate revision contracts clean gigaam-setup voice-recovery-setup voices
 
 help: ## Список команд
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -27,12 +27,13 @@ test: ## Тесты gateway, speech-service, ai-service (инварианты и
 	$(COMPOSE) exec gateway pytest -v
 	$(COMPOSE) exec speech-service pytest -v
 	$(COMPOSE) exec ai-service pytest -v
+	$(COMPOSE) exec scenario-service pytest -v
 
 lint: ## ruff по сервисам + eslint во фронтенде
 	$(COMPOSE) exec gateway ruff check app tests
 	$(COMPOSE) exec speech-service ruff check app tests
 	$(COMPOSE) exec ai-service ruff check app tests
-	$(COMPOSE) exec scenario-service ruff check app
+	$(COMPOSE) exec scenario-service ruff check app tests
 	$(COMPOSE) exec frontend npm run lint
 
 fmt: ## Форматирование
@@ -40,6 +41,16 @@ fmt: ## Форматирование
 	$(COMPOSE) exec speech-service ruff format app tests
 	$(COMPOSE) exec ai-service ruff format app tests
 	$(COMPOSE) exec scenario-service ruff format app
+
+gigaam-setup: ## Скачать и сверить веса GigaAM заранее (до демо; старт worker'а офлайновый)
+	$(COMPOSE) --profile gigaam run --rm --no-deps gigaam-worker \
+		python -m app.setup_models
+
+voice-recovery-setup: ## Озвучить реплики «повторите, пожалуйста» заранее (стек должен быть поднят)
+	$(COMPOSE) exec gateway python -m app.scripts.render_voice_recovery
+
+voices: ## Показать голоса TTS-провайдера (для voice_id в реестре аватаров)
+	$(COMPOSE) exec speech-service python -m app.scripts.list_voices
 
 migrate: ## Применить миграции
 	$(COMPOSE) exec gateway alembic upgrade head

@@ -9,6 +9,7 @@ from ath_contracts.api import (
     SttFinalEvent,
     SttOpenRequest,
     SttProgressEvent,
+    SttProviderSwitchedEvent,
     SttTranscriptEvent,
 )
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -19,6 +20,7 @@ from app.stt.base import (
     EndpointObserved,
     FinalizationComplete,
     ProviderFault,
+    ProviderSwitched,
     RecognitionIdentity,
     RecognitionProgress,
     SttSessionConfig,
@@ -129,6 +131,10 @@ async def _relay_events(websocket: WebSocket, provider) -> None:  # noqa: ANN001
         elif isinstance(event, FinalizationComplete):
             outgoing = SttFinalEvent(
                 **common, text=event.text, confidence=event.confidence
+            )
+        elif isinstance(event, ProviderSwitched):
+            outgoing = SttProviderSwitchedEvent(
+                **common, partials_available=event.capabilities.streaming_partials
             )
         elif isinstance(event, ProviderFault):
             outgoing = SttFaultEvent(

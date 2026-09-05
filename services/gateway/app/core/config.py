@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # ответа персонажа целиком — 0.85-2.2 с (§9).
     downstream_timeout_sec: float = 30.0
 
+    # Заранее отрендеренные реплики «повторите, пожалуйста» — по одной на
+    # голос. Лежат рядом с БД на том же bind-mount, наполняются
+    # `make voice-recovery-setup` и переживают недоступность TTS.
+    voice_recovery_dir: str = "/data/voice-recovery"
+
     # Voice transport guards; benchmark may tighten these defaults later.
     voice_max_capture_seconds: int = 20
     voice_max_frame_bytes: int = 32_000

@@ -22,6 +22,8 @@ from ath_contracts import (
     SpeechStart,
     UserMessage,
     parse_client_event,
+    resolve_recovery_line,
+    resolve_voice,
 )
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -32,6 +34,7 @@ from app.core.logging import bind_session_context, clear_session_context, get_lo
 from app.db.engine import session_factory
 from app.db.repositories import SqlSessionRepository
 from app.orchestrator.pipeline import TurnPipeline
+from app.orchestrator.voice_recovery import VoiceRecoveryPlayer
 from app.orchestrator.voice_turns import VoiceTurnRegistry
 
 router = APIRouter()
@@ -71,6 +74,13 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         pipeline=pipeline,
         speech=app.state.speech,
         send=send,
+        recovery=VoiceRecoveryPlayer(
+            speech=app.state.speech,
+            send=send,
+            voice_id=resolve_voice(session.scenario.persona, session.avatar),
+            text=resolve_recovery_line(session.scenario.persona, session.avatar),
+            cache_dir=settings.voice_recovery_dir,
+        ),
         max_capture_seconds=settings.voice_max_capture_seconds,
         max_frame_bytes=settings.voice_max_frame_bytes,
         language=settings.stt_language,
@@ -147,7 +157,17 @@ async def _restore_session(websocket: WebSocket, session_id: str):
         await websocket.close(code=4404, reason="scenario not found")
         return None
 
-    session = websocket.app.state.sessions.create(session_id, scenario)
+    # Профиль аватара нужен и обычной речи, и заготовке «повторите» — иначе
+    # они зазвучали бы разными голосами.
+    try:
+        avatar = await websocket.app.state.scenario.get_avatar(scenario.persona.avatar_id)
+    except Exception as exc:  # noqa: BLE001 - косметика не должна ронять сессию
+        log.warning("ws.avatar_lookup_failed", error_type=type(exc).__name__)
+        avatar = None
+    if avatar is None:
+        log.warning("ws.avatar_missing", avatar_id=scenario.persona.avatar_id)
+
+    session = websocket.app.state.sessions.create(session_id, scenario, avatar)
     session.current_stage_id = state.current_stage
     return session
 

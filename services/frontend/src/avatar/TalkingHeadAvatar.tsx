@@ -34,7 +34,8 @@ import { useEffect, useRef } from 'react';
 import { HeadAudio } from '@/vendor/headaudio/headaudio.mjs';
 import type { Emotion } from '@/contracts/events';
 
-const AVATAR_URL = '/assets/avatar/avatar-aith.glb';
+/** Запасная модель, если реестр аватаров недоступен. */
+const FALLBACK_AVATAR_URL = '/assets/avatar/avatar-aith.glb';
 const HEADAUDIO_WORKLET_URL = '/vendor/headaudio/headworklet.mjs';
 const HEADAUDIO_MODEL_URL = '/vendor/headaudio/model-en-mixed.bin';
 
@@ -53,10 +54,14 @@ interface Props {
   /** Во время речи держать зрительный контакт с пользователем, а не с курсором. */
   isSpeaking: boolean;
   onReady: (handle: AvatarPlaybackHandle) => void;
+  /** Модель текущего аватара; берётся из реестра scenario-service. */
+  modelUrl?: string;
+  /** Тип рига TalkingHead для этой модели. */
+  body?: 'F' | 'M';
   onError: (message: string) => void;
 }
 
-export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
+export function TalkingHeadAvatar({ isSpeaking, onReady, onError, modelUrl, body = 'F' }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
   const cursorGazeRef = useRef<CursorGazeController | null>(null);
@@ -144,8 +149,8 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
         };
 
         await head.showAvatar({
-          url: AVATAR_URL,
-          body: 'F',
+          url: modelUrl ?? FALLBACK_AVATAR_URL,
+          body,
           avatarMood: 'neutral',
         });
 
@@ -169,7 +174,7 @@ export function TalkingHeadAvatar({ isSpeaking, onReady, onError }: Props) {
     // TalkingHead не даёт полного dispose(), но глобальные обработчики взгляда
     // снять можем и обязаны: иначе после навигации они продолжат держать head.
     return () => cursorGazeRef.current?.detach();
-  }, [onReady, onError]);
+  }, [onReady, onError, modelUrl, body]);
 
   return <div ref={containerRef} className="avatar" />;
 }

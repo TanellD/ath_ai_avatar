@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 
 from ath_contracts import (
+    AvatarProfile,
     Scenario,
     SessionState,
     SessionStatus,
@@ -27,6 +28,7 @@ from app.orchestrator.generation import GenerationRegistry
 class LiveSession:
     session_id: str
     scenario: Scenario
+    avatar: AvatarProfile | None = None
     generations: GenerationRegistry = field(default_factory=GenerationRegistry)
     started_at: float = field(default_factory=time.monotonic)
 
@@ -106,8 +108,10 @@ class SessionRegistry:
     def __init__(self) -> None:
         self._sessions: dict[str, LiveSession] = {}
 
-    def create(self, session_id: str, scenario: Scenario) -> LiveSession:
-        session = LiveSession(session_id=session_id, scenario=scenario)
+    def create(
+        self, session_id: str, scenario: Scenario, avatar: AvatarProfile | None = None
+    ) -> LiveSession:
+        session = LiveSession(session_id=session_id, scenario=scenario, avatar=avatar)
         self._sessions[session_id] = session
         return session
 
