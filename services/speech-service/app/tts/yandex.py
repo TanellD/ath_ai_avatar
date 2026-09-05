@@ -16,6 +16,8 @@
 
 from collections.abc import AsyncIterator
 
+from ath_contracts import Emotion, EmotionIntensity
+
 from app.tts.base import AudioChunk, TtsProvider
 
 
@@ -33,7 +35,12 @@ class YandexTtsProvider(TtsProvider):
         return "yandex"
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         raise NotImplementedError(
             "Yandex SpeechKit TTS не подключён. Используйте TTS_PROVIDER=mock либо "

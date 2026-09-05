@@ -33,6 +33,51 @@ declare module '@/vendor/headaudio/headaudio.mjs' {
   }
 }
 
+declare module 'three' {
+  export const LoopOnce: number;
+
+  export interface Object3D {
+    parent: Object3D | null;
+  }
+
+  export interface AnimationClip {
+    name: string;
+  }
+
+  export interface AnimationAction {
+    reset(): AnimationAction;
+    setLoop(mode: number, repetitions: number): AnimationAction;
+    fadeIn(duration: number): AnimationAction;
+    play(): AnimationAction;
+  }
+
+  export class AnimationMixer {
+    constructor(root: Object3D);
+    clipAction(clip: AnimationClip): AnimationAction;
+    update(deltaTime: number): void;
+    stopAllAction(): AnimationMixer;
+    addEventListener(type: 'finished', listener: () => void): void;
+    removeEventListener(type: 'finished', listener: () => void): void;
+  }
+
+  export interface Vector3 {
+    x: number;
+    y: number;
+    z: number;
+    clone(): Vector3;
+    copy(value: Vector3 | Quaternion): Vector3;
+  }
+
+  export interface Quaternion {
+    x: number;
+    y: number;
+    z: number;
+    w: number;
+    clone(): Quaternion;
+    copy(value: Vector3 | Quaternion): Quaternion;
+  }
+}
+
 declare module '@met4citizen/talkinghead' {
   export interface TalkingHeadOptions {
     ttsEndpoint?: string;
@@ -64,7 +109,10 @@ declare module '@met4citizen/talkinghead' {
     mtAvatar: Record<string, MorphTarget>;
     opt: { update?: (dt: number) => void; [key: string]: unknown };
     showAvatar(options: ShowAvatarOptions): Promise<void>;
+    setView(view: string, options?: { cameraDistance?: number; cameraY?: number }): void;
     lookAtCamera(durationMs: number): void;
+    setMood(mood: string): void;
+    setFixedValue(morphTarget: string, value: number | null, durationMs?: number): void;
     speakWithHands(): void;
   }
 }

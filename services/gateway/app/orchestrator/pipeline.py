@@ -26,6 +26,7 @@ from ath_contracts import (
     AudioChunkEvent,
     CancelEvent,
     Classification,
+    Emotion,
     OpeningKind,
     ReportEvent,
     ServerEvent,
@@ -35,6 +36,7 @@ from ath_contracts import (
     Turn,
     TurnRole,
 )
+from ath_contracts.api import CharacterReplyMeta
 
 from app.clients.ai_client import AiClient
 from app.clients.speech_client import SpeechClient
@@ -68,6 +70,15 @@ _OPENING_DIRECTIVE = {
 системном промпте (ai-service/app/character/prompts.py), здесь — только
 непустая затычка нужной роли. См. docs/agent-initiative.md.
 """
+
+# Клиент передаёт только профиль аватара, а не произвольный voice_id.
+# Так тестовый Tom получает свой голос, не меняя persona сценария и основной
+# голос avatar-aith.
+_AVATAR_VOICE_OVERRIDES = {"tom-avatar": "Daniel"}
+
+_DEFAULT_AVATAR_ID = "avatar-aith"
+"""Аватар для реплик, которым не предшествовало сообщение клиента: открытие
+сессии и открытие нового этапа. Совпадает с дефолтом UserMessage.avatar_id."""
 
 
 def _wav_duration_ms(data_b64: str) -> int:
@@ -146,7 +157,9 @@ class TurnPipeline:
         await self._session.generations.cancel_all()
         await self._finish()
 
-    async def handle_user_message(self, text: str, interrupts: int | None) -> None:
+    async def handle_user_message(
+        self, text: str, interrupts: int | None, avatar_id: str = _DEFAULT_AVATAR_ID
+    ) -> None:
         """Точка входа хода. Реализует §6, шаги 3-5.
 
         Шаги 1-2 (локальная остановка звука и отправка события) — на клиенте,
@@ -171,25 +184,27 @@ class TurnPipeline:
         # события в цикле приёма — от этого зависит бюджет barge-in (§9).
         self._fire_and_forget(self._persist_turn(user_turn, gen_id))
 
-        task = asyncio.create_task(self._run_turn(gen_id, text))
+        task = asyncio.create_task(self._run_turn(gen_id, text, avatar_id))
         generations.register(gen_id, task)
 
     # -------------------------------------------------------------- внутри
 
-    async def _run_turn(self, gen_id: int, user_text: str) -> None:
+    async def _run_turn(self, gen_id: int, user_text: str, avatar_id: str) -> None:
         """Один ход целиком. Отменяется целиком по task.cancel()."""
         recorder = SpanRecorder(self._session.session_id, gen_id)
         try:
-            await self._speak(gen_id, user_text, recorder)
+            await self._speak(gen_id, user_text, avatar_id, recorder)
             transition = await self._advance_stage(gen_id, user_text, recorder)
 
             # Этап сменился — персонаж сам открывает новый, не дожидаясь
             # следующей реплики сотрудника (§1). Тем же поколением: это
             # продолжение той же задачи, и barge-in снимает его целиком.
+            # Аватар берём тот же, каким пришла реплика сотрудника.
             if transition.action is Action.NEXT_STAGE:
                 await self._speak(
                     gen_id,
                     _OPENING_DIRECTIVE[OpeningKind.STAGE_TRANSITION],
+                    avatar_id,
                     recorder,
                     opening_kind=OpeningKind.STAGE_TRANSITION,
                 )
@@ -210,6 +225,9 @@ class TurnPipeline:
             await self._speak(
                 gen_id,
                 _OPENING_DIRECTIVE[opening_kind],
+                # Реплики пользователя ещё не было, профиль аватара взять
+                # неоткуда — берём тот же дефолт, что и у UserMessage.
+                _DEFAULT_AVATAR_ID,
                 recorder,
                 opening_kind=opening_kind,
             )
@@ -331,6 +349,7 @@ class TurnPipeline:
         self,
         gen_id: int,
         user_text: str,
+        avatar_id: str,
         recorder: SpanRecorder,
         opening_kind: OpeningKind | None = None,
     ) -> None:
@@ -351,6 +370,10 @@ class TurnPipeline:
 
         splitter = SentenceSplitter()
         full_text: list[str] = []
+        emotion = Emotion(self._session.scenario.persona.mood.value)
+        voice_id = _AVATAR_VOICE_OVERRIDES.get(
+            avatar_id, self._session.scenario.persona.voice_id
+        )
         seq = 0
         elapsed_ms = 0
         """Сколько аудио этого поколения уже отправлено — начало отсчёта для
@@ -362,7 +385,7 @@ class TurnPipeline:
             # генерируется моделью (ai-service/app/api/character.py): оно
             # детерминировано, поэтому сплиттер отдаёт его в TTS ещё до того,
             # как LLM напишет первое слово продолжения (§9, метрика 1).
-            async for token in self._ai.stream_character_reply(
+            async for item in self._ai.stream_character_reply(
                 persona=persona,
                 stage=stage,
                 history=context.recent,
@@ -371,17 +394,24 @@ class TurnPipeline:
                 opening_kind=opening_kind,
                 off_topic_streak=self._session.off_topic_streak,
             ):
+                if isinstance(item, CharacterReplyMeta):
+                    emotion = item.emotion
+                    continue
+
+                token = item
                 full_text.append(token)
                 await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
 
                 for sentence in splitter.feed(token):
                     seq, elapsed_ms = await self._synthesize(
-                        gen_id, sentence, seq, elapsed_ms, recorder
+                        gen_id, sentence, seq, elapsed_ms, emotion, voice_id, recorder
                     )
 
             tail = splitter.flush()
             if tail:
-                seq, elapsed_ms = await self._synthesize(gen_id, tail, seq, elapsed_ms, recorder)
+                seq, elapsed_ms = await self._synthesize(
+                    gen_id, tail, seq, elapsed_ms, emotion, voice_id, recorder
+                )
 
         await self._record_agent_turn(gen_id, "".join(full_text))
 
@@ -426,11 +456,22 @@ class TurnPipeline:
         """
         stage = self._session.machine.stage(self._session.current_stage_id)
         text = stage.agent_opening
+        persona = self._session.scenario.persona
 
         try:
             async with recorder.span("character_reply_fallback", text[:120]):
                 await self._send(gen_id, TokenEvent(gen_id=gen_id, text=text))
-                await self._synthesize(gen_id, text, 0, 0, recorder)
+                # Модель не ответила, значит и эмоцию она не выбрала — берём
+                # настроение персонажа из сценария и его штатный голос.
+                await self._synthesize(
+                    gen_id,
+                    text,
+                    0,
+                    0,
+                    Emotion(persona.mood.value),
+                    persona.voice_id,
+                    recorder,
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -440,7 +481,14 @@ class TurnPipeline:
         await self._record_agent_turn(gen_id, text)
 
     async def _synthesize(
-        self, gen_id: int, sentence: str, seq: int, elapsed_ms: int, recorder: SpanRecorder
+        self,
+        gen_id: int,
+        sentence: str,
+        seq: int,
+        elapsed_ms: int,
+        emotion: Emotion,
+        voice_id: str | None,
+        recorder: SpanRecorder,
     ) -> tuple[int, int]:
         """Озвучить одно предложение, отдавая чанки по мере готовности (§10).
 
@@ -454,12 +502,17 @@ class TurnPipeline:
                 gen_id=gen_id,
                 seq=seq,
                 text=sentence,
-                voice_id=self._session.scenario.persona.voice_id,
+                voice_id=voice_id,
+                emotion=emotion,
             ):
                 await self._send(
                     gen_id,
                     AudioChunkEvent(
-                        gen_id=gen_id, seq=chunk.seq, data=chunk.data, format=chunk.format
+                        gen_id=gen_id,
+                        seq=chunk.seq,
+                        data=chunk.data,
+                        format=chunk.format,
+                        emotion=emotion,
                     ),
                 )
                 sentence_ms += _wav_duration_ms(chunk.data)

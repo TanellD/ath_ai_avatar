@@ -2,6 +2,8 @@ import { Link, Navigate, Route, Routes } from 'react-router-dom';
 
 import { AdminSessionDetail } from '@/pages/AdminSessionDetail';
 import { AdminSessions } from '@/pages/AdminSessions';
+import { AvatarLab } from '@/pages/AvatarLab';
+import { EmotionLab } from '@/pages/EmotionLab';
 import { MethodistReport } from '@/pages/MethodistReport';
 import { MethodistScenarios } from '@/pages/MethodistScenarios';
 import { MethodistSessions } from '@/pages/MethodistSessions';
@@ -23,6 +25,8 @@ export function App() {
       <nav className="app__nav">
         <Link to="/scenarios">Сценарии</Link>
         <Link to="/sessions">Тренировки</Link>
+        <Link to="/emotion-lab" className="app__nav-tool">Эмоции</Link>
+        <Link to="/avatar-lab" className="app__nav-tool">Модели</Link>
         <Link to="/admin/sessions" className="app__nav-admin">
           Админ-панель
         </Link>
@@ -34,6 +38,8 @@ export function App() {
           <Route path="/scenarios" element={<MethodistScenarios />} />
           <Route path="/sessions" element={<MethodistSessions />} />
           <Route path="/session/:scenarioId" element={<TraineeSession />} />
+          <Route path="/emotion-lab" element={<EmotionLab />} />
+          <Route path="/avatar-lab" element={<AvatarLab />} />
           <Route path="/report/:sessionId" element={<MethodistReport />} />
           <Route path="/admin/sessions" element={<AdminSessions />} />
           <Route path="/admin/sessions/:sessionId" element={<AdminSessionDetail />} />

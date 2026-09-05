@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
   readonly VITE_WS_URL?: string;
   readonly VITE_SCENARIO_API_URL?: string;
+  readonly VITE_SPEECH_WS_URL?: string;
   readonly VITE_SIMLI_API_KEY?: string;
   readonly VITE_SIMLI_FACE_ID?: string;
 }

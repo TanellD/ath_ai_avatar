@@ -7,6 +7,8 @@
 
 from collections.abc import AsyncIterator
 
+from ath_contracts import Emotion, EmotionIntensity
+
 from app.tts.base import AudioChunk, TtsProvider
 from app.tts.cache import CachingTtsProvider
 
@@ -23,7 +25,12 @@ class CountingProvider(TtsProvider):
         return "counting"
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         self.calls.append((text, voice_id))
         yield AudioChunk(data=b"first", sample_rate=24000)
@@ -33,8 +40,13 @@ class CountingProvider(TtsProvider):
         self.closed = True
 
 
-async def _collect(provider: TtsProvider, text: str, voice_id: str | None = None) -> list[bytes]:
-    return [chunk.data async for chunk in provider.synthesize(text, voice_id)]
+async def _collect(
+    provider: TtsProvider,
+    text: str,
+    voice_id: str | None = None,
+    emotion: Emotion = Emotion.NEUTRAL,
+) -> list[bytes]:
+    return [chunk.data async for chunk in provider.synthesize(text, voice_id, emotion)]
 
 
 async def test_second_call_is_served_from_cache() -> None:
@@ -46,6 +58,22 @@ async def test_second_call_is_served_from_cache() -> None:
 
     assert first == second == [b"first", b"second"]
     assert len(inner.calls) == 1, "повторный синтез той же фразы обязан быть из кэша"
+
+
+async def test_emotion_is_part_of_the_key() -> None:
+    """Одна фраза с разной эмоцией звучит по-разному.
+
+    Регрессия слияния: кэш пришёл из ветки с ключом «голос + текст», а эмоции
+    появились в main уже после. Без эмоции в ключе раздражённое «Здравствуйте»
+    подменялось бы нейтральным, закэшированным раньше.
+    """
+    inner = CountingProvider()
+    provider = CachingTtsProvider(inner)
+
+    await _collect(provider, "Здравствуйте.", None, Emotion.NEUTRAL)
+    await _collect(provider, "Здравствуйте.", None, Emotion.IRRITATED)
+
+    assert len(inner.calls) == 2
 
 
 async def test_voice_id_is_part_of_the_key() -> None:

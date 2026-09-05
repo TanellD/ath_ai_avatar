@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 import pytest
 from ath_contracts import (
     Classification,
+    Emotion,
     Mood,
     Persona,
     Report,
@@ -106,11 +107,18 @@ def silent_wav(duration_sec: float = 0.1, sample_rate: int = 24000) -> str:
 class FakeSpeech:
     def __init__(self) -> None:
         self.synthesized: list[str] = []
+        self.emotions: list[Emotion] = []
 
     async def stream_tts(
-        self, gen_id: int, seq: int, text: str, voice_id: str | None
+        self,
+        gen_id: int,
+        seq: int,
+        text: str,
+        voice_id: str | None,
+        emotion: Emotion = Emotion.NEUTRAL,
     ) -> AsyncIterator[TtsChunk]:
         self.synthesized.append(text)
+        self.emotions.append(emotion)
         yield TtsChunk(gen_id=gen_id, seq=seq, data=silent_wav(), is_final=True)
 
 

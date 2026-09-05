@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 import websockets
+from ath_contracts import Emotion
 from ath_contracts.api import TtsChunk, TtsRequest
 
 from app.core.logging import get_logger
@@ -39,10 +40,17 @@ class SpeechClient:
         response.raise_for_status()
 
     async def stream_tts(
-        self, gen_id: int, seq: int, text: str, voice_id: str | None
+        self,
+        gen_id: int,
+        seq: int,
+        text: str,
+        voice_id: str | None,
+        emotion: Emotion = Emotion.NEUTRAL,
     ) -> AsyncIterator[TtsChunk]:
         """Озвучить одно предложение, отдавая чанки по мере готовности."""
-        request = TtsRequest(gen_id=gen_id, seq=seq, text=text, voice_id=voice_id)
+        request = TtsRequest(
+            gen_id=gen_id, seq=seq, text=text, voice_id=voice_id, emotion=emotion
+        )
 
         async with websockets.connect(f"{self._ws_url}/tts/stream") as ws:
             await ws.send(request.model_dump_json())

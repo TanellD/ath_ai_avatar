@@ -20,6 +20,8 @@ import hashlib
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 
+from ath_contracts import Emotion, EmotionIntensity
+
 from app.core.logging import get_logger
 from app.tts.base import AudioChunk, TtsProvider
 
@@ -38,16 +40,21 @@ class CachingTtsProvider(TtsProvider):
         self._inner = inner
         self._max_entries = max_entries
         self._max_text_chars = max_text_chars
-        self._entries: OrderedDict[tuple[str, str], list[AudioChunk]] = OrderedDict()
+        self._entries: OrderedDict[tuple, list[AudioChunk]] = OrderedDict()
 
     @property
     def name(self) -> str:
         return f"cached:{self._inner.name}"
 
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
-        key = self._key(text, voice_id)
+        key = self._key(text, voice_id, emotion, intensity, enhanced_prosody)
 
         if key is not None and (cached := self._entries.get(key)) is not None:
             self._entries.move_to_end(key)
@@ -57,7 +64,9 @@ class CachingTtsProvider(TtsProvider):
             return
 
         collected: list[AudioChunk] = []
-        async for chunk in self._inner.synthesize(text, voice_id):
+        async for chunk in self._inner.synthesize(
+            text, voice_id, emotion, intensity, enhanced_prosody
+        ):
             collected.append(chunk)
             yield chunk
 
@@ -74,13 +83,24 @@ class CachingTtsProvider(TtsProvider):
         self._entries.clear()
         await self._inner.aclose()
 
-    def _key(self, text: str, voice_id: str | None) -> tuple[str, str] | None:
+    def _key(
+        self,
+        text: str,
+        voice_id: str | None,
+        emotion: Emotion,
+        intensity: EmotionIntensity,
+        enhanced_prosody: bool,
+    ) -> tuple[str, str, str, str, bool] | None:
         """Ключ кэша либо None, если фразу кэшировать не стоит.
 
         Длинные куски отсекаются: это заведомо сгенерированный моделью текст,
         он уникален, попаданий не даст, а место в словаре займёт.
+
+        В ключ входит и эмоция с интенсивностью: одна и та же фраза звучит
+        по-разному в зависимости от них, и без этого раздражённое «Здравствуйте»
+        подменялось бы нейтральным из кэша.
         """
         if len(text) > self._max_text_chars:
             return None
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        return (voice_id or "", digest)
+        return (voice_id or "", digest, emotion.value, intensity.value, enhanced_prosody)

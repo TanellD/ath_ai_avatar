@@ -15,6 +15,8 @@ TypeScript-зеркало для фронтенда генерируется и�
 from ath_contracts.enums import (
     Action,
     Classification,
+    Emotion,
+    EmotionIntensity,
     Mood,
     OpeningKind,
     SessionStatus,
@@ -50,6 +52,8 @@ __all__ = [
     "Classification",
     "ClientEvent",
     "CriterionScore",
+    "Emotion",
+    "EmotionIntensity",
     "ErrorEvent",
     "FinishSession",
     "Mood",

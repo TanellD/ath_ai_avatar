@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from ath_contracts.enums import Action
+from ath_contracts.enums import Action, Emotion
 from ath_contracts.report import Report
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,10 @@ class UserMessage(BaseModel):
     interrupts: int | None = Field(
         default=None,
         description="gen_id перебиваемого поколения, либо None если персонаж молчал",
+    )
+    avatar_id: Literal["avatar-aith", "tom-avatar"] = Field(
+        default="avatar-aith",
+        description="Профиль аватара; gateway выбирает связанный с ним голос",
     )
 
 
@@ -107,6 +111,7 @@ class AudioChunkEvent(BaseModel):
     seq: int
     data: str = Field(description="base64 PCM/WAV")
     format: str = "wav"
+    emotion: Emotion = Emotion.NEUTRAL
 
 
 class SubtitleEvent(BaseModel):

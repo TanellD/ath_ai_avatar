@@ -22,6 +22,7 @@ from ath_contracts import (
     Turn,
 )
 from ath_contracts.api import (
+    CharacterReplyMeta,
     CharacterReplyRequest,
     ClassifyRequest,
     ClassifyResponse,
@@ -64,7 +65,7 @@ class AiClient:
         user_text: str,
         opening_kind: OpeningKind | None = None,
         off_topic_streak: int = 0,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[str | CharacterReplyMeta]:
         """Поток токенов реплики персонажа (быстрая модель, §5).
 
         Отдаёт токены по мере поступления; финальное событие с action пока
@@ -90,6 +91,8 @@ class AiClient:
             async for sse in source.aiter_sse():
                 if sse.event == "done":
                     return
+                if sse.event == "meta":
+                    yield CharacterReplyMeta.model_validate_json(sse.data)
                 if sse.event == "token":
                     yield json.loads(sse.data)["text"]
 

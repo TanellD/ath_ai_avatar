@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
+from ath_contracts import Emotion, EmotionIntensity
+
 
 @dataclass(frozen=True)
 class AudioChunk:
@@ -34,7 +36,12 @@ class TtsProvider(ABC):
 
     @abstractmethod
     async def synthesize(
-        self, text: str, voice_id: str | None = None
+        self,
+        text: str,
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
         """Синтезировать текст, отдавая чанки по мере готовности.
 

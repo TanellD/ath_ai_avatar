@@ -94,7 +94,9 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
             if isinstance(event, UserMessage):
                 # Триггер отмены (§6). Сейчас это отправка реплики, в голосовой
                 # фазе — VAD onset; всё, что ниже, не изменится.
-                await pipeline.handle_user_message(event.text, event.interrupts)
+                await pipeline.handle_user_message(
+                    event.text, event.interrupts, avatar_id=event.avatar_id
+                )
 
     except WebSocketDisconnect:
         log.info("ws.disconnected")

@@ -26,7 +26,12 @@ import { gatewayApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
-import { TalkingHeadAvatar, type AvatarPlaybackHandle } from '@/avatar/TalkingHeadAvatar';
+import {
+  AVATAR_MODELS,
+  TalkingHeadAvatar,
+  type AvatarModelConfig,
+  type AvatarPlaybackHandle,
+} from '@/avatar/TalkingHeadAvatar';
 import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
 import { MessageComposer } from '@/components/MessageComposer';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
@@ -43,6 +48,7 @@ interface AudioRig {
   clock: PlaybackClock;
   queue: AudioQueue;
   resetFace: () => void;
+  setEmotion: AvatarPlaybackHandle['setEmotion'];
 }
 
 export function TraineeSession() {
@@ -64,6 +70,7 @@ export function TraineeSession() {
   const [started, setStarted] = useState(false);
   /** Тренировка окончена — по кнопке сотрудника или по решению автомата (§3). */
   const [finished, setFinished] = useState(false);
+  const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(AVATAR_MODELS.aith);
 
   /**
    * Текущее поколение. Именно ref, а не useState: значение читается в
@@ -71,6 +78,7 @@ export function TraineeSession() {
    * пропущенный отброс чанка — то есть нарушение метрики 4.
    */
   const genRef = useRef(0);
+  const emotionGenerationRef = useRef<number | null>(null);
 
   const handleAvatarReady = useCallback((handle: AvatarPlaybackHandle) => {
     const clock = new PlaybackClock(handle.audioCtx);
@@ -82,7 +90,16 @@ export function TraineeSession() {
     const queue = new AudioQueue(handle.audioCtx, clock, handle.destination, () =>
       setPlayback('idle'),
     );
-    setAudio({ audioCtx: handle.audioCtx, clock, queue, resetFace: handle.resetFace });
+    // Оба поля обязательны: audioCtx нужен, чтобы разблокировать автоплей по
+    // клику «Начать» (агент говорит первым), setEmotion — чтобы лицо
+    // отыгрывало эмоцию реплики.
+    setAudio({
+      audioCtx: handle.audioCtx,
+      clock,
+      queue,
+      resetFace: handle.resetFace,
+      setEmotion: handle.setEmotion,
+    });
   }, []);
 
   const handleAvatarError = useCallback((message: string) => {
@@ -112,7 +129,13 @@ export function TraineeSession() {
           // чанка — тогда его попросту некуда проигрывать. Очередь также сама
           // сверит gen_id ещё раз — намеренное дублирование проверки: чанк
           // мог быть декодирован уже после перебивания.
-          if (audio) void audio.queue.enqueue({ genId: event.gen_id, seq: event.seq, data: event.data });
+          if (audio) {
+            if (emotionGenerationRef.current !== event.gen_id) {
+              audio.setEmotion(event.emotion);
+              emotionGenerationRef.current = event.gen_id;
+            }
+            void audio.queue.enqueue({ genId: event.gen_id, seq: event.seq, data: event.data });
+          }
           break;
 
         case 'subtitle':
@@ -238,7 +261,7 @@ export function TraineeSession() {
       });
 
       // Шаг 2: сообщаем серверу, какое поколение перебиваем.
-      sendUserMessage(text, interrupted);
+      sendUserMessage(text, interrupted, avatarModel.id);
 
       // Новое поколение сервер присвоит сам; локально готовим очередь принять
       // его чанки. Инкремент совпадает с серверным, потому что счётчик растёт
@@ -254,8 +277,18 @@ export function TraineeSession() {
       setSubtitlesFrozen(false);
       setPlayback('thinking');
     },
-    [audio, sendUserMessage],
+    [audio, avatarModel.id, sendUserMessage],
   );
+
+  const switchAvatar = () => {
+    if (!audio || playback !== 'idle') return;
+    audio.queue.stopAll();
+    audio.resetFace();
+    setAudio(null);
+    setAvatarModel((current) =>
+      current.id === AVATAR_MODELS.aith.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith,
+    );
+  };
 
   // ------------------------------------------------------------------ рендер
 
@@ -263,7 +296,17 @@ export function TraineeSession() {
     <main className="session">
       <header className="session__header">
         <PlaybackIndicator state={playback} />
+        {/* Обе стороны добавляли сюда свои элементы; обёртка одна —
+            .session__header-actions удалён из styles.css как дубликат. */}
         <div className="session__controls">
+          <button
+            type="button"
+            className="avatar-switch"
+            onClick={switchAvatar}
+            disabled={!audio || playback !== 'idle'}
+          >
+            Переключить на {avatarModel.id === AVATAR_MODELS.aith.id ? 'Tom' : 'avatar-aith'}
+          </button>
           <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} />
           <button
             type="button"
@@ -291,7 +334,13 @@ export function TraineeSession() {
         />
 
         <div className="session__stage">
-          <TalkingHeadAvatar onReady={handleAvatarReady} onError={handleAvatarError} />
+          <TalkingHeadAvatar
+            key={avatarModel.id}
+            model={avatarModel}
+            isSpeaking={playback === 'speaking'}
+            onReady={handleAvatarReady}
+            onError={handleAvatarError}
+          />
           {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
         </div>
       </section>

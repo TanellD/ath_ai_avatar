@@ -42,6 +42,13 @@ export class AudioQueue {
   private decoding = 0;
 
   /**
+   * WebSocket сохраняет порядок кадров, но decodeAudioData завершается
+   * недетерминированно. Цепочка не позволяет более позднему seq попасть в
+   * расписание раньше предыдущего и вызвать перестановку/икание аудио.
+   */
+  private schedulingTail: Promise<void> = Promise.resolve();
+
+  /**
    * Вызывается, когда очередь становится пустой — естественным завершением
    * воспроизведения (последний source доиграл) либо отменой (stopAll).
    * Единственный источник правды для UI-индикатора «персонаж говорит»: он
@@ -95,7 +102,13 @@ export class AudioQueue {
    * занимает единицы миллисекунд, но перебивание может случиться ровно в этот
    * промежуток — и тогда без второй проверки хвост всё-таки прозвучит.
    */
-  async enqueue(chunk: QueuedChunk): Promise<void> {
+  enqueue(chunk: QueuedChunk): Promise<void> {
+    const scheduled = this.schedulingTail.then(() => this.decodeAndSchedule(chunk));
+    this.schedulingTail = scheduled;
+    return scheduled;
+  }
+
+  private async decodeAndSchedule(chunk: QueuedChunk): Promise<void> {
     if (chunk.genId !== this.currentGeneration) return;
 
     this.decoding += 1;
