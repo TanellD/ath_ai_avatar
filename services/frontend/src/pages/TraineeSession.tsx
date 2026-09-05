@@ -17,12 +17,20 @@
  * onReady — до этого момента отправка реплики недоступна (см. MessageComposer
  * disabled), так же как в проверенном PoC send оставался disabled, пока
  * аватар не загрузился.
+ *
+ * Вёрстка — по макету front/Экран сотрудника.dc.html. Прогресс по этапам
+ * («Этап X из Y») в макете статичен — здесь он настоящий: сценарий
+ * подгружается отдельным запросом (scenarioApi.get), а текущий этап —
+ * это stage_id из последнего ActionEvent (§5, конечный автомат решает код,
+ * не клиент — клиент только отображает то, что код уже решил). Переключатель
+ * персонажа из макета не воспроизведён: смена персонажа сценарием backend'ом
+ * не поддержана, рисовать нерабочую кнопку — не вариант.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
-import { gatewayApi } from '@/api/client';
+import { gatewayApi, scenarioApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
@@ -32,7 +40,7 @@ import { ConsentBanner } from '@/components/ConsentBanner';
 import { MessageComposer } from '@/components/MessageComposer';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
 import { PushToTalkToggle } from '@/components/PushToTalkToggle';
-import type { ServerEvent, SubtitleEvent } from '@/contracts/events';
+import type { Scenario, ServerEvent, SubtitleEvent } from '@/contracts/events';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
 import { useSessionSocket } from '@/ws/useSessionSocket';
@@ -54,6 +62,10 @@ export function TraineeSession() {
   const [pushToTalk, setPushToTalk] = useState(false);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
   const [audio, setAudio] = useState<AudioRig | null>(null);
+  // Только для шапки (заголовок, прогресс по этапам) — не участвует ни в
+  // одном инварианте отмены/поколений, поэтому обычный useState, не ref.
+  const [scenario, setScenario] = useState<Scenario | null>(null);
+  const [currentStageId, setCurrentStageId] = useState<string | null>(null);
 
   /**
    * Текущее поколение. Именно ref, а не useState: значение читается в
@@ -98,6 +110,21 @@ export function TraineeSession() {
     };
   }, [scenarioId]);
 
+  // Персонаж и этапы — только для отображения в шапке. Ошибку здесь не
+  // считаем фатальной (сессия и без неё работает), поэтому молча пропускаем.
+  useEffect(() => {
+    let cancelled = false;
+    scenarioApi
+      .get(scenarioId)
+      .then((data) => {
+        if (!cancelled) setScenario(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [scenarioId]);
+
   // AudioContext больше не наш: им владеет TalkingHeadAvatar (head.audioCtx),
   // закрывать его здесь при размонтировании было бы вмешательством в чужой
   // жизненный цикл. См. докстринг TalkingHeadAvatar.tsx про best-effort cleanup.
@@ -131,6 +158,8 @@ export function TraineeSession() {
           // (ответ пришёл вовсе без звука, например при ошибке TTS),
           // action — единственный сигнал, что ход завершён.
           if (audio?.queue.isIdle) setPlayback('idle');
+          // Только для прогресса в шапке — сам переход уже сделал сервер.
+          setCurrentStageId(event.stage_id);
           break;
 
         case 'cancel':
@@ -203,11 +232,42 @@ export function TraineeSession() {
 
   // ------------------------------------------------------------------ рендер
 
+  const stages = scenario?.stages ?? [];
+  const stageIndex = stages.findIndex((s) => s.id === (currentStageId ?? stages[0]?.id));
+  const persona = scenario?.persona;
+
   return (
     <main className="session">
-      <header className="session__header">
+      <header className="session__header card">
+        <Link to="/scenarios" className="app__brand session__brand">
+          <span className="app__brand-mark">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m12 3.4 1.9 6 6 1.9-6 1.9-1.9 6-1.9-6-6-1.9 6-1.9Z" />
+            </svg>
+          </span>
+          <span>
+            Тренажёр
+            <small>{scenario?.title ?? '…'}</small>
+          </span>
+        </Link>
+
+        {stages.length > 0 && (
+          <div className="session__progress">
+            <span className="session__progress-label">
+              Этап {Math.max(stageIndex, 0) + 1} из {stages.length}
+            </span>
+            <div className="session__progress-dots">
+              {stages.map((stage, i) => (
+                <div
+                  key={stage.id}
+                  className={`session__progress-dot${i <= stageIndex ? ' session__progress-dot--done' : ''}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         <PlaybackIndicator state={playback} />
-        <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} />
       </header>
 
       <ConsentBanner />
@@ -219,24 +279,44 @@ export function TraineeSession() {
       )}
 
       <section className="session__main">
-        <ChatPanel
-          transcript={transcript}
-          cues={cues}
-          clock={audio?.clock ?? null}
-          isAgentReplying={playback === 'speaking'}
-        />
+        <aside className="card session__history">
+          <div className="session__history-head">
+            <div>
+              <span className="eyebrow">Диалог</span>
+              <h2>История</h2>
+            </div>
+            <span className="session__history-count">{transcript.length} реплик</span>
+          </div>
+          <ChatPanel
+            transcript={transcript}
+            cues={cues}
+            clock={audio?.clock ?? null}
+            isAgentReplying={playback === 'speaking'}
+          />
+        </aside>
 
         <div className="session__stage">
-          <TalkingHeadAvatar onReady={handleAvatarReady} onError={handleAvatarError} />
-          {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
+          <div className="session__avatar-panel">
+            {persona && (
+              <div className="session__persona-badge">
+                <span className="bento-pill session__badge-dark">{persona.name}</span>
+                <span className="bento-pill session__badge-dark">сложность {persona.difficulty} / 5</span>
+              </div>
+            )}
+            <TalkingHeadAvatar onReady={handleAvatarReady} onError={handleAvatarError} />
+            {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
+          </div>
+
+          <section className="card session__composer-card">
+            <PushToTalkToggle enabled={pushToTalk} onChange={setPushToTalk} disabled />
+            <MessageComposer
+              disabled={connection !== 'open' || !audio}
+              isAgentSpeaking={playback === 'speaking'}
+              onSubmit={handleSubmit}
+            />
+          </section>
         </div>
       </section>
-
-      <MessageComposer
-        disabled={connection !== 'open' || !audio}
-        isAgentSpeaking={playback === 'speaking'}
-        onSubmit={handleSubmit}
-      />
     </main>
   );
 }

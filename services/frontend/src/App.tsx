@@ -1,4 +1,4 @@
-import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 
 import { AdminSessionDetail } from '@/pages/AdminSessionDetail';
 import { AdminSessions } from '@/pages/AdminSessions';
@@ -15,16 +15,41 @@ import { TraineeSession } from '@/pages/TraineeSession';
  * основной навигации и живёт отдельной ссылкой.
  *
  * Авторизации нет: §4 выводит её из скоупа. Роль определяется маршрутом.
+ *
+ * Шапка (логотип + переключатель разделов) скрыта на экране сессии
+ * (/session/:id) — там свой полноэкранный хедер из макета
+ * front/Экран сотрудника.dc.html (см. TraineeSession.tsx), второй сверху
+ * был бы просто дублирующим шумом.
  */
 export function App() {
+  const location = useLocation();
+  const isSession = location.pathname.startsWith('/session/');
+
   return (
     <div className="app">
-      <nav className="app__nav">
-        <Link to="/scenarios">Сценарии</Link>
-        <Link to="/admin/sessions" className="app__nav-admin">
-          Админ-панель
-        </Link>
-      </nav>
+      {!isSession && (
+        <header className="app__nav">
+          <Link to="/scenarios" className="app__brand">
+            <span className="app__brand-mark">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m12 3.4 1.9 6 6 1.9-6 1.9-1.9 6-1.9-6-6-1.9 6-1.9Z" />
+              </svg>
+            </span>
+            Тренажёр
+          </Link>
+          <nav className="app__nav-links">
+            <NavLink to="/scenarios" className={({ isActive }) => `app__nav-link${isActive ? ' app__nav-link--active' : ''}`}>
+              Сценарии
+            </NavLink>
+            <NavLink
+              to="/admin/sessions"
+              className={({ isActive }) => `app__nav-link app__nav-link--muted${isActive ? ' app__nav-link--active' : ''}`}
+            >
+              Админ-панель
+            </NavLink>
+          </nav>
+        </header>
+      )}
 
       <div className="app__body">
         <Routes>
