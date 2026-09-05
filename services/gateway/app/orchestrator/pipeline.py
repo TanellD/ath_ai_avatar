@@ -291,15 +291,19 @@ class TurnPipeline:
         методисту, а сокета сотрудника к этому моменту может уже не быть.
         """
         session = self._session
+        # Спан вокруг оценки — самый долгий вызов за сессию (сильная модель,
+        # таймаут 120 с), и без него он невидим в ганте админки.
+        recorder = SpanRecorder(session.session_id, session.generations.current)
         try:
-            report = await self._ai.evaluate(
-                session_id=session.session_id,
-                scenario=session.scenario,
-                transcript=list(session.turns),
-                duration_sec=session.elapsed_sec,
-                stages_completed=len(session.stage_history),
-                stages_total=len(session.scenario.stages),
-            )
+            async with recorder.span("evaluate", f"{session.scenario.title}: финальная оценка"):
+                report = await self._ai.evaluate(
+                    session_id=session.session_id,
+                    scenario=session.scenario,
+                    transcript=list(session.turns),
+                    duration_sec=session.elapsed_sec,
+                    stages_completed=len(session.stage_history),
+                    stages_total=len(session.scenario.stages),
+                )
         except Exception:
             # Сессия уже завершена, выход сотруднику это не ломает — но
             # методист останется без отчёта, поэтому логируем громко.

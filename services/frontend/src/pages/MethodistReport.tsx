@@ -5,6 +5,13 @@
  * проверяем за десять секунд. Поэтому цитата стоит непосредственно под баллом,
  * а не в отдельной вкладке «подробности» — лишний клик здесь стоит ровно тех
  * десяти секунд, ради которых всё делалось.
+ *
+ * Вёрстка — по вкладке «Разбор сессии» из front/Дашборд методиста.dc.html:
+ * вердикт на тёмной плашке, статистика сессии рядом, баллы с цитатами ниже.
+ * Раздел «Прохождение этапов» из макета не воспроизведён — контракт Report
+ * не отдаёт постадийный статус (только stages_completed/stages_total), а
+ * рисовать его по выдуманным данным значило бы врать методисту в его же
+ * инструменте проверки.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -81,8 +88,11 @@ export function MethodistReport() {
   const isStub = report.model.startsWith('mock');
 
   return (
-    <main className="page report">
-      <h1>Итог сессии</h1>
+    <main className="page page--wide report">
+      <section className="card hero-card">
+        <span className="eyebrow">Разбор сессии {report.session_id.slice(0, 8)}…</span>
+        <h1>Итог сессии</h1>
+      </section>
 
       {isStub && (
         <p className="report__stub" role="alert">
@@ -92,64 +102,83 @@ export function MethodistReport() {
         </p>
       )}
 
-      <p className="report__verdict">{report.verdict}</p>
+      <section className="report__top">
+        <article className="report__verdict-card">
+          <span className="eyebrow report__verdict-eyebrow">Вердикт</span>
+          <p className="report__verdict-text">{report.verdict}</p>
+        </article>
 
-      <dl className="report__summary">
-        <div>
-          <dt>Общий балл</dt>
-          <dd>{report.total_score}</dd>
-        </div>
-        <div>
-          <dt>Этапов пройдено</dt>
-          <dd>
-            {report.stages_completed} из {report.stages_total}
-          </dd>
-        </div>
-        <div>
-          <dt>Длительность</dt>
-          <dd>{Math.round(report.duration_sec / 60)} мин</dd>
-        </div>
-        <div>
-          {/* §11, пункт 6: счётчик освобождённых часов. */}
-          <dt>Освобождено часов методиста</dt>
-          <dd>{(report.duration_sec / 3600).toFixed(1)}</dd>
-        </div>
-      </dl>
+        <article className="card report__stats">
+          <div className="stats-grid">
+            <div className="stat">
+              <b>{report.total_score}</b>
+              <span>общий балл</span>
+            </div>
+            <div className="stat">
+              <b>
+                {report.stages_completed} / {report.stages_total}
+              </b>
+              <span>этапов пройдено</span>
+            </div>
+            <div className="stat">
+              <b>{Math.round(report.duration_sec / 60)} мин</b>
+              <span>длительность</span>
+            </div>
+            <div className="stat">
+              {/* §11, пункт 6: счётчик освобождённых часов. */}
+              <b>{(report.duration_sec / 3600).toFixed(1)} ч</b>
+              <span>освобождено методисту</span>
+            </div>
+          </div>
+        </article>
+      </section>
 
-      <h2>Оценка по критериям</h2>
-      <ul className="report__scores">
-        {report.scores.map((score) => {
-          // Отчёт несёт только id критерия; название и шкалу берём из рубрики
-          // сценария. Её может не быть — у старых отчётов нет scenario_id.
-          const item = byId.get(score.criterion_id);
-          return (
-            <EvidenceQuote
-              key={score.criterion_id}
-              score={score}
-              criterionName={item?.name ?? score.criterion_id}
-              scale={item?.scale ?? 5}
-            />
-          );
-        })}
-      </ul>
+      <section className="card">
+        <div className="report__scores-head">
+          <div>
+            <span className="eyebrow">Оценка</span>
+            <h2>Баллы по критериям</h2>
+          </div>
+          <button type="button" className="report__rebuild" onClick={rebuild} disabled={rebuilding}>
+            {rebuilding ? 'Пересчитываем…' : 'Пересчитать оценку'}
+          </button>
+        </div>
+        <ul className="report__scores">
+          {report.scores.map((score) => {
+            // Отчёт несёт только id критерия; название и шкалу берём из рубрики
+            // сценария. Её может не быть — у старых отчётов нет scenario_id.
+            const item = byId.get(score.criterion_id);
+            return (
+              <EvidenceQuote
+                key={score.criterion_id}
+                score={score}
+                criterionName={item?.name ?? score.criterion_id}
+                scale={item?.scale ?? 5}
+              />
+            );
+          })}
+        </ul>
+      </section>
 
-      <p>
-        <button type="button" className="report__rebuild" onClick={rebuild} disabled={rebuilding}>
-          {rebuilding ? 'Пересчитываем…' : 'Пересчитать оценку'}
-        </button>
-      </p>
-
-      <h2>История разговора</h2>
-      <ol className="report__transcript">
-        {report.transcript.map((turn, index) => (
-          <li key={index} className={`line line--${turn.role}`}>
-            <span className="line__role">
-              {turn.role === 'user' ? 'Сотрудник' : 'Персонаж'}:
-            </span>{' '}
-            {turn.text}
-          </li>
-        ))}
-      </ol>
+      <section className="card">
+        <div className="report__transcript-head">
+          <div>
+            <span className="eyebrow">Транскрипт</span>
+            <h2>История разговора</h2>
+          </div>
+          <span className="report__transcript-count">{report.transcript.length} реплик</span>
+        </div>
+        <ol className="report__transcript">
+          {report.transcript.map((turn, index) => (
+            <li key={index} className={`transcript-line transcript-line--${turn.role}`}>
+              <span className="transcript-line__who">
+                {turn.role === 'user' ? 'Сотрудник' : 'Персонаж'}
+              </span>
+              <span className="transcript-line__text">{turn.text}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
     </main>
   );
 }
