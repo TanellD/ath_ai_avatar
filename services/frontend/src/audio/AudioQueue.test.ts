@@ -9,7 +9,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { AudioQueue } from './AudioQueue';
+import { AudioQueue, type AudioIdleReason } from './AudioQueue';
 import type { PlaybackClock } from './PlaybackClock';
 
 interface FakeSource {
@@ -62,12 +62,17 @@ function makeClock() {
   };
 }
 
-function build(decode: (data: ArrayBuffer) => Promise<{ duration: number }>) {
+function build(
+  decode: (data: ArrayBuffer) => Promise<{ duration: number }>,
+  onIdle?: (reason: AudioIdleReason) => void,
+) {
   const { context, sources, gain, compressor } = makeContext(decode);
   const clock = makeClock();
   const queue = new AudioQueue(
     context as unknown as AudioContext,
     clock as unknown as PlaybackClock,
+    undefined,
+    onIdle,
   );
   return { queue, sources, clock, context, gain, compressor };
 }
@@ -131,7 +136,8 @@ describe('AudioQueue: защита от протухших чанков', () => 
   });
 
   it('stopAll глушит источники и сбрасывает часы', async () => {
-    const { queue, sources, clock } = build(async () => ({ duration: 0.1 }));
+    const onIdle = vi.fn();
+    const { queue, sources, clock } = build(async () => ({ duration: 0.1 }), onIdle);
     queue.startGeneration(1);
     await queue.enqueue(CHUNK);
 
@@ -144,6 +150,18 @@ describe('AudioQueue: защита от протухших чанков', () => 
     expect(sources[0].onended).toBeNull();
     expect(clock.reset).toHaveBeenCalled();
     expect(queue.isIdle).toBe(true);
+    expect(onIdle).toHaveBeenCalledWith('stopped');
+  });
+
+  it('отличает естественное окончание звука от принудительной остановки', async () => {
+    const onIdle = vi.fn();
+    const { queue, sources } = build(async () => ({ duration: 0.1 }), onIdle);
+    queue.startGeneration(1);
+    await queue.enqueue(CHUNK);
+
+    sources[0].onended?.();
+
+    expect(onIdle).toHaveBeenCalledWith('ended');
   });
 
   it('битый чанк не роняет очередь', async () => {

@@ -77,6 +77,19 @@ def test_stage_transition_tells_the_character_not_to_reintroduce() -> None:
     assert STAGE.agent_opening in prompt
 
 
+def test_silence_prompts_nudge_then_move_the_scene_forward() -> None:
+    nudge = build_character_system(PERSONA, STAGE, opening_kind=OpeningKind.SILENCE_NUDGE)
+    continuation = build_character_system(
+        PERSONA, STAGE, opening_kind=OpeningKind.SILENCE_CONTINUE
+    )
+
+    assert "десять секунд" in nudge
+    assert "мягко побуди" in nudge
+    assert "новым" in continuation
+    assert "этого же этапа" in continuation
+    assert STAGE.completion_criteria not in nudge + continuation
+
+
 def test_off_topic_nudge_escalates_then_stops() -> None:
     calm = build_character_system(PERSONA, STAGE, off_topic_streak=0)
     soft = build_character_system(PERSONA, STAGE, off_topic_streak=1)

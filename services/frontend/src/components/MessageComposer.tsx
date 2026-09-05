@@ -21,9 +21,10 @@ interface Props {
   /** Персонаж сейчас говорит — значит отправка его перебьёт. */
   isAgentSpeaking: boolean;
   onSubmit: (text: string) => void;
+  onActivity?: () => void;
 }
 
-export function MessageComposer({ disabled, isAgentSpeaking, onSubmit }: Props) {
+export function MessageComposer({ disabled, isAgentSpeaking, onSubmit, onActivity }: Props) {
   const [text, setText] = useState('');
 
   const submit = (event: FormEvent) => {
@@ -49,7 +50,10 @@ export function MessageComposer({ disabled, isAgentSpeaking, onSubmit }: Props) 
       <textarea
         className="composer__input"
         value={text}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          setText(event.target.value);
+          onActivity?.();
+        }}
         onKeyDown={handleKeyDown}
         placeholder="Ваша реплика. Enter — отправить."
         rows={2}

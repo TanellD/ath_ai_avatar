@@ -47,6 +47,23 @@ async def test_stage_transition_opens_the_new_stage_in_the_same_turn(
     assert session.generations.current == 1
 
 
+async def test_silence_followups_speak_without_fake_user_turns(built) -> None:  # noqa: ANN001
+    pipeline, session, ai, _speech, _sent = built
+
+    await pipeline.handle_silence_timeout("nudge", avatar_id="tom-avatar")
+    await drain(session)
+    await pipeline.handle_silence_timeout("continue", avatar_id="tom-avatar")
+    await drain(session)
+
+    assert [call["opening_kind"] for call in ai.reply_calls] == [
+        OpeningKind.SILENCE_NUDGE,
+        OpeningKind.SILENCE_CONTINUE,
+    ]
+    assert [turn.role for turn in session.turns] == [TurnRole.AGENT, TurnRole.AGENT]
+    assert session.current_stage_id == session.machine.first_stage_id
+    assert session.turns_in_stage == 0
+
+
 async def test_off_topic_streak_grows_and_reaches_the_next_reply(built) -> None:  # noqa: ANN001
     pipeline, session, ai, _speech, _sent = built
     ai.classification = Classification.OFF_TOPIC

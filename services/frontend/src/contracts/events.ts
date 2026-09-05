@@ -66,11 +66,18 @@ export interface SpeechAbort {
   capture_id: string;
 }
 
+export interface SilenceTimeout {
+  type: 'silence_timeout';
+  phase: 'nudge' | 'continue';
+  avatar_id: AvatarId;
+}
+
 export type ClientEvent =
   | UserMessage
   | SpeechStart
   | SpeechEnd
   | SpeechAbort
+  | SilenceTimeout
   | Ping
   | FinishSession;
 

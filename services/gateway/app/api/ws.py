@@ -18,6 +18,7 @@ from ath_contracts import (
     FinishSession,
     Ping,
     ServerEvent,
+    SilenceTimeout,
     SpeechAbort,
     SpeechEnd,
     SpeechStart,
@@ -143,6 +144,9 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
                 await voice.end(str(event.capture_id))
             elif isinstance(event, SpeechAbort):
                 await voice.abort(str(event.capture_id))
+            elif isinstance(event, SilenceTimeout):
+                session.avatar_id = event.avatar_id
+                await pipeline.handle_silence_timeout(event.phase, avatar_id=event.avatar_id)
 
     except WebSocketDisconnect:
         log.info("ws.disconnected")

@@ -18,6 +18,8 @@ export interface QueuedChunk {
   data: string;
 }
 
+export type AudioIdleReason = 'ended' | 'stopped';
+
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -56,7 +58,7 @@ export class AudioQueue {
    * обязан гаснуть по факту тишины, а не по серверным событиям (`action`
    * приходит, когда байты ОТПРАВЛЕНЫ, а не когда они доиграли).
    */
-  private readonly onIdle?: () => void;
+  private readonly onIdle?: (reason: AudioIdleReason) => void;
   private readonly onFirstAudioScheduled?: (genId: number, leadMs: number) => void;
   private firstAudioReported = false;
 
@@ -71,7 +73,7 @@ export class AudioQueue {
     context: AudioContext,
     clock: import('./PlaybackClock').PlaybackClock,
     destination?: AudioNode,
-    onIdle?: () => void,
+    onIdle?: (reason: AudioIdleReason) => void,
     onFirstAudioScheduled?: (genId: number, leadMs: number) => void,
   ) {
     this.context = context;
@@ -151,7 +153,7 @@ export class AudioQueue {
         this.sources.delete(source);
         // Естественный конец речи: последний source этого поколения доиграл
         // и в полёте больше ничего не декодируется — тишина наступила по-настоящему.
-        if (this.isIdle) this.onIdle?.();
+        if (this.isIdle) this.onIdle?.('ended');
       };
     } catch (error) {
       // Битый чанк не должен ронять сессию: один пропущенный кусок звука
@@ -182,6 +184,6 @@ export class AudioQueue {
     this.sources.clear();
     this.clock.reset();
     this.firstAudioReported = false;
-    this.onIdle?.();
+    this.onIdle?.('stopped');
   }
 }

@@ -16,6 +16,7 @@ import type {
   AvatarId,
   ClientEvent,
   ServerEvent,
+  SilenceTimeout,
   SpeechAbort,
   SpeechEnd,
   SpeechStart,
@@ -201,6 +202,13 @@ export function useSessionSocket({
     [send],
   );
 
+  const sendSilenceTimeout = useCallback(
+    (phase: SilenceTimeout['phase'], avatarId: AvatarId) => {
+      send({ type: 'silence_timeout', phase, avatar_id: avatarId });
+    },
+    [send],
+  );
+
   const sendAudio = useCallback((frame: ArrayBuffer) => {
     const socket = socketRef.current;
     if (socket?.readyState !== WebSocket.OPEN) return false;
@@ -215,6 +223,7 @@ export function useSessionSocket({
     sendSpeechStart,
     sendSpeechEnd,
     sendSpeechAbort,
+    sendSilenceTimeout,
     sendAudio,
   };
 }

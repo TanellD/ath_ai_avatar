@@ -44,6 +44,7 @@ import { PushToTalkToggle } from '@/components/PushToTalkToggle';
 import { SessionEndOverlay } from '@/components/SessionEndOverlay';
 import { SessionStartOverlay } from '@/components/SessionStartOverlay';
 import type { ServerEvent, SubtitleEvent } from '@/contracts/events';
+import { SilenceFollowup, type SilencePhase } from '@/session/SilenceFollowup';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
 import { useSessionSocket } from '@/ws/useSessionSocket';
@@ -112,6 +113,13 @@ export function TraineeSession() {
   const voiceTimingRef = useRef<VoiceTimingMarks | null>(null);
   const pauseDetectorRef = useRef(new PauseDetector());
   const voiceEndRef = useRef<() => void>(() => undefined);
+  const silenceTimeoutRef = useRef<(phase: SilencePhase) => void>(() => undefined);
+  const silenceFollowupRef = useRef<SilenceFollowup | null>(null);
+  if (silenceFollowupRef.current === null) {
+    silenceFollowupRef.current = new SilenceFollowup((phase) => silenceTimeoutRef.current(phase));
+  }
+
+  useEffect(() => () => silenceFollowupRef.current?.stop(), []);
 
   const handleAvatarReady = useCallback((handle: AvatarPlaybackHandle) => {
     const clock = new PlaybackClock(handle.audioCtx);
@@ -124,7 +132,10 @@ export function TraineeSession() {
       handle.audioCtx,
       clock,
       handle.destination,
-      () => setPlayback('idle'),
+      (reason) => {
+        setPlayback('idle');
+        if (reason === 'ended') silenceFollowupRef.current?.resume();
+      },
       (genId, leadMs) => {
         const timing = voiceTimingRef.current;
         if (
@@ -168,6 +179,7 @@ export function TraineeSession() {
     (event: ServerEvent) => {
       switch (event.type) {
         case 'token':
+          silenceFollowupRef.current?.pause();
           setPlayback('speaking');
           setTranscript((lines) => appendAgentToken(lines, event.text));
           break;
@@ -194,6 +206,7 @@ export function TraineeSession() {
           // finish — конец тренировки. Приходит сразу, отчёт готовится уже
           // после него и сотруднику не показывается (см. SessionEndOverlay).
           if (event.action === 'finish') {
+            silenceFollowupRef.current?.stop();
             audio?.queue.stopAll();
             setPlayback('idle');
             setFinished(true);
@@ -204,7 +217,10 @@ export function TraineeSession() {
           // Исключение — предохранитель: если очередь и так уже пуста
           // (ответ пришёл вовсе без звука, например при ошибке TTS),
           // action — единственный сигнал, что ход завершён.
-          if (audio?.queue.isIdle) setPlayback('idle');
+          if (audio?.queue.isIdle) {
+            setPlayback('idle');
+            silenceFollowupRef.current?.resume();
+          }
           break;
 
         case 'cancel':
@@ -263,6 +279,7 @@ export function TraineeSession() {
               setPlayback('thinking');
             } else {
               setPlayback('idle');
+              silenceFollowupRef.current?.resume();
               setError({ type: 'audio', message: 'Речь не распознана, попробуйте ещё раз' });
             }
           }
@@ -273,6 +290,7 @@ export function TraineeSession() {
           // (§2), и он уже сохранён на сервере — здесь ловить нечего. Оверлей
           // конца тренировки поднят раньше, по action: finish.
           setPlayback('idle');
+          silenceFollowupRef.current?.stop();
           break;
 
         case 'error':
@@ -325,6 +343,7 @@ export function TraineeSession() {
     sendSpeechStart,
     sendSpeechEnd,
     sendSpeechAbort,
+    sendSilenceTimeout,
     sendAudio,
   } = useSessionSocket({
     sessionId: started ? sessionId : null,
@@ -344,9 +363,20 @@ export function TraineeSession() {
       setCues([]);
       setSubtitlesFrozen(false);
       setPlayback('idle');
+      silenceFollowupRef.current?.resume();
       if (sessionId) void syncGeneration(sessionId);
     },
   });
+
+  silenceTimeoutRef.current = (phase) => {
+    if (connection !== 'open' || !audio || finished || activeCaptureRef.current) return;
+    sendSilenceTimeout(phase, avatarModel.id);
+    genRef.current += 1;
+    audio.queue.startGeneration(genRef.current);
+    setCues([]);
+    setSubtitlesFrozen(false);
+    setPlayback('thinking');
+  };
 
   const { start: startMic, stop: stopMic, level: micLevel } = useMicCapture({
     onFrame: (frame) => {
@@ -368,6 +398,7 @@ export function TraineeSession() {
   // Оверлей поднимает не эта функция, а ответное `action: finish` от сервера:
   // завершает сессию он, и локально угадывать этот момент незачем.
   const handleFinish = useCallback(() => {
+    silenceFollowupRef.current?.stop();
     send({ type: 'finish_session' });
   }, [send]);
 
@@ -413,6 +444,7 @@ export function TraineeSession() {
   useEffect(() => {
     if (connection === 'open') setPlayback((current) => (current === 'disconnected' ? 'idle' : current));
     if (connection === 'closed') {
+      silenceFollowupRef.current?.pause();
       activeCaptureRef.current = null;
       captureEndingRef.current = false;
       setVoiceActive(false);
@@ -428,6 +460,7 @@ export function TraineeSession() {
       // MessageComposer держит disabled, пока audio === null (аватар ещё
       // грузится) — это защита от невозможного состояния, а не рабочий путь.
       if (!audio) return;
+      silenceFollowupRef.current?.beginUserTurn();
 
       const voiceCapture = activeCaptureRef.current;
       if (voiceCapture) {
@@ -469,6 +502,7 @@ export function TraineeSession() {
 
   const handleVoiceStart = useCallback(() => {
     if (!audio || connection !== 'open' || activeCaptureRef.current) return;
+    silenceFollowupRef.current?.beginUserTurn();
     const captureId = crypto.randomUUID();
     const captureStartedAt = performance.now();
     const wasPlaying = audio.clock.isPlaying;
@@ -507,6 +541,7 @@ export function TraineeSession() {
         setVoiceActive(false);
         sendSpeechAbort(captureId);
         setPlayback('idle');
+        silenceFollowupRef.current?.resume();
       }
     });
   }, [audio, avatarModel.id, connection, sendSpeechAbort, sendSpeechStart, startMic]);
@@ -615,6 +650,7 @@ export function TraineeSession() {
         disabled={connection !== 'open' || !audio || voiceActive || finished}
         isAgentSpeaking={playback === 'speaking'}
         onSubmit={handleSubmit}
+        onActivity={() => silenceFollowupRef.current?.postpone()}
       />
       {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
       {voiceBuffered && (

@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 import pytest
-from ath_contracts import SpeechAbort, SpeechEnd, SpeechStart, parse_client_event
+from ath_contracts import SilenceTimeout, SpeechAbort, SpeechEnd, SpeechStart, parse_client_event
 from pydantic import ValidationError
 
 
@@ -56,3 +56,16 @@ def test_speech_abort_is_correlated_by_capture_id() -> None:
 
     assert isinstance(event, SpeechAbort)
     assert event.capture_id == capture_id
+
+
+@pytest.mark.parametrize("phase", ["nudge", "continue"])
+def test_silence_timeout_accepts_two_phases(phase: str) -> None:
+    event = parse_client_event({"type": "silence_timeout", "phase": phase})
+
+    assert isinstance(event, SilenceTimeout)
+    assert event.phase == phase
+
+
+def test_silence_timeout_rejects_unknown_phase() -> None:
+    with pytest.raises(ValidationError):
+        parse_client_event({"type": "silence_timeout", "phase": "finish"})

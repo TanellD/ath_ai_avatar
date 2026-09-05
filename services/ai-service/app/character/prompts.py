@@ -65,9 +65,26 @@ _OPENING_STAGE_TRANSITION = """\
 раскрывай критерий, по которому будет оцениваться этап.
 """
 
+_SILENCE_NUDGE = """\
+
+Собеседник молчит уже десять секунд. Одной короткой фразой, естественно и в
+характере персонажа, мягко побуди его ответить. Не стыди за паузу, не отвечай
+за него и не раскрывай критерий этапа.
+"""
+
+_SILENCE_CONTINUE = """\
+
+Собеседник не ответил и после мягкого напоминания. Не повторяй его дословно и
+не стыди за молчание. Продвинь текущую сцену новой короткой репликой или новым
+вопросом в рамках этого же этапа. Не отвечай за собеседника и не раскрывай
+критерий этапа.
+"""
+
 _OPENING_BLOCKS = {
     OpeningKind.SESSION_START: _OPENING_SESSION_START,
     OpeningKind.STAGE_TRANSITION: _OPENING_STAGE_TRANSITION,
+    OpeningKind.SILENCE_NUDGE: _SILENCE_NUDGE,
+    OpeningKind.SILENCE_CONTINUE: _SILENCE_CONTINUE,
 }
 
 _OFF_TOPIC_NUDGE = {

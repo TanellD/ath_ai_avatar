@@ -83,6 +83,14 @@ class SpeechAbort(BaseModel):
     capture_id: UUID
 
 
+class SilenceTimeout(BaseModel):
+    """Клиент подтвердил 10/20 секунд без текста и без речи после ответа агента."""
+
+    type: Literal["silence_timeout"] = "silence_timeout"
+    phase: Literal["nudge", "continue"]
+    avatar_id: AvatarId = DEFAULT_AVATAR_ID
+
+
 class FinishSession(BaseModel):
     """Сотрудник заканчивает тренировку досрочно.
 
@@ -95,7 +103,7 @@ class FinishSession(BaseModel):
 
 
 ClientEvent = Annotated[
-    UserMessage | SpeechStart | SpeechEnd | SpeechAbort | Ping | FinishSession,
+    UserMessage | SpeechStart | SpeechEnd | SpeechAbort | SilenceTimeout | Ping | FinishSession,
     Field(discriminator="type"),
 ]
 

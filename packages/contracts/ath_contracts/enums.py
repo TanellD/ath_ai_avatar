@@ -38,6 +38,8 @@ class OpeningKind(StrEnum):
 
     SESSION_START = "session_start"
     STAGE_TRANSITION = "stage_transition"
+    SILENCE_NUDGE = "silence_nudge"
+    SILENCE_CONTINUE = "silence_continue"
 
 
 class Mood(StrEnum):

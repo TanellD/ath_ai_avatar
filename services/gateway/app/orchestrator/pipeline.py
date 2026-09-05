@@ -62,6 +62,12 @@ _OPENING_DIRECTIVE = {
     OpeningKind.STAGE_TRANSITION: (
         "[Разговор переходит к следующему этапу — продолжи по инструкции в системном промпте.]"
     ),
+    OpeningKind.SILENCE_NUDGE: (
+        "[Собеседник молчит десять секунд — мягко побуди его ответить.]"
+    ),
+    OpeningKind.SILENCE_CONTINUE: (
+        "[Собеседник не ответил и после напоминания — продолжи текущую сцену.]"
+    ),
 }
 """Ремарка режиссёра вместо реплики пользователя, когда персонаж говорит сам.
 
@@ -176,6 +182,21 @@ class TurnPipeline:
             await self._raw_send(CancelEvent(gen_id=interrupts))
         return gen_id
 
+    async def handle_silence_timeout(self, phase: str, avatar_id: str) -> None:
+        """Начать одну из двух инициативных реплик после подтверждённой тишины."""
+        if self._session.status is not SessionStatus.ACTIVE:
+            return
+        opening_kind = {
+            "nudge": OpeningKind.SILENCE_NUDGE,
+            "continue": OpeningKind.SILENCE_CONTINUE,
+        }.get(phase)
+        if opening_kind is None:
+            return
+        generations = self._session.generations
+        gen_id = generations.bump()
+        task = asyncio.create_task(self._run_silence_followup(gen_id, opening_kind, avatar_id))
+        generations.register(gen_id, task)
+
     async def handle_voice_final(
         self,
         *,
@@ -260,6 +281,25 @@ class TurnPipeline:
             # от обычного хода, здесь есть запасной путь без LLM.
             log.exception("pipeline.opening_failed", gen_id=gen_id)
             await self._speak_fallback_opening(gen_id, recorder)
+
+    async def _run_silence_followup(
+        self, gen_id: int, opening_kind: OpeningKind, avatar_id: str
+    ) -> None:
+        """Ответить на молчание, не добавляя фиктивный пользовательский ход."""
+        recorder = SpanRecorder(self._session.session_id, gen_id)
+        try:
+            await self._speak(
+                gen_id,
+                _OPENING_DIRECTIVE[opening_kind],
+                avatar_id,
+                recorder,
+                opening_kind=opening_kind,
+            )
+        except asyncio.CancelledError:
+            log.info("pipeline.silence_followup_cancelled", gen_id=gen_id)
+            raise
+        except Exception:
+            log.exception("pipeline.silence_followup_failed", gen_id=gen_id)
 
     async def _finish(self) -> None:
         """Завершить сессию. Общее тело для обоих триггеров, идемпотентное.
