@@ -35,6 +35,7 @@ from soniox.realtime import RealtimeTTSConfig
 
 from app.core.logging import get_logger
 from app.tts.base import AudioChunk, TtsProvider
+from app.tts.russian_pronunciation import with_russian_stress
 
 log = get_logger(__name__)
 
@@ -163,8 +164,9 @@ class SonioxTtsProvider(TtsProvider):
         # вызывает __aexit__ соединения на разворачивании стека — отдельно
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
+            spoken_text = with_russian_stress(text) if self._language == "ru" else text
             await connection.send_text_chunks(
-                text_with_emotion(text, emotion, intensity, enhanced_prosody), text_end=True
+                text_with_emotion(spoken_text, emotion, intensity, enhanced_prosody), text_end=True
             )
 
             # Однокусковый lookahead: SDK не помечает последний чанк сам —
