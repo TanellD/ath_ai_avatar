@@ -8,7 +8,7 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ath_contracts import Emotion, EmotionIntensity
 
@@ -20,6 +20,9 @@ class AudioChunk:
     data: bytes
     sample_rate: int
     is_final: bool = False
+    subtitle_text: str = ""
+    subtitle_start_ms: int | None = None
+    subtitle_end_ms: int | None = None
 
 
 class TtsProvider(ABC):
@@ -57,3 +60,28 @@ class TtsProvider(ABC):
         нужно закрывать, и заставлять каждого писать пустую реализацию незачем.
         """
         return
+
+    async def synthesize_stream(
+        self,
+        texts: AsyncIterator[str],
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
+    ) -> AsyncIterator[AudioChunk]:
+        """Озвучить одну реплику из нескольких поступающих частей.
+
+        Провайдеры без настоящего двустороннего streaming сохраняют прежнее
+        поведение по частям. Soniox переопределяет метод одним непрерывным
+        stream, чтобы не сбрасывать голос между предложениями.
+        """
+        pending: AudioChunk | None = None
+        async for text in texts:
+            async for chunk in self.synthesize(
+                text, voice_id, emotion, intensity, enhanced_prosody
+            ):
+                if pending is not None:
+                    yield replace(pending, is_final=False)
+                pending = chunk
+        if pending is not None:
+            yield replace(pending, is_final=True)

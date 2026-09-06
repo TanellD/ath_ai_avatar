@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+// Раньше здесь был node:test, но файл импортирует .ts — под голым `node --test`
+// он падал на ERR_UNKNOWN_FILE_EXTENSION, а в скрипты его так и не завели, то
+// есть не запускался никогда. vitest (пришёл с голосовой веткой) умеет и TS, и
+// алиасы; assert из node остаётся, переписывать проверки незачем.
+import { test } from 'vitest';
 import { Quaternion, Vector3 } from 'three';
 import { TalkingHead } from '@met4citizen/talkinghead';
 import { stabilizeNonHumanoidPose, guardAvatarResize } from '../src/avatar/runtimeGuards.ts';

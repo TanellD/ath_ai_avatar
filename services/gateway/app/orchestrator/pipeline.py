@@ -18,7 +18,7 @@ import asyncio
 import base64
 import io
 import wave
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 
 from ath_contracts import (
     Action,
@@ -43,6 +43,7 @@ from app.clients.speech_client import SpeechClient
 from app.core.logging import get_logger
 from app.db.engine import session_factory
 from app.db.repositories import SqlReportRepository, SqlSessionRepository
+from app.orchestrator.avatar_voice import DEFAULT_AVATAR_ID, voice_for
 from app.orchestrator.context_window import build_context
 from app.orchestrator.fsm import Transition
 from app.orchestrator.sentence_splitter import SentenceSplitter
@@ -61,6 +62,12 @@ _OPENING_DIRECTIVE = {
     OpeningKind.STAGE_TRANSITION: (
         "[Разговор переходит к следующему этапу — продолжи по инструкции в системном промпте.]"
     ),
+    OpeningKind.SILENCE_NUDGE: (
+        "[Собеседник молчит десять секунд — мягко побуди его ответить.]"
+    ),
+    OpeningKind.SILENCE_CONTINUE: (
+        "[Собеседник не ответил и после напоминания — продолжи текущую сцену.]"
+    ),
 }
 """Ремарка режиссёра вместо реплики пользователя, когда персонаж говорит сам.
 
@@ -71,17 +78,8 @@ _OPENING_DIRECTIVE = {
 непустая затычка нужной роли. См. docs/agent-initiative.md.
 """
 
-# Клиент передаёт только профиль аватара, а не произвольный voice_id.
-# Так тестовый Tom получает свой голос, не меняя persona сценария и основной
-# голос avatar-aith.
-_AVATAR_VOICE_OVERRIDES = {"tom-avatar": "Daniel"}
 
-_DEFAULT_AVATAR_ID = "avatar-aith"
-"""Аватар для реплик, которым не предшествовало сообщение клиента: открытие
-сессии и открытие нового этапа. Совпадает с дефолтом UserMessage.avatar_id."""
-
-
-def _wav_duration_ms(data_b64: str) -> int:
+def wav_duration_ms(data_b64: str) -> int:
     """Длительность WAV-чанка в миллисекундах — из заголовка, не из длины текста.
 
     Источник тайминга для субтитров (§7: «start_ms, end_ms — тайминги
@@ -163,7 +161,7 @@ class TurnPipeline:
         await self._finish()
 
     async def handle_user_message(
-        self, text: str, interrupts: int | None, avatar_id: str = _DEFAULT_AVATAR_ID
+        self, text: str, interrupts: int | None, avatar_id: str = DEFAULT_AVATAR_ID
     ) -> None:
         """Точка входа хода. Реализует §6, шаги 3-5.
 
@@ -171,26 +169,69 @@ class TurnPipeline:
         и намеренно: они обязаны укладываться в 300 мс без сетевого
         round-trip. Здесь начинается серверная половина протокола.
         """
-        generations = self._session.generations
-
-        # Шаг 3: новое поколение. Инкремент ПЕРВЫМ делом — с этого момента
-        # is_stale() уже запрещает отправку хвоста старого поколения.
-        gen_id = generations.bump()
-
-        # Шаг 4: снять активные стримы LLM и TTS предыдущего поколения.
-        if interrupts is not None:
-            await generations.cancel(interrupts)
-            # Шаг 5: сообщить клиенту, какое поколение отменено — на случай,
-            # если он ещё не знает о новом.
-            await self._raw_send(CancelEvent(gen_id=interrupts))
+        gen_id = await self.begin_user_turn(interrupts)
 
         user_turn = self._session.add_turn(TurnRole.USER, text)
         # Не await: запись в БД не должна задерживать обработку следующего
         # события в цикле приёма — от этого зависит бюджет barge-in (§9).
         self._fire_and_forget(self._persist_turn(user_turn, gen_id))
 
-        task = asyncio.create_task(self._run_turn(gen_id, text, avatar_id))
+        self._start_pipeline(gen_id, text, avatar_id)
+
+    async def begin_user_turn(self, interrupts: int | None) -> int:
+        """Один authoritative bump для text или PTT начала."""
+        generations = self._session.generations
+        gen_id = generations.bump()
+        if interrupts is not None:
+            await generations.cancel(interrupts)
+            await self._raw_send(CancelEvent(gen_id=interrupts))
+        return gen_id
+
+    async def handle_silence_timeout(self, phase: str, avatar_id: str) -> None:
+        """Начать одну из двух инициативных реплик после подтверждённой тишины."""
+        if self._session.status is not SessionStatus.ACTIVE:
+            return
+        opening_kind = {
+            "nudge": OpeningKind.SILENCE_NUDGE,
+            "continue": OpeningKind.SILENCE_CONTINUE,
+        }.get(phase)
+        if opening_kind is None:
+            return
+        generations = self._session.generations
+        gen_id = generations.bump()
+        task = asyncio.create_task(self._run_silence_followup(gen_id, opening_kind, avatar_id))
         generations.register(gen_id, task)
+
+    async def handle_voice_final(
+        self,
+        *,
+        gen_id: int,
+        capture_id: str,
+        text: str,
+        confidence: float | None,
+    ) -> bool:
+        """Commit final transcript once, then reuse the normal dialogue pipeline."""
+        if self._session.generations.is_stale(gen_id) or not text.strip():
+            return False
+        turn = self._session.make_turn(
+            TurnRole.USER, text.strip(), stt_confidence=confidence
+        )
+        index = len(self._session.turns)
+        async with session_factory()() as db:
+            inserted = await SqlSessionRepository(db).commit_voice_turn(
+                self._session.session_id, capture_id, index, turn, gen_id
+            )
+        if not inserted:
+            return False
+        self._session.accept_turn(turn)
+        # Голосовой ход берёт аватар из сессии: выбор приезжает на speech_start,
+        # а не на user_message, но голос обязан быть тем же самым.
+        self._start_pipeline(gen_id, turn.text, self._session.avatar_id)
+        return True
+
+    def _start_pipeline(self, gen_id: int, text: str, avatar_id: str) -> None:
+        task = asyncio.create_task(self._run_turn(gen_id, text, avatar_id))
+        self._session.generations.register(gen_id, task)
 
     # -------------------------------------------------------------- внутри
 
@@ -233,7 +274,7 @@ class TurnPipeline:
                 _OPENING_DIRECTIVE[opening_kind],
                 # Реплики пользователя ещё не было, профиль аватара взять
                 # неоткуда — берём тот же дефолт, что и у UserMessage.
-                _DEFAULT_AVATAR_ID,
+                DEFAULT_AVATAR_ID,
                 recorder,
                 opening_kind=opening_kind,
             )
@@ -246,6 +287,29 @@ class TurnPipeline:
             # от обычного хода, здесь есть запасной путь без LLM.
             log.exception("pipeline.opening_failed", gen_id=gen_id)
             await self._speak_fallback_opening(gen_id, recorder)
+
+    async def _run_silence_followup(
+        self, gen_id: int, opening_kind: OpeningKind, avatar_id: str
+    ) -> None:
+        """Ответить на молчание, не добавляя фиктивный пользовательский ход."""
+        recorder = SpanRecorder(self._session.session_id, gen_id)
+        # Как и обычный ход: если сценарий закончится сразу после реплики по
+        # молчанию, спан финальной оценки должен отсчитываться от НЕЁ, а не от
+        # давно закрытого хода — иначе оценка снова ляжет в начало гант-графика.
+        self._last_recorder = recorder
+        try:
+            await self._speak(
+                gen_id,
+                _OPENING_DIRECTIVE[opening_kind],
+                avatar_id,
+                recorder,
+                opening_kind=opening_kind,
+            )
+        except asyncio.CancelledError:
+            log.info("pipeline.silence_followup_cancelled", gen_id=gen_id)
+            raise
+        except Exception:
+            log.exception("pipeline.silence_followup_failed", gen_id=gen_id)
 
     async def _finish(self) -> None:
         """Завершить сессию. Общее тело для обоих триггеров, идемпотентное.
@@ -368,14 +432,10 @@ class TurnPipeline:
         recorder: SpanRecorder,
         opening_kind: OpeningKind | None = None,
     ) -> None:
-        """Реплика персонажа: токены LLM → предложения → чанки TTS.
+        """Реплика персонажа: токены LLM → один непрерывный TTS stream.
 
         `opening_kind` заполнен, когда персонаж говорит сам (§1); тогда в
         `user_text` лежит ремарка режиссёра, а не текст сотрудника.
-
-        TODO: параллельный запуск TTS для предложения N и продолжение чтения
-        токенов N+1 — сейчас последовательно, и это съедает time to first
-        audio на длинных ответах.
         """
         persona = self._session.scenario.persona
         stage = self._session.machine.stage(self._session.current_stage_id)
@@ -386,21 +446,11 @@ class TurnPipeline:
         splitter = SentenceSplitter()
         full_text: list[str] = []
         emotion = Emotion(self._session.scenario.persona.mood.value)
-        voice_id = _AVATAR_VOICE_OVERRIDES.get(
-            avatar_id, self._session.scenario.persona.voice_id
-        )
-        seq = 0
+        voice_id = voice_for(avatar_id, self._session.scenario.persona)
         elapsed_ms = 0
-        """Сколько аудио этого поколения уже отправлено — начало отсчёта для
-        следующего SubtitleEvent. Тайминги относительно начала поколения (§7),
-        не абсолютное время."""
 
         async with recorder.span("character_reply", self._speak_label(user_text, opening_kind)):
-            # Самопредставление персонажа приходит первым токеном потока и не
-            # генерируется моделью (ai-service/app/api/character.py): оно
-            # детерминировано, поэтому сплиттер отдаёт его в TTS ещё до того,
-            # как LLM напишет первое слово продолжения (§9, метрика 1).
-            async for item in self._ai.stream_character_reply(
+            reply = self._ai.stream_character_reply(
                 persona=persona,
                 stage=stage,
                 history=context.recent,
@@ -408,24 +458,83 @@ class TurnPipeline:
                 user_text=user_text,
                 opening_kind=opening_kind,
                 off_topic_streak=self._session.off_topic_streak,
-            ):
+            ).__aiter__()
+
+            # Emotion meta штатно приходит до первого токена. Примируем поток,
+            # чтобы Soniox stream сразу открылся с правильной подачей.
+            first_token: str | None = None
+            async for item in reply:
                 if isinstance(item, CharacterReplyMeta):
                     emotion = item.emotion
                     continue
+                first_token = item
+                break
 
-                token = item
-                full_text.append(token)
-                await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
+            async def sentences() -> AsyncIterator[str]:
+                async def tokens() -> AsyncIterator[str]:
+                    if first_token is not None:
+                        yield first_token
+                    async for remaining in reply:
+                        if isinstance(remaining, CharacterReplyMeta):
+                            log.warning("pipeline.late_emotion_meta", gen_id=gen_id)
+                            continue
+                        yield remaining
 
-                for sentence in splitter.feed(token):
-                    seq, elapsed_ms = await self._synthesize(
-                        gen_id, sentence, seq, elapsed_ms, emotion, voice_id, recorder
+                async for token in tokens():
+                    full_text.append(token)
+                    await self._send(gen_id, TokenEvent(gen_id=gen_id, text=token))
+                    for sentence in splitter.feed(token):
+                        yield sentence
+
+                tail = splitter.flush()
+                if tail:
+                    yield tail
+
+            alignment_seen = False
+            async with recorder.span("tts_synthesize", "continuous reply"):
+                async for chunk in self._speech.stream_tts_reply(
+                    gen_id=gen_id,
+                    seq=0,
+                    texts=sentences(),
+                    voice_id=voice_id,
+                    emotion=emotion,
+                ):
+                    await self._send(
+                        gen_id,
+                        AudioChunkEvent(
+                            gen_id=gen_id,
+                            seq=chunk.seq,
+                            data=chunk.data,
+                            format=chunk.format,
+                            emotion=emotion,
+                        ),
                     )
+                    elapsed_ms += wav_duration_ms(chunk.data)
+                    if (
+                        chunk.subtitle_text
+                        and chunk.subtitle_start_ms is not None
+                        and chunk.subtitle_end_ms is not None
+                    ):
+                        alignment_seen = True
+                        await self._send(
+                            gen_id,
+                            SubtitleEvent(
+                                gen_id=gen_id,
+                                text=chunk.subtitle_text,
+                                start_ms=chunk.subtitle_start_ms,
+                                end_ms=chunk.subtitle_end_ms,
+                            ),
+                        )
 
-            tail = splitter.flush()
-            if tail:
-                seq, elapsed_ms = await self._synthesize(
-                    gen_id, tail, seq, elapsed_ms, emotion, voice_id, recorder
+            if not alignment_seen and full_text:
+                await self._send(
+                    gen_id,
+                    SubtitleEvent(
+                        gen_id=gen_id,
+                        text="".join(full_text),
+                        start_ms=0,
+                        end_ms=elapsed_ms,
+                    ),
                 )
 
         await self._record_agent_turn(gen_id, "".join(full_text))
@@ -530,7 +639,7 @@ class TurnPipeline:
                         emotion=emotion,
                     ),
                 )
-                sentence_ms += _wav_duration_ms(chunk.data)
+                sentence_ms += wav_duration_ms(chunk.data)
                 seq = chunk.seq + 1
 
         await self._send(

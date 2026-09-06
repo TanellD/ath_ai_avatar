@@ -19,6 +19,7 @@ from ath_contracts import (
     TurnRole,
 )
 
+from app.orchestrator.avatar_voice import DEFAULT_AVATAR_ID
 from app.orchestrator.fsm import StageMachine
 from app.orchestrator.generation import GenerationRegistry
 
@@ -27,6 +28,8 @@ from app.orchestrator.generation import GenerationRegistry
 class LiveSession:
     session_id: str
     scenario: Scenario
+    avatar_id: str = DEFAULT_AVATAR_ID
+    """Профиль аватара, выбранный учеником. Общий для текста и голоса."""
     generations: GenerationRegistry = field(default_factory=GenerationRegistry)
     started_at: float = field(default_factory=time.monotonic)
 
@@ -55,16 +58,29 @@ class LiveSession:
         return int(time.monotonic() - self.started_at)
 
     def add_turn(self, role: TurnRole, text: str) -> Turn:
-        turn = Turn(
+        turn = self.make_turn(role, text)
+        self.accept_turn(turn)
+        return turn
+
+    def make_turn(
+        self,
+        role: TurnRole,
+        text: str,
+        *,
+        stt_confidence: float | None = None,
+    ) -> Turn:
+        return Turn(
             role=role,
             text=text,
             stage_id=self.current_stage_id,
             ts=time.monotonic() - self.started_at,
+            stt_confidence=stt_confidence,
         )
+
+    def accept_turn(self, turn: Turn) -> None:
         self.turns.append(turn)
-        if role is TurnRole.USER:
+        if turn.role is TurnRole.USER:
             self.turns_in_stage += 1
-        return turn
 
     def leave_stage(self, exit_reason: StageExit, next_stage_id: str) -> None:
         """Зафиксировать выход с этапа и перейти на следующий."""
@@ -78,6 +94,27 @@ class LiveSession:
         self.current_stage_id = next_stage_id
         self.turns_in_stage = 0
         self.off_topic_streak = 0
+
+    def adopt(self, state: SessionState) -> None:
+        """Поднять сохранённое состояние в память процесса.
+
+        Ходы пишутся в БД сразу (`TurnPipeline._persist_turn`), поэтому при
+        обрыве теряется только то, что живёт в памяти процесса: список ходов,
+        история этапов и счётчик поколений. Без их восстановления
+        переподключение даёт персонажа с амнезией.
+        """
+        self.current_stage_id = state.current_stage
+        self.turns = list(state.turns)
+        self.stage_history = list(state.stage_history)
+        self.status = state.status
+        self.generations.restore(state.current_gen)
+        # Текущий этап в истории ещё не зафиксирован, его счётчик считаем по
+        # ходам: leave_stage() пишет turns_spent только на выходе с этапа.
+        self.turns_in_stage = sum(
+            1
+            for turn in self.turns
+            if turn.role is TurnRole.USER and turn.stage_id == self.current_stage_id
+        )
 
     def snapshot(self) -> SessionState:
         """Сериализуемое состояние — для персистентности и для GET /sessions/{id}."""

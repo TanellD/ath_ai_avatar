@@ -676,10 +676,77 @@ button.tag-chip--active:hover {
 .ptt {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   color: var(--ink-3);
   font-size: 12.5px;
   font-weight: 600;
+}
+
+.ptt label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* [STT] Кнопка записи. Заливка внутри неё — уровень микрофона: сотрудник
+   должен видеть, что его слышат, до того как придёт первый транскрипт
+   (Claude.md §8, «пользователь должен понимать, слышат ли его»). */
+.ptt__button {
+  position: relative;
+  overflow: hidden;
+  min-width: 150px;
+  padding: 9px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.ptt__button::before {
+  position: absolute;
+  inset: 0;
+  background: var(--blue);
+  content: '';
+  opacity: var(--mic-level, 0);
+  pointer-events: none;
+}
+
+.ptt__button--active {
+  border-color: var(--blue);
+  color: var(--ink);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+.ptt__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* Черновик распознавания под композером: партиалы STT до финала. */
+.voice-draft {
+  flex: none;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Буферизованный текст — тот же курсив в оригинале, но бриф дизайн-системы
+   запрещает курсив; отделяем прозрачностью. */
+.voice-draft--buffered {
+  opacity: 0.7;
+}
+
+.voice-metrics {
+  flex: none;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ----------------------------------------------------------- индикатор */
@@ -714,6 +781,18 @@ button.tag-chip--active:hover {
 
 .indicator--disconnected .indicator__dot {
   background: var(--danger);
+}
+
+/* [STT] Слушаем сотрудника и распознаём сказанное. Оба состояния «мяч на
+   стороне пользователя», поэтому оттенок ближе к idle, а не к speaking:
+   иначе зелёный «ваш ход» и синий «слушаю» читаются как одно и то же. */
+.indicator--listening .indicator__dot {
+  background: #3b9e6a;
+  box-shadow: 0 0 0 3px rgba(59, 158, 106, 0.22);
+}
+
+.indicator--recognizing .indicator__dot {
+  background: #c98a1f;
 }
 
 /* ----------------------------------------------------------- отчёт */

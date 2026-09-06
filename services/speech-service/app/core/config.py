@@ -30,18 +30,34 @@ class Settings(BaseSettings):
     yandex_folder_id: str = ""
 
     # Единственный провайдер из четырёх, реально реализованный (§10) — выбор
-    # провалидирован веткой poc. Голос "Nina" и русский язык — те же значения,
-    # что подтвердили рабочий результат там.
+    # провалидирован веткой poc.
     soniox_api_key: str = ""
-    soniox_voice: str = "Nina"
+    # Голос по умолчанию, когда его не задали ни аватар, ни персона.
+    # Reese — единственный русский голос, проверенный на реальном синтезе
+    # (см. докстринг app/tts/soniox.py). Список доступных: `make voices`.
+    soniox_voice: str = "Reese"
     soniox_language: str = "ru"
 
-    # ------------------------------------------------------------- [STT]
-    # Голосовой ввод — следующая фаза. Поля объявлены, но не читаются ничем:
-    # см. app/stt/README.md и docs/stt-phase.md.
-    # stt_provider: str = "deepgram"
-    # deepgram_api_key: str = ""
-    # stt_language: str = "ru"
+    # ------------------------------------------------------------- STT
+    stt_provider: str = Field(
+        default="mock", description="mock | soniox | gigaam | soniox_gigaam"
+    )
+    stt_language: str = "ru"
+    soniox_stt_model: str = "stt-rt-v5"
+    soniox_stt_websocket_url: str = "wss://stt-rt.soniox.com/transcribe-websocket"
+    gigaam_worker_url: str = "http://gigaam-worker:8020"
+    gigaam_timeout_seconds: float = 60.0
+    stt_finalize_timeout_seconds: float = 5.0
+
+    # Управляемые сбои основного STT: нужны, чтобы проверить и показать
+    # failover, не дожидаясь настоящего отказа сети. Выключено по умолчанию —
+    # эндпоинт не появляется вовсе, пока флаг не поднят явно.
+    stt_debug_faults_enabled: bool = False
+
+    # Safety limits are deliberately conservative dev defaults. Product values
+    # are pinned only after our own benchmark (docs/voice-input-plan.md).
+    voice_max_capture_seconds: int = 20
+    voice_max_frame_bytes: int = 32_000
 
 
 @lru_cache

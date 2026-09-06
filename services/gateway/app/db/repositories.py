@@ -12,9 +12,10 @@ from typing import Protocol
 from ath_contracts import Report, SessionState, SessionStatus, Turn
 from ath_contracts.api import SessionSummaryItem
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ReportRow, SessionRow, TurnRow
+from app.db.models import ReportRow, SessionRow, TurnRow, VoiceTurnCommitRow
 
 
 class SessionRepository(Protocol):
@@ -24,6 +25,9 @@ class SessionRepository(Protocol):
     async def mark_finished(self, session_id: str) -> None: ...
     async def list_summaries(self, limit: int = 100) -> list[SessionSummaryItem]: ...
     async def append_turn(self, session_id: str, index: int, turn: Turn, gen_id: int) -> None: ...
+    async def commit_voice_turn(
+        self, session_id: str, capture_id: str, index: int, turn: Turn, gen_id: int
+    ) -> bool: ...
 
 
 class ReportRepository(Protocol):
@@ -163,6 +167,49 @@ class SqlSessionRepository:
             )
         )
         await self._db.commit()
+
+    async def commit_voice_turn(
+        self, session_id: str, capture_id: str, index: int, turn: Turn, gen_id: int
+    ) -> bool:
+        """Атомарно записать voice turn; duplicate capture возвращает False."""
+        existing = await self._db.get(
+            VoiceTurnCommitRow, {"session_id": session_id, "capture_id": capture_id}
+        )
+        if existing is not None:
+            return False
+
+        self._db.add(
+            VoiceTurnCommitRow(
+                session_id=session_id,
+                capture_id=capture_id,
+                turn_index=index,
+                gen_id=gen_id,
+            )
+        )
+        self._db.add(
+            TurnRow(
+                session_id=session_id,
+                index=index,
+                role=turn.role.value,
+                text=turn.text,
+                stage_id=turn.stage_id,
+                ts=turn.ts,
+                stt_confidence=turn.stt_confidence,
+                audio_ref=turn.audio_ref,
+                gen_id=gen_id,
+            )
+        )
+        try:
+            await self._db.commit()
+        except IntegrityError:
+            await self._db.rollback()
+            duplicate = await self._db.get(
+                VoiceTurnCommitRow, {"session_id": session_id, "capture_id": capture_id}
+            )
+            if duplicate is not None:
+                return False
+            raise
+        return True
 
 
 class SqlReportRepository:

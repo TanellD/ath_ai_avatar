@@ -38,6 +38,9 @@ services:
       SCENARIO_SERVICE_URL: http://scenario-service:8050
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
       MAX_CONTEXT_TURNS: ${MAX_CONTEXT_TURNS:-6}
+      STT_LANGUAGE: ${STT_LANGUAGE:-ru}
+      VOICE_MAX_CAPTURE_SECONDS: ${VOICE_MAX_CAPTURE_SECONDS:-20}
+      VOICE_MAX_FRAME_BYTES: ${VOICE_MAX_FRAME_BYTES:-32000}
     volumes:
       - ./data:/data
     depends_on:
@@ -73,12 +76,52 @@ services:
       SONIOX_API_KEY: ${SONIOX_API_KEY:-}
       SONIOX_VOICE: ${SONIOX_VOICE:-Reese}
       SONIOX_LANGUAGE: ${SONIOX_LANGUAGE:-ru}
+      STT_PROVIDER: ${STT_PROVIDER:-mock}
+      STT_LANGUAGE: ${STT_LANGUAGE:-ru}
+      SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
+      SONIOX_STT_WEBSOCKET_URL: ${SONIOX_STT_WEBSOCKET_URL:-wss://stt-rt.soniox.com/transcribe-websocket}
+      GIGAAM_WORKER_URL: ${GIGAAM_WORKER_URL:-http://gigaam-worker:8020}
+      GIGAAM_TIMEOUT_SECONDS: ${GIGAAM_TIMEOUT_SECONDS:-60}
+      STT_FINALIZE_TIMEOUT_SECONDS: ${STT_FINALIZE_TIMEOUT_SECONDS:-5}
+      STT_DEBUG_FAULTS_ENABLED: ${STT_DEBUG_FAULTS_ENABLED:-false}
+      VOICE_MAX_CAPTURE_SECONDS: ${VOICE_MAX_CAPTURE_SECONDS:-20}
+      VOICE_MAX_FRAME_BYTES: ${VOICE_MAX_FRAME_BYTES:-32000}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8010/health')"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 20s
+
+  # ---------------------------------------------------------- gigaam-worker
+  # Optional local batch STT. It is intentionally absent from the default stack:
+  # docker compose --profile gigaam up --build gigaam-worker speech-service
+  gigaam-worker:
+    <<: *python-common
+    profiles: ["gigaam"]
+    build:
+      context: .
+      dockerfile: services/gigaam-worker/Dockerfile
+    ports:
+      - "${GIGAAM_PORT:-8020}:8020"
+    environment:
+      <<: *python-env
+      SERVICE_NAME: gigaam-worker
+      GIGAAM_MODEL: ${GIGAAM_MODEL:-v3_e2e_ctc}
+      GIGAAM_DEVICE: ${GIGAAM_DEVICE:-cpu}
+      GIGAAM_CACHE_DIR: /models/gigaam
+      GIGAAM_MAX_CAPTURE_SECONDS: ${GIGAAM_MAX_CAPTURE_SECONDS:-20}
+      GIGAAM_QUEUE_SIZE: ${GIGAAM_QUEUE_SIZE:-1}
+    volumes:
+      - gigaam_cache:/models/gigaam
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8020/ready')"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      # Weights are fetched ahead of time by `make gigaam-setup`, so this only
+      # has to cover loading the checkpoint from the volume onto the CPU.
+      start_period: 180s
 
   # ------------------------------------------------------------- ai-service
   # Разделение моделей из Claude.md §5: быстрая — реплики персонажа,
@@ -153,6 +196,9 @@ services:
 networks:
   ath:
     driver: bridge
+
+volumes:
+  gigaam_cache:
 
 # ---------------------------------------------------------------------------
 # Переезд на Postgres, когда SQLite перестанет хватать: раскомментировать блок

@@ -36,6 +36,18 @@ export interface Ping {
   type: 'ping';
 }
 
+export interface SpeechStart {
+  type: 'speech_start';
+  capture_id: string;
+  interrupts: number | null;
+  /** Голос обязан совпадать с текстовым вводом: у голосового хода своего user_message нет. */
+  avatar_id: AvatarId;
+  mode: 'ptt' | 'hands_free_candidate';
+  audio_format: 'pcm_s16le';
+  sample_rate: 16000;
+  num_channels: 1;
+}
+
 /**
  * Сотрудник заканчивает тренировку досрочно (Claude.md §3, «завершить»).
  * Автомат завершает сессию и сам, когда пройден последний этап.
@@ -44,13 +56,30 @@ export interface FinishSession {
   type: 'finish_session';
 }
 
-export type ClientEvent = UserMessage | Ping | FinishSession;
+export interface SpeechEnd {
+  type: 'speech_end';
+  capture_id: string;
+}
 
-// [STT] Голосовая фаза — объявлено в питоновском контракте, здесь появится
-// вместе с реализацией. См. docs/stt-phase.md.
-//   speech_start { interrupts }
-//   user_audio   { seq, data, format }
-//   speech_end   {}
+export interface SpeechAbort {
+  type: 'speech_abort';
+  capture_id: string;
+}
+
+export interface SilenceTimeout {
+  type: 'silence_timeout';
+  phase: 'nudge' | 'continue';
+  avatar_id: AvatarId;
+}
+
+export type ClientEvent =
+  | UserMessage
+  | SpeechStart
+  | SpeechEnd
+  | SpeechAbort
+  | SilenceTimeout
+  | Ping
+  | FinishSession;
 
 // --------------------------------------------------------- сервер → клиент
 
@@ -83,9 +112,31 @@ export interface SubtitleEvent {
 export interface TranscriptEvent {
   type: 'transcript';
   gen_id: number;
+  capture_id: string;
+  provider_epoch: number;
+  provider: string;
   text: string;
   is_final: boolean;
   stt_confidence: number | null;
+}
+
+export interface SpeechStartedEvent {
+  type: 'speech_started';
+  gen_id: number;
+  capture_id: string;
+}
+
+/**
+ * [STT] Внутри одной capture распознавание ушло на резервный провайдер.
+ * UI ориентируется на `partials_available`, а не на имя движка.
+ */
+export interface VoiceProviderSwitchedEvent {
+  type: 'voice_provider_switched';
+  gen_id: number;
+  capture_id: string;
+  provider_epoch: number;
+  provider: string;
+  partials_available: boolean;
 }
 
 export interface ActionEvent {
@@ -112,13 +163,17 @@ export interface ErrorEvent {
   gen_id: number | null;
   code: string;
   message: string;
+  /** Персонаж уже сказал это вслух: сбросить захват, но баннер не показывать. */
+  spoken: boolean;
 }
 
 export type ServerEvent =
   | TokenEvent
   | AudioChunkEvent
   | SubtitleEvent
+  | SpeechStartedEvent
   | TranscriptEvent
+  | VoiceProviderSwitchedEvent
   | ActionEvent
   | CancelEvent
   | ReportEvent

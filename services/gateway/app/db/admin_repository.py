@@ -122,6 +122,9 @@ class LoadStats:
 
 _OPERATION_SERVICE = {
     "character_reply": "ai-service",
+    # Запасная открывающая реплика без LLM (_speak_fallback_opening) всё равно
+    # синтезируется речью — иначе операция висела в дашборде как "unknown".
+    "character_reply_fallback": "speech-service",
     "classify": "ai-service",
     "evaluate": "ai-service",
     "tts_synthesize": "speech-service",

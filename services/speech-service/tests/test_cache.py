@@ -40,6 +40,24 @@ class CountingProvider(TtsProvider):
         self.closed = True
 
 
+class ContinuousProvider(CountingProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stream_calls = 0
+
+    async def synthesize_stream(
+        self,
+        texts: AsyncIterator[str],
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
+    ) -> AsyncIterator[AudioChunk]:
+        self.stream_calls += 1
+        combined = "".join([text async for text in texts])
+        yield AudioChunk(data=combined.encode(), sample_rate=24000, is_final=True)
+
+
 async def _collect(
     provider: TtsProvider,
     text: str,
@@ -119,3 +137,18 @@ async def test_aclose_closes_inner_provider() -> None:
     await provider.aclose()
 
     assert inner.closed is True
+
+
+async def test_stream_delegates_without_splitting_into_cached_sentences() -> None:
+    inner = ContinuousProvider()
+    provider = CachingTtsProvider(inner)
+
+    async def texts() -> AsyncIterator[str]:
+        yield "Первая. "
+        yield "Вторая."
+
+    chunks = [chunk async for chunk in provider.synthesize_stream(texts())]
+
+    assert inner.stream_calls == 1
+    assert inner.calls == []
+    assert [chunk.data for chunk in chunks] == ["Первая. Вторая.".encode()]

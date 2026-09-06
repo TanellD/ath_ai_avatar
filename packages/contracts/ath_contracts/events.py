@@ -10,6 +10,7 @@
 """
 
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -19,6 +20,13 @@ from ath_contracts.report import Report
 # ---------------------------------------------------------------------------
 # Клиент → сервер
 # ---------------------------------------------------------------------------
+
+
+AvatarId = Literal["avatar-aith", "tom-avatar"]
+"""Профили аватаров. Рендер-настройки живут на клиенте (AVATAR_MODELS),
+сервер знает только, какой голос и какие служебные реплики с ними связаны."""
+
+DEFAULT_AVATAR_ID: AvatarId = "avatar-aith"
 
 
 class UserMessage(BaseModel):
@@ -36,14 +44,51 @@ class UserMessage(BaseModel):
         default=None,
         description="gen_id перебиваемого поколения, либо None если персонаж молчал",
     )
-    avatar_id: Literal["avatar-aith", "tom-avatar"] = Field(
-        default="avatar-aith",
+    avatar_id: AvatarId = Field(
+        default=DEFAULT_AVATAR_ID,
         description="Профиль аватара; gateway выбирает связанный с ним голос",
     )
 
 
 class Ping(BaseModel):
     type: Literal["ping"] = "ping"
+
+
+class SpeechStart(BaseModel):
+    """Открыть одну voice capture; следующие WS binary frames относятся к ней."""
+
+    type: Literal["speech_start"] = "speech_start"
+    capture_id: UUID
+    interrupts: int | None = None
+    # Голос обязан совпадать с текстовым вводом, поэтому профиль приезжает и
+    # сюда: у голосового хода своего user_message нет.
+    avatar_id: AvatarId = DEFAULT_AVATAR_ID
+    mode: Literal["ptt", "hands_free_candidate"] = "ptt"
+    audio_format: Literal["pcm_s16le"] = "pcm_s16le"
+    sample_rate: Literal[16000] = 16000
+    num_channels: Literal[1] = 1
+
+
+class SpeechEnd(BaseModel):
+    """Идемпотентный запрос finalization активной capture."""
+
+    type: Literal["speech_end"] = "speech_end"
+    capture_id: UUID
+
+
+class SpeechAbort(BaseModel):
+    """Идемпотентно отменить capture без commit transcript."""
+
+    type: Literal["speech_abort"] = "speech_abort"
+    capture_id: UUID
+
+
+class SilenceTimeout(BaseModel):
+    """Клиент подтвердил 10/20 секунд без текста и без речи после ответа агента."""
+
+    type: Literal["silence_timeout"] = "silence_timeout"
+    phase: Literal["nudge", "continue"]
+    avatar_id: AvatarId = DEFAULT_AVATAR_ID
 
 
 class FinishSession(BaseModel):
@@ -57,26 +102,10 @@ class FinishSession(BaseModel):
     type: Literal["finish_session"] = "finish_session"
 
 
-# --- [STT] Голосовая фаза — объявлено, не подключено. docs/stt-phase.md -----
-#
-# class SpeechStart(BaseModel):
-#     """Onset речи от клиентского VAD. Клиент уже локально остановил звук."""
-#     type: Literal["speech_start"] = "speech_start"
-#     interrupts: int | None = None
-#
-# class UserAudio(BaseModel):
-#     """Бинарные чанки речи, по порядку."""
-#     type: Literal["user_audio"] = "user_audio"
-#     seq: int
-#     data: bytes
-#     format: str
-#
-# class SpeechEnd(BaseModel):
-#     """VAD endpoint. Сигнал STT финализировать транскрипт."""
-#     type: Literal["speech_end"] = "speech_end"
-
-
-ClientEvent = Annotated[UserMessage | Ping | FinishSession, Field(discriminator="type")]
+ClientEvent = Annotated[
+    UserMessage | SpeechStart | SpeechEnd | SpeechAbort | SilenceTimeout | Ping | FinishSession,
+    Field(discriminator="type"),
+]
 
 _client_adapter: TypeAdapter[ClientEvent] = TypeAdapter(ClientEvent)
 
@@ -133,9 +162,36 @@ class TranscriptEvent(BaseModel):
 
     type: Literal["transcript"] = "transcript"
     gen_id: int
+    capture_id: UUID
+    provider_epoch: int = Field(ge=0)
+    provider: str = Field(min_length=1)
     text: str
     is_final: bool
     stt_confidence: float | None = None
+
+
+class SpeechStartedEvent(BaseModel):
+    """Gateway принял capture и связал её с authoritative generation."""
+
+    type: Literal["speech_started"] = "speech_started"
+    gen_id: int
+    capture_id: UUID
+
+
+class VoiceProviderSwitchedEvent(BaseModel):
+    """[STT] Внутри одной capture распознавание перешло на резервный провайдер.
+
+    Клиенту важно не имя движка, а то, что партиалов больше не будет: замерший
+    черновик читается как «меня перестали слышать», хотя запись продолжается.
+    UI опирается на `partials_available`, а не на `provider`.
+    """
+
+    type: Literal["voice_provider_switched"] = "voice_provider_switched"
+    gen_id: int
+    capture_id: UUID
+    provider_epoch: int = Field(ge=0)
+    provider: str = Field(min_length=1)
+    partials_available: bool
 
 
 class ActionEvent(BaseModel):
@@ -162,17 +218,27 @@ class ReportEvent(BaseModel):
 
 
 class ErrorEvent(BaseModel):
+    """Сбой, о котором нужно сообщить клиенту.
+
+    `spoken=True` означает, что персонаж уже объясняет это вслух своим голосом:
+    клиент обязан сбросить состояние захвата, но не должен показывать баннер —
+    иначе одна и та же неудача сообщается дважды, голосом и красным текстом.
+    """
+
     type: Literal["error"] = "error"
     gen_id: int | None = None
     code: str
     message: str
+    spoken: bool = False
 
 
 ServerEvent = Annotated[
     TokenEvent
     | AudioChunkEvent
     | SubtitleEvent
+    | SpeechStartedEvent
     | TranscriptEvent
+    | VoiceProviderSwitchedEvent
     | ActionEvent
     | CancelEvent
     | ReportEvent

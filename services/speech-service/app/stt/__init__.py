@@ -1,4 +1,37 @@
-"""Пространство имён STT. Реализации нет — только определение интерфейса.
+"""Provider-neutral primitives будущего STT pipeline."""
 
-Ничто в проекте отсюда пока не импортирует. См. README.md рядом.
-"""
+from app.stt.base import (
+    EndpointKind,
+    EndpointObserved,
+    FinalizationComplete,
+    NormalizedSttEvent,
+    ProviderCapabilities,
+    ProviderFault,
+    ProviderFaultKind,
+    ProviderSwitched,
+    RecognitionIdentity,
+    RecognitionProgress,
+    SttProvider,
+    SttSessionConfig,
+    TranscriptHypothesis,
+)
+from app.stt.capture_buffer import CaptureBuffer
+from app.stt.mock import MockSttProvider
+
+__all__ = [
+    "CaptureBuffer",
+    "EndpointKind",
+    "EndpointObserved",
+    "FinalizationComplete",
+    "MockSttProvider",
+    "NormalizedSttEvent",
+    "ProviderCapabilities",
+    "ProviderFault",
+    "ProviderFaultKind",
+    "ProviderSwitched",
+    "RecognitionIdentity",
+    "RecognitionProgress",
+    "SttProvider",
+    "SttSessionConfig",
+    "TranscriptHypothesis",
+]

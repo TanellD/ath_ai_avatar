@@ -6,11 +6,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 from ath_contracts import Report, SessionState, StageExit, StageHistoryEntry, Turn, TurnRole
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.db.admin_repository import AdminRepository
-from app.db.models import Base, ReportRow, SessionRow, SpanRow
+from app.db.models import Base, ReportRow, SessionRow, SpanRow, TurnRow
 from app.db.repositories import SqlReportRepository, SqlSessionRepository
 from app.db.seed import DEFAULT_EMPLOYEE_ID, seed_default_users
 
@@ -352,3 +353,24 @@ async def test_get_load_stats_sums_freed_hours_from_all_reports(db_session: Asyn
     stats = await AdminRepository(db_session).get_load_stats()
 
     assert stats.freed_hours == 1.5
+
+
+async def test_voice_turn_commit_is_exactly_once(db_session: AsyncSession) -> None:
+    repo = SqlSessionRepository(db_session)
+    state = SessionState(session_id="voice", scenario_id="test", current_stage="opening")
+    await repo.create(state, user_id=DEFAULT_EMPLOYEE_ID)
+    turn = Turn(
+        role=TurnRole.USER,
+        text="Голосовая реплика",
+        stage_id="opening",
+        ts=0.0,
+        stt_confidence=0.9,
+    )
+
+    assert await repo.commit_voice_turn("voice", "capture-1", 0, turn, 1) is True
+    assert await repo.commit_voice_turn("voice", "capture-1", 0, turn, 1) is False
+
+    rows = (
+        await db_session.scalars(select(TurnRow).where(TurnRow.session_id == "voice"))
+    ).all()
+    assert len(rows) == 1

@@ -48,3 +48,20 @@ def test_incomplete_prefix_falls_back_on_finish() -> None:
 
     assert result.emotion is Emotion.NEUTRAL
     assert result.text == ""
+
+
+def test_closing_tag_is_removed_from_visible_text() -> None:
+    parser = EmotionPrefixParser(Emotion.NEUTRAL)
+
+    result = parser.feed("<emotion=irritated>Нет, это дорого.</emotion>")
+
+    assert result.emotion is Emotion.IRRITATED
+    assert result.text == "Нет, это дорого."
+
+
+def test_closing_tag_can_arrive_across_chunks() -> None:
+    parser = EmotionPrefixParser(Emotion.NEUTRAL)
+    assert parser.feed("<emotion=friendly>Хорошо.").text == "Хорошо."
+
+    assert parser.feed("</emo").text == ""
+    assert parser.feed("tion> Продолжим.").text == " Продолжим."

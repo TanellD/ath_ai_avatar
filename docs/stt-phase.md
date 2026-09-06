@@ -1,123 +1,41 @@
-# Фаза `[STT]`: переход на голосовой ввод
+# Фаза `[STT]`: технический инвентарь
 
-Claude.md описывает голосовой ввод как основной. **Текущая реализация —
-текстовая.** Это осознанное сокращение, а не забытое требование.
+Статус: текстовый ввод сохранён; первый toggle-to-talk PTT/Soniox vertical slice реализован и
+ожидает ручной проверки микрофона в браузере. Единственный актуальный план —
+[`voice-input-plan.md`](voice-input-plan.md); этот файл фиксирует только
+подготовленные места и не вводит альтернативных решений.
 
-Файл существует, чтобы сокращение осталось осознанным. Ниже — каждое место, где
-оно было сделано, и что там придётся изменить.
+## Уже подготовлено
 
-## Что даёт текстовый ввод бесплатно
+- Контракты: voice lifecycle events и `TranscriptEvent` в
+  `packages/contracts/ath_contracts/events.py`, TS mirror, поля
+  `Turn.stt_confidence/audio_ref`.
+- Frontend: AudioWorklet capture/resampling, binary WS, `cancelPlayback.ts`,
+  `listening/recognizing`, PTT UI и partial transcript.
+- Gateway: `GenerationRegistry`, voice capture registry, один `gen_id`,
+  exactly-once commit по `(session_id, capture_id)` и единый `TurnPipeline`.
+- Speech-service: provider-neutral STT contract, bounded PCM buffer, mock,
+  realtime Soniox adapter и `/stt/stream`.
 
-Стоит зафиксировать: текстовая фаза не просто «проще», она **строже** в одном
-принципиальном месте.
+## Важные поправки к старым заготовкам
 
-- **Транскрипт — истина.** Цитата `evidence` в отчёте есть ровно то, что
-  напечатал человек. Проверка «цитата обязана быть подстрокой реплики»
-  (`ai-service/app/evaluation/report_builder.py`) работает механически и ловит
-  пересказ вместо цитаты со стопроцентной надёжностью.
-- **Отмена детерминирована.** Триггер — нажатие Enter. Ни порога, ни ложных
-  срабатываний.
-- **Бюджет латентности короче на 300-800 мс** — нет VAD endpoint и нет
-  финализации STT.
+- Закомментированные events нельзя просто включить: нужны `capture_id`, binary
+  transport, provider epoch и start ACK.
+- VAD-комментарий про cancel на onset устарел для hands-free. Сразу cancel
+  делает только PTT; hands-free сначала candidate + reversible duck.
+- `speech_start` не может вызвать текущий `handle_user_message(text)`: текста
+  ещё нет. Final voice text входит в общий pipeline без второго `gen_id` bump.
+- Текущий STT interface требует искусственную confidence; GigaAM degraded
+  metadata должна быть optional.
+- Raw audio storage/MinIO не требуется core flow. До commit хранится только
+  bounded in-memory buffer для failover, затем удаляется.
 
-С голосом всё три пункта ухудшаются, и это надо планировать, а не обнаруживать.
+## Не реализовано
 
-## Чек-лист включения голоса
+Полный corpus/benchmark и ADR параметров, hands-free candidate/duck/echo policy
+и полный fault-injection/browser harness. GigaAM worker/cache и provider
+failover/replay уже есть: `services/gigaam-worker/`, `app/stt/failover.py`,
+`make gigaam-setup`.
 
-### 1. Контракты (`packages/contracts/ath_contracts/events.py`)
-
-Раскомментировать `SpeechStart` / `UserAudio` / `SpeechEnd`, добавить их в
-`ClientEvent`. `UserMessage` **оставить**: это по-прежнему рабочий путь ввода и
-готовый fallback.
-
-`TranscriptEvent` уже объявлен и начнёт эмититься.
-
-### 2. Клиент
-
-| Файл | Что делать |
-|---|---|
-| `src/audio/mic/useMicCapture.ts` | Реализовать. `MIC_CONSTRAINTS` уже описаны — AEC обязателен (§3) |
-| `src/audio/mic/useVad.ts` | Реализовать на Silero VAD (WASM). Подтверждение onset — `VAD_ONSET_FRAMES` |
-| `src/audio/cancelPlayback.ts` | **Не трогать.** VAD onset вызывает эту же функцию — см. ниже |
-| `src/ws/useSessionSocket.ts` | Добавить бинарный канал `user_audio` |
-| `src/components/PlaybackIndicator.tsx` | Состояния `listening` / `recognizing` уже объявлены |
-| `src/components/PushToTalkToggle.tsx` | Снять `disabled` — запасной режим §6 |
-| `src/components/EvidenceQuote.tsx` | Включить кнопку воспроизведения по `audio_ref` |
-
-**Главное правило клиента:** onset VAD вызывает существующий
-`cancelPlayback()`, а не новую функцию остановки. Две реализации разойдутся, и
-одна забудет, например, зафиксировать субтитры.
-
-### 3. speech-service
-
-- Реализовать провайдер по `app/stt/base.py` (интерфейс уже зафиксирован).
-- Добавить WS `/stt/stream` и подключить роутер в `app/main.py` (место помечено).
-- Раскомментировать `stt_*` поля в `app/core/config.py` и `.env.example`.
-
-**Выбор провайдера — по качеству на числах, ценах и названиях.** Не по общему
-WER. Ошибка в «три тысячи двести» попадает прямо в `evidence`, а отчёт и есть
-продукт. Кандидаты: Deepgram, Yandex SpeechKit, Google STT.
-
-### 4. gateway
-
-- Маршрутизировать аудио клиент → gateway → speech-service. Напрямую с браузера
-  нельзя: оркестратор должен владеть `gen_id`, а ключи STT не должны уезжать в
-  браузер (§5).
-- Обрабатывать `speech_start` тем же кодом, что и `user_message`:
-  `TurnPipeline.handle_user_message` уже написан как input-agnostic.
-- Заполнять `Turn.stt_confidence` и `Turn.audio_ref` — колонки в
-  `db/models.py` заведены заранее, миграция с переносом данных не понадобится.
-
-### 5. Хранилище аудио — возвращается
-
-Сейчас в composer нет MinIO именно потому, что аудио пользователя не пишется.
-Понадобится (§7, §10):
-
-- сервис объектного хранилища (MinIO подойдёт) плюс `AUDIO_RETENTION_DAYS`;
-- модуль `gateway/app/storage/audio_store.py` — сохранение сегмента, выдача
-  `AudioRef`;
-- ручка выдачи фрагмента для кнопки в отчёте;
-- упоминание записи голоса в `ConsentBanner`.
-
-### 6. Оценка становится нестрогой
-
-`report_builder._verify_evidence` сейчас требует точного вхождения. С голосом
-это начнёт ложно срабатывать на ошибках распознавания.
-
-**Ослабить до нечёткого сравнения, но не убирать.** Расхождение цитаты и
-транскрипта останется сигналом — просто перестанет быть однозначным приговором.
-
-### 7. Метрики считаются иначе
-
-| Метрика | Сейчас | С голосом |
-|---|---|---|
-| 1 (time to first audio) | от нажатия Enter | от **VAD endpoint** — момента, когда человек договорил |
-| 3 (остановка при перебивании) | от нажатия Enter | от **акустического начала речи**, не от подтверждённого onset |
-
-Бюджет вырастет на VAD endpoint (200-500 мс) и финализацию STT (100-300 мс) —
-см. `latency-budget.md`. Порог метрики 1 (≤3 с) держится спокойно; цель
-(≤1.5 с) станет жёстче.
-
-Чтобы её защитить: агрессивный/семантический endpointing и спекулятивный старт
-LLM-prefill на партиалах транскрипта, не дожидаясь финала.
-
-### 8. Что не сломается
-
-Приятная часть: **`GenerationRegistry` и `AudioQueue` менять не надо вообще.**
-Механизм отмены не зависит от способа ввода — меняется только событие, которое
-его запускает. Тест `test_generation.py` останется валидным без правок.
-
-Так же не изменятся: `PlaybackClock`, HeadAudio/TalkingHead (провалидированы
-веткой `poc`, см. docs/architecture.md), конечный автомат этапов, контракт
-отчёта.
-
-## Инфраструктура, снятая на текстовой фазе
-
-| Компонент | Зачем был бы нужен | Когда вернётся |
-|---|---|---|
-| MinIO | Сегменты аудио под `audio_ref` | С голосом, обязательно |
-| Redis | Счётчик поколений и pub/sub отмены между воркерами | Когда воркеров станет больше одного |
-| Postgres | Замена SQLite | Когда сессий станет больше, чем выдерживает файл |
-
-Закомментированный блок `postgres` уже лежит в `docker-compose.yml` — переезд
-это раскомментирование плюс смена `DATABASE_URL`, без правок кода.
+Текстовый `UserMessage`, FSM, `GenerationRegistry`, `AudioQueue`, TalkingHead/
+HeadAudio и TTS сохраняются; Redis/Postgres не добавляются только ради STT.

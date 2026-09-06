@@ -1,7 +1,8 @@
 # Архитектура
 
-Реализация схемы из Claude.md §5. Ввод в этой фазе текстовый — см.
-[stt-phase.md](stt-phase.md).
+Текстовый ввод остаётся рабочим fallback; PTT/Soniox voice path реализуется по
+[voice-input-plan.md](voice-input-plan.md). Оба способа ввода сходятся в одном
+`TurnPipeline` после commit пользовательской реплики.
 
 ## Поток одного хода
 
@@ -19,8 +20,9 @@
          │
          ├─► ai-service  POST /character/reply  (SSE, быстрая модель)
          │      └─ токены ──► sentence_splitter
-         │                       └─► speech-service  WS /tts/stream
-         │                              └─ чанки аудио
+         │                       └─► один speech-service WS /tts/stream на реплику
+         │                              ├─ предложения поступают до text_end
+         │                              └─ аудио + character timestamps
          │
          ├─ token       { gen_id, text } ────────────────► браузер
          ├─ audio_chunk { gen_id, seq, data, emotion } ──► браузер
@@ -39,13 +41,17 @@
 |---|---|---|
 | `frontend` | 5173 / 80 | Воспроизведение, часы, липсинк, субтитры, экраны обеих ролей |
 | `gateway` | 8000 | `gen_id`, автомат этапов, окно контекста, персистентность сессий и отчётов |
-| `speech-service` | 8010 | TTS. Пространство STT объявлено без реализации |
+| `speech-service` | 8010 | Потоковые TTS и STT; provider-neutral граница распознавания |
 | `ai-service` | 8030 | Реплики персонажа, классификация, итоговая оценка |
 | `scenario-service` | 8050 | Сценарии, шаблоны, рубрики |
 
 Транспорты: браузер ⇄ gateway — WebSocket; gateway ⇄ speech — WebSocket
 (чанки должны стримиться); gateway ⇄ ai — HTTP + SSE; gateway ⇄ scenario —
 обычный HTTP.
+
+TTS stream живёт одну полную реплику персонажа, а не одно предложение. Это
+сохраняет состояние голоса и громкость между предложениями; `text_end` уходит
+после завершения LLM, при этом первый звук приходит ещё во время генерации.
 
 ## Три решения, которые стоит понимать
 

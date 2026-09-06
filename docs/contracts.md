@@ -39,12 +39,14 @@ TypeScript-зеркало (`services/frontend/src/contracts/events.ts`) пока
 | Событие | Поля | Комментарий |
 |---|---|---|
 | `user_message` | `text`, `interrupts` | Отправка = перебивание. Клиент уже остановил звук локально |
+| `speech_start` | `capture_id`, `interrupts`, PCM format | PTT onset, один новый `gen_id` |
+| binary frame | PCM16LE mono 16 kHz | Аудио активной capture |
+| `speech_end` | `capture_id` | Ручная финализация STT |
+| `speech_abort` | `capture_id` | Отмена capture без commit |
 | `ping` | — | Keep-alive |
 
-`[STT]` В §7 на месте одного `user_message` стоят три события:
-`speech_start` / `user_audio` / `speech_end`. Они объявлены закомментированными
-в `events.py` и включаются вместе с голосом — см. [stt-phase.md](stt-phase.md).
-`user_message` при этом остаётся: он и рабочий путь, и готовый fallback.
+`user_message` остаётся независимым рабочим fallback. Аудио передаётся binary,
+а не JSON/base64.
 
 ### Сервер → клиент
 

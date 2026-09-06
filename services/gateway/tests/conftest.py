@@ -121,6 +121,26 @@ class FakeSpeech:
         self.emotions.append(emotion)
         yield TtsChunk(gen_id=gen_id, seq=seq, data=silent_wav(), is_final=True)
 
+    async def stream_tts_reply(
+        self,
+        gen_id: int,
+        seq: int,
+        texts: AsyncIterator[str],
+        voice_id: str | None,
+        emotion: Emotion = Emotion.NEUTRAL,
+    ) -> AsyncIterator[TtsChunk]:
+        current_seq = seq
+        async for text in texts:
+            self.synthesized.append(text)
+            self.emotions.append(emotion)
+            yield TtsChunk(
+                gen_id=gen_id,
+                seq=current_seq,
+                data=silent_wav(),
+                is_final=False,
+            )
+            current_seq += 1
+
 
 async def noop() -> None:
     return None

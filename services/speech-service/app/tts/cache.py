@@ -79,6 +79,25 @@ class CachingTtsProvider(TtsProvider):
             while len(self._entries) > self._max_entries:
                 self._entries.popitem(last=False)
 
+    async def synthesize_stream(
+        self,
+        texts: AsyncIterator[str],
+        voice_id: str | None = None,
+        emotion: Emotion = Emotion.NEUTRAL,
+        intensity: EmotionIntensity = EmotionIntensity.NORMAL,
+        enhanced_prosody: bool = True,
+    ) -> AsyncIterator[AudioChunk]:
+        """Не разбивать живую реплику на отдельные синтезы ради кэша.
+
+        Инкрементальный текст уникален и не даёт полезных попаданий, а Soniox
+        должен получить его в одном соединении, иначе между предложениями
+        меняются громкость и просодия.
+        """
+        async for chunk in self._inner.synthesize_stream(
+            texts, voice_id, emotion, intensity, enhanced_prosody
+        ):
+            yield chunk
+
     async def aclose(self) -> None:
         self._entries.clear()
         await self._inner.aclose()

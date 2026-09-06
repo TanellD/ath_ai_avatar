@@ -1,0 +1,1 @@
+"""Local GigaAM inference worker."""

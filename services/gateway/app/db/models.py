@@ -100,6 +100,20 @@ class TurnRow(Base):
     __table_args__ = (Index("ix_turns_session_index", "session_id", "index", unique=True),)
 
 
+class VoiceTurnCommitRow(Base):
+    """Idempotency key для атомарного commit распознанной реплики."""
+
+    __tablename__ = "voice_turn_commits"
+
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    capture_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    turn_index: Mapped[int] = mapped_column(Integer)
+    gen_id: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class SpanRow(Base):
     """Один шаг конвейера одного хода — данные для Gantt-визуализации в
     админ-панели (см. docs/architecture.md, «Наблюдаемость»).

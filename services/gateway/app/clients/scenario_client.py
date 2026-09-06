@@ -35,3 +35,4 @@ class ScenarioClient:
             raise ScenarioNotFound(scenario_id)
         response.raise_for_status()
         return Scenario.model_validate(response.json())
+

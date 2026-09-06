@@ -18,6 +18,8 @@ export interface QueuedChunk {
   data: string;
 }
 
+export type AudioIdleReason = 'ended' | 'stopped';
+
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -29,6 +31,7 @@ export class AudioQueue {
   private readonly context: AudioContext;
   private readonly clock: import('./PlaybackClock').PlaybackClock;
   private readonly gain: GainNode;
+  private readonly compressor: DynamicsCompressorNode;
 
   private currentGeneration = 0;
 
@@ -55,7 +58,9 @@ export class AudioQueue {
    * обязан гаснуть по факту тишины, а не по серверным событиям (`action`
    * приходит, когда байты ОТПРАВЛЕНЫ, а не когда они доиграли).
    */
-  private readonly onIdle?: () => void;
+  private readonly onIdle?: (reason: AudioIdleReason) => void;
+  private readonly onFirstAudioScheduled?: (genId: number, leadMs: number) => void;
+  private firstAudioReported = false;
 
   /**
    * @param destination Куда подключать декодированные источники. По умолчанию
@@ -68,13 +73,25 @@ export class AudioQueue {
     context: AudioContext,
     clock: import('./PlaybackClock').PlaybackClock,
     destination?: AudioNode,
-    onIdle?: () => void,
+    onIdle?: (reason: AudioIdleReason) => void,
+    onFirstAudioScheduled?: (genId: number, leadMs: number) => void,
   ) {
     this.context = context;
     this.clock = clock;
     this.gain = context.createGain();
-    this.gain.connect(destination ?? context.destination);
+    this.compressor = context.createDynamicsCompressor();
+    // Мягко прижимаем только заметно более громкие фрагменты Soniox. Один
+    // постоянный узел на всю сессию сохраняет интонацию внутри реплики и не
+    // создаёт скачка на границе аудиочанков.
+    this.compressor.threshold.value = -22;
+    this.compressor.knee.value = 14;
+    this.compressor.ratio.value = 3;
+    this.compressor.attack.value = 0.008;
+    this.compressor.release.value = 0.2;
+    this.gain.connect(this.compressor);
+    this.compressor.connect(destination ?? context.destination);
     this.onIdle = onIdle;
+    this.onFirstAudioScheduled = onFirstAudioScheduled;
   }
 
   get generation(): number {
@@ -93,6 +110,7 @@ export class AudioQueue {
    */
   startGeneration(genId: number): void {
     this.currentGeneration = genId;
+    this.firstAudioReported = false;
   }
 
   /**
@@ -124,13 +142,18 @@ export class AudioQueue {
       const startAt = this.clock.nextStartTime();
       source.start(startAt);
       this.clock.noteScheduled(startAt, buffer.duration);
+      if (!this.firstAudioReported) {
+        this.firstAudioReported = true;
+        const leadMs = Math.max(0, (startAt - this.context.currentTime) * 1000);
+        this.onFirstAudioScheduled?.(chunk.genId, leadMs);
+      }
 
       this.sources.add(source);
       source.onended = () => {
         this.sources.delete(source);
         // Естественный конец речи: последний source этого поколения доиграл
         // и в полёте больше ничего не декодируется — тишина наступила по-настоящему.
-        if (this.isIdle) this.onIdle?.();
+        if (this.isIdle) this.onIdle?.('ended');
       };
     } catch (error) {
       // Битый чанк не должен ронять сессию: один пропущенный кусок звука
@@ -160,6 +183,7 @@ export class AudioQueue {
     }
     this.sources.clear();
     this.clock.reset();
-    this.onIdle?.();
+    this.firstAudioReported = false;
+    this.onIdle?.('stopped');
   }
 }

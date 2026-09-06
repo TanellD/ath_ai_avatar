@@ -1,50 +1,119 @@
-/**
- * Захват микрофона — фаза [STT]. Определение без реализации.
- *
- * См. README.md в этом каталоге и docs/stt-phase.md.
- * Ничто в проекте отсюда не импортирует.
- */
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type MicState = 'idle' | 'listening' | 'recognizing' | 'denied' | 'unavailable';
 
 export interface MicCapture {
   state: MicState;
-  /** Уровень сигнала 0..1 — для индикатора «вас слышно». */
   level: number;
   start: () => Promise<void>;
-  stop: () => void;
+  stop: () => Promise<void>;
 }
 
-/**
- * Ограничения потока фиксируем здесь заранее — это не «настройки по вкусу»,
- * а требование Claude.md §3 и §8.
- *
- * `echoCancellation` обязателен: без него микрофон слышит персонажа из
- * колонок, VAD принимает это за речь пользователя, и персонаж перебивает сам
- * себя. На демо страхуемся наушниками (§10), но полагаться только на них
- * нельзя — «прогнать на чужом вайфае через проектор» (§11) означает, что
- * условия будут не те, в которых отлаживались.
- */
+interface Options {
+  onFrame: (frame: ArrayBuffer) => void;
+  onError: (message: string) => void;
+}
+
 export const MIC_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: true,
   noiseSuppression: true,
   autoGainControl: true,
   channelCount: 1,
-  sampleRate: 16000,
 };
 
-// export function useMicCapture(): MicCapture {
-//   // 1. navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS })
-//   //    Ошибку NotAllowedError мапить в VoiceError { type: 'permission' } —
-//   //    пользователь должен видеть, что дело в разрешении, а не в сети.
-//   //
-//   // 2. AudioWorklet (не ScriptProcessor — он deprecated и работает в
-//   //    основном потоке, то есть отдаёт фреймы с джиттером).
-//   //
-//   // 3. Фреймы уходят в useVad() локально И в сокет на gateway. Локальный
-//   //    путь не ждёт сетевого: на нём держится метрика 3.
-//   //
-//   // 4. Микрофон захвачен ВСЁ время, включая речь персонажа (§8) — иначе
-//   //    перебить голосом нельзя.
-//   throw new Error('[STT] not implemented — см. README.md');
-// }
+export function useMicCapture({ onFrame, onError }: Options): MicCapture {
+  const callbacks = useRef({ onFrame, onError });
+  callbacks.current = { onFrame, onError };
+  const resources = useRef<{
+    stream: MediaStream;
+    context: AudioContext;
+    worklet: AudioWorkletNode;
+  } | null>(null);
+  const startEpoch = useRef(0);
+  const [state, setState] = useState<MicState>('idle');
+  const [level, setLevel] = useState(0);
+
+  const cleanup = useCallback(async () => {
+    const current = resources.current;
+    resources.current = null;
+    if (!current) return;
+    current.stream.getTracks().forEach((track) => track.stop());
+    current.worklet.disconnect();
+    await current.context.close();
+  }, []);
+
+  const start = useCallback(async () => {
+    if (resources.current) return;
+    const epoch = ++startEpoch.current;
+    if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
+      setState('unavailable');
+      callbacks.current.onError('Браузер не поддерживает захват речи');
+      throw new Error('microphone capture is unavailable');
+    }
+    let stream: MediaStream | null = null;
+    let context: AudioContext | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS });
+      if (epoch !== startEpoch.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      context = new AudioContext();
+      await context.audioWorklet.addModule('/pcm-capture.worklet.js');
+      if (epoch !== startEpoch.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        await context.close();
+        return;
+      }
+      const source = context.createMediaStreamSource(stream);
+      const worklet = new AudioWorkletNode(context, 'pcm-capture-processor');
+      const silent = context.createGain();
+      silent.gain.value = 0;
+      worklet.port.onmessage = (event: MessageEvent) => {
+        if (event.data?.type !== 'pcm') return;
+        const frame = event.data.buffer as ArrayBuffer;
+        const samples = new Int16Array(frame);
+        let peak = 0;
+        for (const sample of samples) peak = Math.max(peak, Math.abs(sample) / 32768);
+        setLevel(peak);
+        callbacks.current.onFrame(frame);
+      };
+      source.connect(worklet).connect(silent).connect(context.destination);
+      resources.current = { stream, context, worklet };
+      stream = null;
+      context = null;
+      setState('listening');
+    } catch (cause) {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (context && context.state !== 'closed') await context.close();
+      await cleanup();
+      const denied = cause instanceof DOMException && cause.name === 'NotAllowedError';
+      setState(denied ? 'denied' : 'unavailable');
+      callbacks.current.onError(
+        denied ? 'Разрешите доступ к микрофону' : 'Не удалось включить микрофон',
+      );
+      throw cause;
+    }
+  }, [cleanup]);
+
+  const stop = useCallback(async () => {
+    startEpoch.current += 1;
+    const current = resources.current;
+    if (!current) return;
+    setState('recognizing');
+    await new Promise<void>((resolve) => {
+      const previous = current.worklet.port.onmessage;
+      current.worklet.port.onmessage = (event: MessageEvent) => {
+        previous?.call(current.worklet.port, event);
+        if (event.data?.type === 'flushed') resolve();
+      };
+      current.worklet.port.postMessage({ type: 'flush' });
+    });
+    await cleanup();
+    setLevel(0);
+  }, [cleanup]);
+
+  useEffect(() => () => void cleanup(), [cleanup]);
+
+  return { state, level, start, stop };
+}

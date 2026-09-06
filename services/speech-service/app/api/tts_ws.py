@@ -1,11 +1,9 @@
 """WebSocket синтеза — Claude.md §3, §10.
 
-Протокол: клиент (gateway) присылает один `TtsRequest`, сервис отвечает
-потоком `TtsChunk` и закрывает соединение после чанка с `is_final=True`.
-
-Одно соединение на предложение, а не на сессию. Так отмена поколения — это
-просто закрытие сокета со стороны gateway, и внутри протокола не нужен
-отдельный кадр «отмена». Меньше состояний — меньше способов уронить метрику 4.
+Протокол: первый `TtsRequest` задаёт голос и может завершать одиночный запрос.
+При `text_end=false` следующие `TtsTextChunk` дополняют ту же реплику, пока
+финальный кадр не завершит единый Soniox stream. Отмена поколения по-прежнему
+закрывает WebSocket и не требует отдельного управляющего сообщения.
 
 `gen_id` сервис не интерпретирует: он только возвращает его в каждом чанке,
 чтобы gateway мог отфильтровать хвост, не сопоставляя ответы по порядку.
@@ -13,8 +11,9 @@
 
 import base64
 import json
+from collections.abc import AsyncIterator
 
-from ath_contracts.api import TtsChunk, TtsRequest
+from ath_contracts.api import TtsChunk, TtsRequest, TtsTextChunk
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -48,9 +47,23 @@ async def tts_stream(websocket: WebSocket) -> None:
     )
 
     seq = request.seq
+
+    async def incoming_text() -> AsyncIterator[str]:
+        if request.text:
+            yield request.text
+        if request.text_end:
+            return
+        while True:
+            raw_chunk = await websocket.receive_text()
+            text_chunk = TtsTextChunk.model_validate(json.loads(raw_chunk))
+            if text_chunk.text:
+                yield text_chunk.text
+            if text_chunk.text_end:
+                return
+
     try:
-        async for chunk in provider.synthesize(
-            request.text,
+        async for chunk in provider.synthesize_stream(
+            incoming_text(),
             request.voice_id,
             request.emotion,
             request.intensity,
@@ -63,6 +76,9 @@ async def tts_stream(websocket: WebSocket) -> None:
                 format="wav",
                 sample_rate=chunk.sample_rate,
                 is_final=chunk.is_final,
+                subtitle_text=chunk.subtitle_text,
+                subtitle_start_ms=chunk.subtitle_start_ms,
+                subtitle_end_ms=chunk.subtitle_end_ms,
             )
             await websocket.send_text(payload.model_dump_json())
             seq += 1
@@ -80,4 +96,9 @@ async def tts_stream(websocket: WebSocket) -> None:
         await websocket.close(code=1011, reason="tts failure")
         return
 
-    await websocket.close()
+    try:
+        await websocket.close()
+    except WebSocketDisconnect:
+        # Клиент мог отменить поколение после последнего аудиочанка, но до
+        # завершающего close-handshake. Это штатная гонка, не ошибка сервиса.
+        return
