@@ -35,7 +35,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { gatewayApi, scenarioApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
@@ -44,7 +44,7 @@ import { cancelPlayback } from '@/audio/cancelPlayback';
 import { DEFAULT_PAUSE_DETECTOR_CONFIG, PauseDetector } from '@/audio/mic/PauseDetector';
 import { useMicCapture } from '@/audio/mic/useMicCapture';
 import {
-  AVATAR_MODELS,
+  avatarById,
   nextAvatarAfter,
   TalkingHeadAvatar,
   type AvatarModelConfig,
@@ -91,6 +91,7 @@ interface VoiceMetrics {
 
 export function TraineeSession() {
   const { scenarioId = '' } = useParams();
+  const [searchParams] = useSearchParams();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<SessionError | null>(null);
@@ -113,7 +114,14 @@ export function TraineeSession() {
   const [started, setStarted] = useState(false);
   /** Тренировка окончена — по кнопке сотрудника или по решению автомата (§3). */
   const [finished, setFinished] = useState(false);
-  const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(AVATAR_MODELS.aith);
+  // Выбор персонажа сотрудник делает на экране предпросмотра сценария
+  // (ScenarioPreview), до входа в разговор — id уезжает в query-параметр
+  // ссылки "Начать тренировку". Ленивый инициализатор: searchParams читаем
+  // ровно один раз при монтировании, дальнейшая смена аватара — через
+  // switchAvatar() в шапке, а не перечитыванием URL.
+  const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(() =>
+    avatarById(searchParams.get('avatar')),
+  );
   // Только для шапки (заголовок, прогресс по этапам) — не участвует ни в
   // одном инварианте отмены/поколений, поэтому обычный useState, не ref.
   const [scenario, setScenario] = useState<Scenario | null>(null);

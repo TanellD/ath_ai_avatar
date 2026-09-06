@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { scenarioApi } from '@/api/client';
+import { AVATAR_MODEL_LIST } from '@/avatar/TalkingHeadAvatar';
 import { ScenarioBriefing } from '@/components/ScenarioBriefing';
 import type { Scenario } from '@/contracts/events';
 import { renderBriefing, slotDefaults } from '@/scenario/briefing';
@@ -26,6 +27,7 @@ export function ScenarioPreview() {
   const { scenarioId = '' } = useParams();
   const [scenario, setScenario] = useState<Scenario | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [avatarId, setAvatarId] = useState(AVATAR_MODEL_LIST[0].id);
 
   useEffect(() => {
     scenarioApi
@@ -92,11 +94,29 @@ export function ScenarioPreview() {
         </ul>
       </section>
 
+      <section className="card report__section">
+        <span className="eyebrow">Персонаж</span>
+        <h2>Кто будет разговаривать</h2>
+        <div className="avatar-picker">
+          {AVATAR_MODEL_LIST.map((model) => (
+            <button
+              key={model.id}
+              type="button"
+              className={`tag-chip${model.id === avatarId ? ' tag-chip--active' : ''}`}
+              aria-pressed={model.id === avatarId}
+              onClick={() => setAvatarId(model.id)}
+            >
+              {model.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <div className="scenario-preview__actions">
         <Link to="/scenarios" className="btn btn-gray">
           Назад к списку
         </Link>
-        <Link to={`/session/${scenario.id}`} className="btn btn-primary">
+        <Link to={`/session/${scenario.id}?avatar=${avatarId}`} className="btn btn-primary">
           Начать тренировку
         </Link>
       </div>
