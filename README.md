@@ -70,19 +70,31 @@ curl localhost:8050/scenarios # засеянные шаблоны сценари
 
 ### С реальными моделями
 
-LLM — Anthropic (реализован) или OpenAI-совместимый прокси/VseLLM
-(реализован, второй вариант — по итогам ветки `poc`):
+LLM — Anthropic (реализован) или OpenAI-совместимый прокси (реализован,
+второй вариант — по итогам ветки `poc`): либо VseLLM/любой другой прокси,
+либо своя Ollama. Фактически используемая сейчас команда — второй вариант,
+`qwen3.6:35b` на удалённом сервере (см. `.env.example`, «Альтернатива
+VseLLM», и `docs/PROJECT_DESCRIPTION.md`, «Переход на локальную модель»):
 
 ```dotenv
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
-# либо
+# либо любой OpenAI-совместимый прокси, например VseLLM —
+# LLM_FAST_MODEL/LLM_STRONG_MODEL здесь ставятся в имя модели ЭТОГО прокси,
+# не Anthropic:
 LLM_PROVIDER=openai_compatible
 OPENAI_COMPATIBLE_BASE_URL=https://api.vsellm.ru/v1
 OPENAI_COMPATIBLE_API_KEY=...
-LLM_FAST_MODEL=google/gemini-2.5-flash    # имя модели ЭТОГО прокси
+LLM_FAST_MODEL=google/gemini-2.5-flash
 LLM_STRONG_MODEL=google/gemini-2.5-flash
+
+# либо своя Ollama — фактическая текущая конфигурация:
+LLM_PROVIDER=openai_compatible
+OPENAI_COMPATIBLE_BASE_URL=https://qamal.tail8bbd5b.ts.net/v1
+OPENAI_COMPATIBLE_API_KEY=ollama
+LLM_FAST_MODEL=qwen3.6:35b
+LLM_STRONG_MODEL=qwen3.6:35b
 ```
 
 TTS — Soniox (реализован, голос Reese):

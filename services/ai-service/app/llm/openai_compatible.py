@@ -1,14 +1,16 @@
-"""Провайдер OpenAI-совместимого API (VseLLM/gemini) — второй вариант LLM.
+"""Провайдер OpenAI-совместимого API — второй вариант LLM.
 
-Добавлен по итогам ветки `poc`: рабочий стек хакатон-команды — VseLLM
-(OpenAI-совместимый прокси) → `google/gemini-2.5-flash`. Не замена
-AnthropicProvider, а второй селектируемый вариант:
-`LLM_PROVIDER=openai_compatible`.
+Добавлен по итогам ветки `poc` изначально для VseLLM (OpenAI-совместимый
+прокси) → `google/gemini-2.5-flash`. Тот же провайдер сейчас использует
+фактическая рабочая конфигурация команды — собственная Ollama на удалённом
+сервере, модель `qwen3.6:35b` (см. docs/PROJECT_DESCRIPTION.md, «Переход на
+локальную модель», и `.env.example`). Не замена AnthropicProvider, а второй
+селектируемый вариант: `LLM_PROVIDER=openai_compatible`.
 
 Модель берётся из тех же `LLM_FAST_MODEL`/`LLM_STRONG_MODEL`, что и у
 Anthropic — отдельных переменных под конкретный провайдер не заводим,
-значение просто передаётся дальше как есть (для VseLLM это
-`"google/gemini-2.5-flash"`).
+значение просто передаётся дальше как есть (сейчас это `"qwen3.6:35b"`, для
+VseLLM было бы `"google/gemini-2.5-flash"`).
 
 Structured output здесь не то же самое, что у Anthropic.
 `response_format={"type": "json_object"}` — стандартный параметр Chat
@@ -126,6 +128,17 @@ async def _strip_inline_reasoning(chunks: AsyncIterator[str]) -> AsyncIterator[s
                 if start > 0:
                     yield buffer[:start]
                     buffer = buffer[start:]
+                if len(buffer) < 2:
+                    # Видели только "<" — не знаем ещё, что за ним: буква
+                    # (потенциальный тег) или что угодно другое. Ждём.
+                    break
+                if not buffer[1].isalpha():
+                    # После "<" не буква — не начало тега (например, "цена
+                    # < 100"). Не ждём ">" неопределённо долго — отдаём "<"
+                    # как обычный символ и разбираем остаток буфера сразу.
+                    yield buffer[0]
+                    buffer = buffer[1:]
+                    continue
                 end = buffer.find(">")
                 if end == -1:
                     # Открывающий тег ещё не долетел целиком — ждём.
@@ -159,7 +172,18 @@ async def _strip_inline_reasoning(chunks: AsyncIterator[str]) -> AsyncIterator[s
             in_tag = False
             close_tag = ""
 
-    if buffer and not in_tag:
+    if in_tag:
+        # Стрим оборвался внутри рассуждения — незакрытый тег означает, что
+        # вся реплика персонажа молча ушла в пустоту (см. коммит,
+        # добавивший эту функцию). Раньше это было видно только по тому, что
+        # клиент навсегда завис на "Персонаж думает" — теперь хотя бы видно
+        # в логах, что причина именно здесь, а не где-то ещё в конвейере.
+        log.warning(
+            "openai_compatible.unterminated_reasoning_tag",
+            close_tag=close_tag,
+            buffered_chars=len(buffer),
+        )
+    elif buffer:
         yield buffer
 
 

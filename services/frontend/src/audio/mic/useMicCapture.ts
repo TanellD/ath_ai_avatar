@@ -101,12 +101,29 @@ export function useMicCapture({ onFrame, onError }: Options): MicCapture {
     const current = resources.current;
     if (!current) return;
     setState('recognizing');
+    // `flushed` приходит из process() воркета, а он не тикает, если
+    // AudioContext успел уйти в suspended (например, вкладку свернули —
+    // именно тогда TraineeSession и дёргает stop() по visibilitychange).
+    // Без таймаута promise висел бы вечно, а с ним — speech_end никогда бы
+    // не ушёл, и UI застревал бы в 'recognizing' до серверного watchdog.
     await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
       const previous = current.worklet.port.onmessage;
       current.worklet.port.onmessage = (event: MessageEvent) => {
         previous?.call(current.worklet.port, event);
-        if (event.data?.type === 'flushed') resolve();
+        if (event.data?.type === 'flushed') finish();
       };
+      // Не тайминг мимики/субтитров (Claude.md §3 запрещает именно это) — это
+      // предохранитель на случай зависшего postMessage-хендшейка с воркетом,
+      // от аудио-часов никак не зависящий.
+      // eslint-disable-next-line no-restricted-globals
+      const timer = setTimeout(finish, 300);
       current.worklet.port.postMessage({ type: 'flush' });
     });
     await cleanup();
