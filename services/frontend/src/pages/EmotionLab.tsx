@@ -4,6 +4,7 @@ import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import {
   AVATAR_MODELS,
+  AVATAR_MODEL_LIST,
   TalkingHeadAvatar,
   type AvatarModelConfig,
   type AvatarPlaybackHandle,
@@ -143,22 +144,28 @@ interface TtsChunk {
   is_final: boolean;
 }
 
-/** Оба поколения — только aith и tom; выбор модели раньше требовал
- *  `?model=` в URL и полной перезагрузки страницы (см. историю AvatarLab,
- *  docs/bugs_front.md №7). Порядок — тот, что видит выпадающий список. */
-const AVATAR_MODEL_OPTIONS = [AVATAR_MODELS.aith, AVATAR_MODELS.tom];
+/** Порядок выпадающего списка — общий с экраном тренировки
+ *  (AVATAR_MODEL_LIST). Раньше здесь лежала своя пара aith+tom, и добавление
+ *  третьей модели её бы не заметило. Выбор модели когда-то требовал `?model=`
+ *  в URL и перезагрузки страницы — см. историю AvatarLab, docs/bugs_front.md №7. */
 
 export function EmotionLab() {
   const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(() => {
     const requested = new URLSearchParams(window.location.search).get('model');
-    return requested === AVATAR_MODELS.tom.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith;
+    return AVATAR_MODEL_LIST.find((model) => model.id === requested) ?? AVATAR_MODELS.aith;
   });
   const isTom = avatarModel.id === AVATAR_MODELS.tom.id;
-  const voices = isTom ? TOM_VOICES : AITH_VOICES;
+  /**
+   * Не `isTom`: реплики и голоса делятся по РОДУ персонажа, а не по модели.
+   * Vincent тоже мужской, и с добавлением третьей модели «том или не том»
+   * начало отвечать не на тот вопрос.
+   */
+  const usesMaleVoice = avatarModel.id !== AVATAR_MODELS.aith.id;
+  const voices = usesMaleVoice ? TOM_VOICES : AITH_VOICES;
   const [emotion, setEmotion] = useState<Emotion>('neutral');
   const [intensity, setIntensity] = useState<EmotionIntensity>('strong');
   const [sampleLength, setSampleLength] = useState<SampleLength>('short');
-  const [voice, setVoice] = useState(isTom ? 'Daniel' : 'Reese');
+  const [voice, setVoice] = useState(usesMaleVoice ? 'Daniel' : 'Reese');
   const [enhancedProsody, setEnhancedProsody] = useState(true);
   const [text, setText] = useState(EMOTIONS[0].sample);
   const [rig, setRig] = useState<LabRig | null>(null);
@@ -189,7 +196,7 @@ export function EmotionLab() {
 
   const selectEmotion = (next: (typeof EMOTIONS)[number]) => {
     setEmotion(next.value);
-    const samples = isTom ? TOM_SAMPLES[next.value] : next;
+    const samples = usesMaleVoice ? TOM_SAMPLES[next.value] : next;
     setText(sampleLength === 'long' ? samples.longSample : samples.sample);
     rig?.setEmotion(next.value);
   };
@@ -197,7 +204,7 @@ export function EmotionLab() {
   const selectSampleLength = (next: SampleLength) => {
     setSampleLength(next);
     const current = EMOTIONS.find((item) => item.value === emotion) ?? EMOTIONS[0];
-    const samples = isTom ? TOM_SAMPLES[current.value] : current;
+    const samples = usesMaleVoice ? TOM_SAMPLES[current.value] : current;
     setText(next === 'long' ? samples.longSample : samples.sample);
   };
 
@@ -209,11 +216,11 @@ export function EmotionLab() {
     if (next.id === avatarModel.id) return;
     stop();
     setRig(null);
-    const nextIsTom = next.id === AVATAR_MODELS.tom.id;
+    const nextIsMale = next.id !== AVATAR_MODELS.aith.id;
     const current = EMOTIONS.find((item) => item.value === emotion) ?? EMOTIONS[0];
-    const samples = nextIsTom ? TOM_SAMPLES[current.value] : current;
+    const samples = nextIsMale ? TOM_SAMPLES[current.value] : current;
     setAvatarModel(next);
-    setVoice(nextIsTom ? 'Daniel' : 'Reese');
+    setVoice(nextIsMale ? 'Daniel' : 'Reese');
     setText(sampleLength === 'long' ? samples.longSample : samples.sample);
   };
 
@@ -309,11 +316,11 @@ export function EmotionLab() {
           <select
             value={avatarModel.id}
             onChange={(event) => {
-              const next = AVATAR_MODEL_OPTIONS.find((m) => m.id === event.target.value);
+              const next = AVATAR_MODEL_LIST.find((m) => m.id === event.target.value);
               if (next) selectModel(next);
             }}
           >
-            {AVATAR_MODEL_OPTIONS.map((model) => (
+            {AVATAR_MODEL_LIST.map((model) => (
               <option key={model.id} value={model.id}>
                 {model.label}
               </option>

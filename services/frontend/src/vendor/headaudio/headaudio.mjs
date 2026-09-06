@@ -57,6 +57,15 @@ class HeadAudio extends AudioWorkletNode {
       0.65, 0.65, 0.65, 0.65, 0.65
     ];
     this.visemeAlphas = new Array( this.nVisemes ).fill(0);
+    this.visemeRampMs = 100;
+    // Фильтр на ВЫХОДНОМ значении морфа. Разгон (visemeRampMs) сглаживает
+    // только набор альфы; когда виземы сменяются каждые 60-80 мс, ни одна не
+    // успевает доехать, и их значения болтаются в средней зоне, где сигмоида
+    // easing самая крутая - малое изменение альфы даёт большой скачок морфа.
+    // Экспоненциальное сглаживание убирает эту дрожь независимо от частоты
+    // смены. 0 - фильтр выключен, поведение ванильное.
+    this.visemeSmoothMs = 0;
+    this.visemeOut = new Array( this.nVisemes ).fill(0);
     this.visemeActive = -1;
     this.easing = this.sigmoidFactory(5);
 
@@ -185,7 +194,12 @@ class HeadAudio extends AudioWorkletNode {
   * @param {number} dt Delta time in milliseconds.
   */
   update(dt) {
-    const da = dt / 100;
+    // Длительность полного хода виземы 0->1 в миллисекундах. Ванильное
+    // значение 100 мс: в речи виземы сменяются каждые 60-120 мс, поэтому рот
+    // не успевает доехать до формы и щёлкает между ними. Свойство вынесено
+    // наружу, чтобы задавать его на модель: у мультяшного персонажа с крупным
+    // ртом дёрганье заметнее, чем у реалистичного.
+    const da = dt / (this.visemeRampMs || 100);
 
     for( let i=0; i<this.nVisemes; i++ ) {
 
@@ -211,12 +225,23 @@ class HeadAudio extends AudioWorkletNode {
       }
 
       // If value changed, apply callback
+      this.visemeAlphas[i] = alpha;
+      let val = this.visemeMaxs[i] * this.easing( alpha );
+
+      if ( this.visemeSmoothMs > 0 ) {
+        const prev = this.visemeOut[i];
+        const k = 1 - Math.exp( -dt / this.visemeSmoothMs );
+        val = prev + ( val - prev ) * k;
+        this.visemeOut[i] = val;
+        // Досылать значения и после того, как альфа замерла: фильтру нужно
+        // время доехать до цели, иначе морф застынет на полпути.
+        if ( Math.abs( val - prev ) > 0.0005 ) changed = true;
+      }
+
       if ( changed ) {
-        let val = this.visemeMaxs[i] * this.easing( alpha );
         if ( this.onvalue && typeof this.onvalue === "function" ) {
           this.onvalue( this.visemeNames[i], val );
         }
-        this.visemeAlphas[i] = alpha;
       }
     }
 

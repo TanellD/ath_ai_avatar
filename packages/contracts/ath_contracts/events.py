@@ -22,7 +22,7 @@ from ath_contracts.report import Report
 # ---------------------------------------------------------------------------
 
 
-AvatarId = Literal["avatar-aith", "tom-avatar"]
+AvatarId = Literal["avatar-aith", "tom-avatar", "vincent-avatar"]
 """Профили аватаров. Рендер-настройки живут на клиенте (AVATAR_MODELS),
 сервер знает только, какой голос и какие служебные реплики с ними связаны."""
 

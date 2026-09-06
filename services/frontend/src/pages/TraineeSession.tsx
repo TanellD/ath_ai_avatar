@@ -45,6 +45,7 @@ import { DEFAULT_PAUSE_DETECTOR_CONFIG, PauseDetector } from '@/audio/mic/PauseD
 import { useMicCapture } from '@/audio/mic/useMicCapture';
 import {
   AVATAR_MODELS,
+  nextAvatarAfter,
   TalkingHeadAvatar,
   type AvatarModelConfig,
   type AvatarPlaybackHandle,
@@ -674,10 +675,11 @@ export function TraineeSession() {
     audio.queue.stopAll();
     audio.resetFace();
     setAudio(null);
-    setAvatarModel((current) =>
-      current.id === AVATAR_MODELS.aith.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith,
-    );
+    setAvatarModel(nextAvatarAfter(avatarModel));
   };
+
+  /** Следующая модель по кругу. Списком, а не парой: аватаров уже три. */
+  const nextAvatar = nextAvatarAfter(avatarModel);
 
   // ------------------------------------------------------------------ рендер
 
@@ -729,7 +731,7 @@ export function TraineeSession() {
             onClick={switchAvatar}
             disabled={!audio || playback !== 'idle'}
           >
-            Переключить на {avatarModel.id === AVATAR_MODELS.aith.id ? 'Tom' : 'avatar-aith'}
+            Переключить на {nextAvatar.label}
           </button>
           <button
             type="button"
