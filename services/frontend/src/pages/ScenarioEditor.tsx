@@ -176,11 +176,28 @@ export function ScenarioEditor() {
   // Подстановка без слота доедет до сотрудника фигурными скобками прямо в
   // тексте: подставить её будет нечем. Показываем сразу, не дожидаясь
   // сохранения, — это опечатка, а не ошибка формы.
+  //
+  // Ищем по ВСЕМ полям, а не по одному брифу: подстановки ставятся и в реплики
+  // персонажа, и в персону — там их произносят вслух, и незамеченная скобка
+  // видна ещё заметнее, чем в тексте обстановки.
   const unknownPlaceholders = useMemo(() => {
     const declared = new Set(scenario.slots.map((slot) => slot.id.trim()));
-    const used = [...scenario.briefing.matchAll(/\{(\w+)\}/g)].map((match) => match[1]);
+    const texts = [
+      scenario.title,
+      scenario.briefing,
+      scenario.persona.name,
+      scenario.persona.role,
+      scenario.persona.character,
+      ...scenario.stages.flatMap((stage) => [
+        stage.goal,
+        stage.agent_opening,
+        stage.completion_criteria,
+      ]),
+      ...scenario.rubric.flatMap((item) => [item.name, item.description]),
+    ];
+    const used = texts.flatMap((text) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]));
     return [...new Set(used.filter((name) => !declared.has(name)))];
-  }, [scenario.briefing, scenario.slots]);
+  }, [scenario]);
 
   const patch = useCallback((update: Partial<Scenario>) => {
     setScenario((current) => ({ ...current, ...update }));
@@ -315,7 +332,7 @@ export function ScenarioEditor() {
                 {generating === 'draft' ? 'Собираем черновик…' : 'Развернуть черновик'}
               </button>
               <span className="modal-hint">
-                Займёт до минуты: сценарий целиком собирает сильная модель.
+                Займёт минуту-две: сценарий целиком собирает сильная модель.
                 Этапов и критериев будет столько же, сколько сейчас в форме.
               </span>
             </div>
@@ -566,8 +583,9 @@ export function ScenarioEditor() {
 
           {unknownPlaceholders.length > 0 && (
             <p className="scenario-form__error">
-              В тексте есть подстановки без слота: {unknownPlaceholders.join(', ')}. Сотрудник
-              увидит их фигурными скобками как есть.
+              Есть подстановки без слота: {unknownPlaceholders.join(', ')}. Подставить их
+              будет нечем — сотрудник увидит фигурные скобки как есть, а персонаж
+              произнесёт их вслух.
             </p>
           )}
 

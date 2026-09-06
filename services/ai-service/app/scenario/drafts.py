@@ -21,6 +21,7 @@
 """
 
 import re
+from collections.abc import Callable
 
 from ath_contracts import Persona, RubricItem, ScenarioSlot, Stage
 from ath_contracts.api import RubricDraft, ScenarioDraftResponse
@@ -93,56 +94,102 @@ def build_details(raw: dict, slots: list[ScenarioSlot]) -> dict[str, str]:
     }
 
 
-def _briefing_and_slots(raw: dict) -> tuple[str, list[ScenarioSlot]]:
-    """Бриф и слоты, согласованные между собой.
+_TEXT_FIELDS = {
+    "stage": ("goal", "agent_opening", "completion_criteria"),
+    "rubric": ("name", "description"),
+    "persona": ("name", "role", "character"),
+}
+"""Поля, по которым идёт подстановка, — те же, что у `render_scenario`.
 
-    Два расхождения, которые схема допускает, а сотрудник увидит глазами:
+Идентификаторы сюда не входят никогда: по ним ходит автомат этапов, покрытие
+рубрики в отчёте и ссылки.
+"""
 
-    - id слота приходится приводить к слагу, как и остальные, — но он ещё и
-      стоит в тексте как `{id}`. Переименовываем слот и подстановку вместе,
-      иначе значение просто не подставится;
-    - подстановка без объявленного слота остаётся в тексте как есть, и
-      сотрудник читает «Вы продаёте {product}». Объявляем такой слот заготовкой:
-      методист увидит в форме недописанную строку и допишет её — это лучше, чем
-      фигурные скобки в тексте у сотрудника.
-    """
-    raw_slots = raw.get("slots", [])
-    ids = _unique_ids(raw_slots, "slot")
-    renames = {str(slot.get("id", "")): new for slot, new in zip(raw_slots, ids, strict=True)}
 
+def _slot_renames(raw_slots: list[dict], ids: list[str]) -> dict[str, str]:
+    return {str(slot.get("id", "")): new for slot, new in zip(raw_slots, ids, strict=True)}
+
+
+def _repairer(renames: dict[str, str]) -> Callable[[str], str]:
     def repair(match: re.Match[str]) -> str:
         name = match.group(1)
         return "{" + (renames.get(name) or _slug(name, name)) + "}"
 
-    briefing = _REPAIRABLE.sub(repair, raw.get("briefing", ""))
+    return lambda text: _REPAIRABLE.sub(repair, text or "")
 
-    slots = [
-        ScenarioSlot.model_validate({**slot, "id": slot_id})
-        for slot, slot_id in zip(raw_slots, ids, strict=True)
-    ]
 
-    declared = {slot.id for slot in slots}
-    for name in dict.fromkeys(_PLACEHOLDER.findall(briefing)):
-        if name not in declared:
-            slots.append(ScenarioSlot(id=name, label=name, hint=name, example=name))
-
-    return briefing, slots
+def _fix(raw_item: dict, fields: tuple[str, ...], repair: Callable[[str], str]) -> dict:
+    return {**raw_item, **{field: repair(raw_item.get(field, "")) for field in fields}}
 
 
 def build_scenario_draft(raw: dict) -> ScenarioDraftResponse:
+    """Черновик, у которого подстановки и слоты сходятся между собой.
+
+    Два расхождения схема допускает, а сотрудник увидит глазами:
+
+    - id слота приходится приводить к слагу, как и остальные, — но он ещё и
+      стоит в тексте как `{id}`. Переименовываем слот и подстановки вместе,
+      иначе значение просто не подставится;
+    - подстановка без объявленного слота остаётся в тексте как есть, и
+      сотрудник читает «Вы продаёте {product}». Объявляем такой слот
+      заготовкой: методист увидит в форме недописанную строку и допишет её —
+      это лучше, чем фигурные скобки в тексте у сотрудника.
+
+    Чинится ВЕСЬ текст, а не только бриф. Живой ответ модели на первой же
+    проверке разложил пять слотов по трём местам: `{clinic_name}` — и в бриф, и
+    в реплику этапа, `{appointment_time}` и `{new_time}` — только в реплики
+    этапов, в брифе их нет вовсе. Правь мы один бриф, переименованный слот
+    разъехался бы ровно с тем текстом, который персонаж произносит вслух.
+    """
+    raw_slots = raw.get("slots", [])
+    slot_ids = _unique_ids(raw_slots, "slot")
+    repair = _repairer(_slot_renames(raw_slots, slot_ids))
+
     raw_stages = raw.get("stages", [])
     stage_ids = _unique_ids(raw_stages, "stage")
-    briefing, slots = _briefing_and_slots(raw)
 
-    return ScenarioDraftResponse(
-        title=raw.get("title", ""),
-        persona=Persona.model_validate(raw.get("persona", {})),
+    draft = ScenarioDraftResponse(
+        title=repair(raw.get("title", "")),
+        persona=Persona.model_validate(
+            _fix(raw.get("persona", {}), _TEXT_FIELDS["persona"], repair)
+        ),
         stages=[
-            Stage.model_validate({**stage, "id": stage_id})
+            Stage.model_validate({**_fix(stage, _TEXT_FIELDS["stage"], repair), "id": stage_id})
             for stage, stage_id in zip(raw_stages, stage_ids, strict=True)
         ],
-        rubric=_rubric_items(raw.get("rubric", [])),
+        rubric=_rubric_items(
+            [_fix(item, _TEXT_FIELDS["rubric"], repair) for item in raw.get("rubric", [])]
+        ),
         tags=raw.get("tags", []),
-        briefing=briefing,
-        slots=slots,
+        briefing=repair(raw.get("briefing", "")),
+        slots=[
+            ScenarioSlot.model_validate({**slot, "id": slot_id})
+            for slot, slot_id in zip(raw_slots, slot_ids, strict=True)
+        ],
     )
+
+    return draft.model_copy(update={"slots": _with_missing_slots(draft)})
+
+
+def _with_missing_slots(draft: ScenarioDraftResponse) -> list[ScenarioSlot]:
+    """Заготовки под подстановки, которые модель забыла объявить."""
+    declared = {slot.id for slot in draft.slots}
+    extra = [
+        name
+        for name in dict.fromkeys(_PLACEHOLDER.findall(_all_text(draft)))
+        if name not in declared
+    ]
+    return [
+        *draft.slots,
+        *(ScenarioSlot(id=name, label=name, hint=name, example=name) for name in extra),
+    ]
+
+
+def _all_text(draft: ScenarioDraftResponse) -> str:
+    parts = [draft.title, draft.briefing]
+    parts += [getattr(draft.persona, field) for field in _TEXT_FIELDS["persona"]]
+    parts += [getattr(stage, f) for stage in draft.stages for f in _TEXT_FIELDS["stage"]]
+    parts += [getattr(item, f) for item in draft.rubric for f in _TEXT_FIELDS["rubric"]]
+    # Разделитель любой, лишь бы не склеивал слова: текст здесь только
+    # сканируется на подстановки, а не читается.
+    return " ".join(parts)

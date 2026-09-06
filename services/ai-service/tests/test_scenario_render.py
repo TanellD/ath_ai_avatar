@@ -169,3 +169,75 @@ async def test_mock_provider_fills_every_declared_slot() -> None:
     )
 
     assert set(build_details(raw, SLOTS)) == {"company", "product"}
+
+
+def test_slot_renaming_reaches_stage_text_not_only_the_briefing() -> None:
+    """Живой ответ модели на первой же проверке разложил пять слотов по трём
+    местам: один — и в бриф, и в реплику этапа, два — ТОЛЬКО в реплики этапов,
+    в брифе их не было вовсе. Правь мы один бриф, переименованный слот
+    разъехался бы ровно с тем текстом, который персонаж произносит вслух.
+    """
+    draft = build_scenario_draft(
+        {
+            "title": "Т",
+            "persona": {
+                "name": "Марина",
+                "role": "пациентка клиники {Clinic-Name}",
+                "character": "раздражена",
+                "mood": "irritated",
+                "difficulty": 3,
+            },
+            "stages": [
+                {
+                    "id": "greeting",
+                    "goal": "Выслушать",
+                    "agent_opening": "Мне перенесли приём с {Appointment-Time}!",
+                    "completion_criteria": "Администратор извинился",
+                    "max_turns": 4,
+                }
+            ],
+            "rubric": [
+                {
+                    "id": "empathy",
+                    "name": "Эмпатия",
+                    "description": "Признал неудобство переноса с {Appointment-Time}",
+                    "scale": 5,
+                    "weight": 2.0,
+                }
+            ],
+            "tags": [],
+            "briefing": "Вы администратор клиники {Clinic-Name}.",
+            "slots": [
+                {"id": "Clinic-Name", "label": "Клиника", "hint": "х", "example": "Y"},
+                {"id": "Appointment-Time", "label": "Время", "hint": "х", "example": "Z"},
+            ],
+        }
+    )
+
+    assert [slot.id for slot in draft.slots] == ["clinic_name", "appointment_time"]
+    assert draft.persona.role == "пациентка клиники {clinic_name}"
+    assert draft.stages[0].agent_opening == "Мне перенесли приём с {appointment_time}!"
+    assert draft.rubric[0].description == "Признал неудобство переноса с {appointment_time}"
+    assert draft.briefing == "Вы администратор клиники {clinic_name}."
+
+
+def test_placeholder_declared_only_in_stage_text_still_gets_a_slot() -> None:
+    """Подстановка вне брифа — такая же дырка: её произносит персонаж."""
+    draft = build_scenario_draft(
+        {
+            "title": "Т",
+            "persona": scenario().persona.model_dump(mode="json"),
+            "stages": [
+                {
+                    **scenario().stages[0].model_dump(mode="json"),
+                    "agent_opening": "Мы в «{company}» берём {volume} в месяц.",
+                }
+            ],
+            "rubric": [scenario().rubric[0].model_dump(mode="json")],
+            "tags": [],
+            "briefing": "Вы продаёте в «{company}».",
+            "slots": [{"id": "company", "label": "Компания", "hint": "х", "example": "Y"}],
+        }
+    )
+
+    assert {slot.id for slot in draft.slots} == {"company", "volume", "product"}
