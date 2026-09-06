@@ -49,7 +49,19 @@ ACCEPTANCE_OUT=data/full_runs.jsonl python benchmarks/acceptance/full_runs.py
 ```
 
 Переопределяется окружением: `ACCEPTANCE_API`, `ACCEPTANCE_WS`,
-`ACCEPTANCE_OUT`, `ACCEPTANCE_AVATAR`, `ACCEPTANCE_RUNS`.
+`ACCEPTANCE_OUT`, `ACCEPTANCE_AVATAR`, `ACCEPTANCE_RUNS`,
+`ACCEPTANCE_SCENARIO` (гонять только один сценарий).
+
+**Пороги ожидания тоже настраиваются, и это важнее, чем кажется:**
+`ACCEPTANCE_FIRST_EVENT_SEC`, `ACCEPTANCE_IDLE_SEC`,
+`ACCEPTANCE_TURN_BUDGET_SEC`, `ACCEPTANCE_REPORT_BUDGET_SEC`. Они зависят от
+провайдера, а не от кода. На живом прогоне смена базового URL на прокси
+сдвинула первое предложение с третьей секунды на 63-ю: стенд сдавался по
+своему лимиту, слал следующую реплику, та отменяла ещё не доехавшее
+поколение — и так по кругу. Выглядело как зависший сервис, хотя сервис
+работал. Если прогон идёт по кругу одними и теми же репликами и в транскрипте
+нет ответов персонажа — поднимите `ACCEPTANCE_FIRST_EVENT_SEC` прежде, чем
+искать баг в сервисе.
 
 Один прогон занимает 3–7 минут: диалог из 4–12 ходов плюс оценка сильной
 моделью. Результат — по строке JSON на прогон в `ACCEPTANCE_OUT`

@@ -36,11 +36,18 @@ AVATAR = os.environ.get("ACCEPTANCE_AVATAR", "avatar-aith")
 OUT = os.environ.get("ACCEPTANCE_OUT", "/data/full_runs.jsonl")
 RUNS = int(os.environ.get("ACCEPTANCE_RUNS", "5"))
 
-MAX_TURNS = 26          # предохранитель: сценарию хватает 18
-IDLE_SEC = 6.0          # тишина, означающая «персонаж договорил»
-FIRST_EVENT_SEC = 60.0  # до первого события успевают LLM и первый чанк TTS
-TURN_BUDGET_SEC = 150.0
-REPORT_BUDGET_SEC = 240.0  # оценка идёт сильной моделью, таймаут у неё 120 с
+MAX_TURNS = int(os.environ.get("ACCEPTANCE_MAX_TURNS", "26"))  # сценарию хватает 18
+
+# Пороги ожидания — переменными окружения, а не константами в коде. Урок с
+# живого прогона: они молча зашивали предположение о скорости провайдера. При
+# смене базового URL на прокси первое предложение стало приходить на 63-й
+# секунде вместо третьей, стенд сдавался по своему 60-секундному лимиту, слал
+# следующую реплику — та отменяла ещё не доехавшее поколение, и так по кругу.
+# Выглядело как зависший сервис, хотя сервис работал.
+IDLE_SEC = float(os.environ.get("ACCEPTANCE_IDLE_SEC", "15"))
+FIRST_EVENT_SEC = float(os.environ.get("ACCEPTANCE_FIRST_EVENT_SEC", "180"))
+TURN_BUDGET_SEC = float(os.environ.get("ACCEPTANCE_TURN_BUDGET_SEC", "360"))
+REPORT_BUDGET_SEC = float(os.environ.get("ACCEPTANCE_REPORT_BUDGET_SEC", "300"))
 
 # Реплики по этапам. Написаны под completion_criteria каждого этапа: если
 # отвечать не по делу, классификатор вернёт incomplete и разговор упрётся
@@ -78,6 +85,24 @@ REPLIES: dict[str, dict[str, list[str]]] = {
             "Отлично, тогда до понедельника, в одиннадцать. Спасибо за время!",
         ],
     },
+    # Один длинный этап вместо цепочки — другая форма сценария, и критерий
+    # у него предметный: объём в килограммах плюс цена за единицу. Реплики без
+    # конкретных чисел здесь не зачтутся, и это правильно.
+    "selling": {
+        "pitch": [
+            "Здравствуйте, Джек! Меня зовут Пётр. Скажите, что у вас сейчас "
+            "лучше всего берут из фруктов?",
+            "А как часто вам завозят свежее и что при этом чаще всего портится?",
+            "Понял. Бананы как раз дозревают в пути и лежат дольше ягод — это "
+            "ложится на ваш логистический цикл, а не против него.",
+            "Предлагаю начать с пробной партии: двести килограммов по сто "
+            "восемьдесят рублей за килограмм, доставка за наш счёт.",
+            "Если за две недели не разойдётся — остаток забираем обратно. "
+            "Двести килограммов по сто восемьдесят рублей за килограмм, берём?",
+            "Хорошо, оформляю двести килограммов по сто восемьдесят рублей за "
+            "килограмм на ближайшую поставку.",
+        ],
+    },
     "interview_junior": {
         "opening": [
             "Здравствуйте, Павел! Меня зовут Пётр, я тимлид команды. Формат такой: "
@@ -103,6 +128,19 @@ REPLIES: dict[str, dict[str, list[str]]] = {
 }
 
 
+#: Чего в произносимой реплике быть не должно. Маркер эмоции вырезается
+#: пайплайном до токенов, разметку и ремарки запрещает системный промпт — всё
+#: это будет озвучено голосом как есть, поэтому утечка слышна пользователю.
+_FORBIDDEN_IN_SPEECH = (
+    "<emotion",
+    "<thought",
+    "</think",
+    "<think",
+    "```",
+    "**",
+)
+
+
 @dataclass
 class Turn:
     index: int
@@ -112,6 +150,7 @@ class Turn:
     first_token_ms: float | None = None
     first_audio_ms: float | None = None
     audio_chunks: int = 0
+    reply: str = ""
 
 
 @dataclass
@@ -124,6 +163,7 @@ class Run:
     actions: list[str] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
     issues: list[str] = field(default_factory=list)
+    text_issues: list[str] = field(default_factory=list)
     stale_chunks: int = 0
     cancels: int = 0
     finished: bool = False
@@ -188,6 +228,8 @@ class Client:
         if kind == "token":
             if self.turn and self.turn.first_token_ms is None:
                 self.turn.first_token_ms = (now - self.turn.sent_at) * 1000
+            if self.turn is not None:
+                self.turn.reply += ev.get("text", "")
         elif kind == "audio_chunk":
             if self.turn is not None:
                 self.turn.audio_chunks += 1
@@ -301,13 +343,33 @@ async def run_one(label: str, scenario_id: str) -> Run:
     return run
 
 
+#: Сценарии чередуются, а не идут блоками: десять прогонов одного подряд
+#: меряют сервис в один момент времени, а не сервис вообще.
+SCENARIOS = ["objection_price", "interview_junior", "selling"]
+
 PLAN = [
-    ("1  дорого", "objection_price"),
-    ("2  собеседование", "interview_junior"),
-    ("3  дорого", "objection_price"),
-    ("4  собеседование", "interview_junior"),
-    ("5  дорого", "objection_price"),
+    (f"{n + 1:>2} {SCENARIOS[n % len(SCENARIOS)]}", SCENARIOS[n % len(SCENARIOS)])
+    for n in range(120)
 ]
+
+
+def check_speech(run: Run) -> list[str]:
+    """Что персонаж не имеет права произнести вслух.
+
+    Всё это будет озвучено как есть: маркер эмоции, следы рассуждения модели,
+    разметка. Пустая реплика — тоже дефект: пользователь слышит тишину и не
+    понимает, ход это его или ещё нет.
+    """
+    issues: list[str] = []
+    for turn in run.turns:
+        reply = turn.reply.strip()
+        if not reply:
+            issues.append(f"ход {turn.index}: реплика пустая")
+            continue
+        for marker in _FORBIDDEN_IN_SPEECH:
+            if marker in reply:
+                issues.append(f"ход {turn.index}: в речи {marker!r} — {reply[:70]!r}")
+    return issues
 
 
 async def main() -> int:
@@ -318,6 +380,7 @@ async def main() -> int:
         run = await run_one(label, scenario_id)
         report = run.report or {}
         evidence_problems = check_evidence(report) if report else ["отчёта нет"]
+        run.text_issues = check_speech(run)
         record = {
             "label": label,
             "scenario_id": scenario_id,
@@ -333,6 +396,7 @@ async def main() -> int:
             "stages_total": report.get("stages_total"),
             "verdict": (report.get("verdict") or "")[:160],
             "evidence_problems": evidence_problems,
+            "text_issues": run.text_issues,
             "stale_chunks": run.stale_chunks,
             "cancels": run.cancels,
             "errors": run.errors,
@@ -353,7 +417,9 @@ async def main() -> int:
             f"завершён {'да' if run.finished else 'НЕТ'} | отчёт {'да' if report else 'НЕТ'} | "
             f"балл {report.get('total_score')} | цитаты "
             f"{'ок' if not evidence_problems else 'ПРОБЛЕМЫ ' + str(len(evidence_problems))} | "
-            f"хвост {run.stale_chunks} | {run.duration_sec:.0f} с"
+            f"хвост {run.stale_chunks} | речь "
+            f"{'ок' if not run.text_issues else 'ПРОБЛЕМЫ ' + str(len(run.text_issues))} | "
+            f"{run.duration_sec:.0f} с"
             + (f" | {run.issues[0]}" if run.issues else ""),
             flush=True,
         )
