@@ -7,6 +7,7 @@ backup-слайды/приложения на вопросы жюри (архи�
 
 | Тема | Файл |
 |---|---|
+| Диаграмма архитектуры (mermaid, с легендой сервисов и протоколов) | `architecture-diagram.mmd` на рабочем столе — экспортировать картинкой перед показом |
 | Полная архитектура, поток одного хода, три ключевых решения | [`docs/engineering/architecture.md`](../engineering/architecture.md) |
 | Контракты данных: события WS, сценарий, отчёт | [`docs/engineering/contracts.md`](../engineering/contracts.md) |
 | Бюджет задержки по этапам, что и как мерить | [`docs/engineering/latency-budget.md`](../engineering/latency-budget.md) |
