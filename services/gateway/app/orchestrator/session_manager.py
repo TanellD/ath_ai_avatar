@@ -42,6 +42,10 @@ class LiveSession:
     turns: list[Turn] = field(default_factory=list)
     stage_history: list[StageHistoryEntry] = field(default_factory=list)
     summary: str = ""
+    summarized_through: int = 0
+    """Сколько первых `turns` уже свёрнуты в `summary` (§5). Не путать с
+    вытеснением из окна: ход вытесняется из видимости модели раньше, чем
+    попадает сюда — этот счётчик двигает только сама суммаризация."""
     status: SessionStatus = SessionStatus.ACTIVE
 
     def __post_init__(self) -> None:

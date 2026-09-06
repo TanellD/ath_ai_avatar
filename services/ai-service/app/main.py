@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import character, classify, evaluation, health, scenario
+from app.api import character, classify, evaluation, health, scenario, summarize
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.llm.factory import create_llm_provider
@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     app.include_router(classify.router)
     app.include_router(evaluation.router)
     app.include_router(scenario.router)
+    app.include_router(summarize.router)
 
     return app
 

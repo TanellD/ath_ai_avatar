@@ -69,6 +69,7 @@ class FakeAi:
         self.classification = classification
         self.classify_error: Exception | None = None
         self.reply_text = "Слушаю вас."
+        self.summarize_calls: list[dict] = []
 
     async def stream_character_reply(self, **kwargs) -> AsyncIterator[str]:
         self.reply_calls.append(kwargs)
@@ -78,6 +79,10 @@ class FakeAi:
         if self.classify_error is not None:
             raise self.classify_error
         return self.classification
+
+    async def summarize(self, previous_summary: str, evicted: list) -> str:
+        self.summarize_calls.append({"previous_summary": previous_summary, "evicted": evicted})
+        return f"{previous_summary}+{len(evicted)}".strip("+")
 
     async def evaluate(self, **kwargs) -> Report:
         self.evaluate_calls.append(kwargs)

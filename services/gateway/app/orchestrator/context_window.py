@@ -30,15 +30,15 @@ def build_context(turns: list[Turn], max_turns: int, summary: str = "") -> Conte
     return ContextWindow(recent=turns[-max_turns:], summary=summary)
 
 
-async def summarize_evicted(evicted: list[Turn], previous_summary: str) -> str:
-    """Обновить выжимку вытесненными ходами.
+def evicted_since(turns: list[Turn], max_turns: int, summarized_through: int) -> list[Turn]:
+    """Ходы, которые уже выпали из окна (`build_context` их не отдаст), но ещё
+    не попали в выжимку — то, что нужно доотдать суммаризации на этом ходу.
 
-    TODO: вызов быстрой модели через ai-service. Сжимать инкрементально
-    (предыдущая выжимка + новые вытесненные ходы), а не пересобирать по всей
-    истории — иначе экономия окна съедается стоимостью суммаризации.
-
-    До реализации возвращаем предыдущую выжимку без изменений: на сценарии из
-    четырёх этапов история почти никогда не выходит за окно, так что заглушка
-    здесь ничего не ломает.
+    Чистая функция без обращения к модели намеренно: вызывающий (pipeline.py)
+    решает, стоит ли платить вызовом ai-service за пустой или маленький
+    результат, — эта функция только считает границы среза.
     """
-    return previous_summary
+    evicted_count = max(len(turns) - max_turns, 0)
+    if evicted_count <= summarized_through:
+        return []
+    return turns[summarized_through:evicted_count]

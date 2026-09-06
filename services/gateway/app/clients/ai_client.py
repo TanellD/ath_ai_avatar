@@ -31,6 +31,8 @@ from ath_contracts.api import (
     EvaluateResponse,
     ScenarioDetailsRequest,
     ScenarioDetailsResponse,
+    SummarizeRequest,
+    SummarizeResponse,
 )
 from httpx_sse import aconnect_sse
 from pydantic import ValidationError
@@ -130,6 +132,29 @@ class AiClient:
         response = await self._client.post("/classify", json=payload.model_dump(mode="json"))
         response.raise_for_status()
         return ClassifyResponse.model_validate(response.json()).classification
+
+    async def summarize(self, previous_summary: str, evicted: list[Turn]) -> str:
+        """Сжать вытесненные из окна контекста ходы (§5).
+
+        Молча возвращает `previous_summary` при любом сбое: если суммаризация
+        не удалась, разговор продолжается без обновлённой выжимки — это хуже,
+        чем со свежей, но лучше, чем уронить ход из-за вспомогательного вызова.
+        """
+        payload = SummarizeRequest(previous_summary=previous_summary, evicted=evicted)
+        try:
+            response = await self._client.post(
+                "/summarize", json=payload.model_dump(mode="json"), timeout=20.0
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.warning(
+                "ai.summarize_failed",
+                evicted_count=len(evicted),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return previous_summary
+        return SummarizeResponse.model_validate(response.json()).summary
 
     async def fill_scenario_details(self, scenario: Scenario) -> dict[str, str]:
         """Детали слотов под этот прогон (§7): имена, компании, продукты, цифры.
