@@ -53,6 +53,20 @@ export interface CameraTuning {
   cameraY: number;
 }
 
+/**
+ * Свет TalkingHead по умолчанию: заливка intensity 2 и направленный
+ * 0x8888aa — серо-синий. Синева вымывает тёплые тона кожи, а сильная
+ * равномерная заливка съедает контраст. Модели с запечёнными в текстуру
+ * цветами страдают от этого заметнее, чем модели с собственными
+ * PBR-картами, поэтому поправка задаётся на модель, а не глобально:
+ * менять свет остальным аватарам ради одного нельзя.
+ */
+export interface AvatarLighting {
+  lightAmbientIntensity: number;
+  lightDirectColor: number;
+  lightDirectIntensity: number;
+}
+
 export interface AvatarModelConfig {
   id: AvatarId;
   label: string;
@@ -66,6 +80,8 @@ export interface AvatarModelConfig {
    * пара чисел, а таблица.
    */
   cameraTuning: Record<CameraView, CameraTuning>;
+  /** Поправка света; без неё берутся умолчания библиотеки. */
+  lighting?: AvatarLighting;
   embeddedIdleAnimations?: boolean;
 }
 
@@ -132,6 +148,16 @@ export const AVATAR_MODELS = {
       upper: { cameraDistance: 0, cameraY: 0 },
       mid: { cameraDistance: 0, cameraY: 0 },
       full: { cameraDistance: 0, cameraY: 0 },
+    },
+    // Цвет Vincent запечён в текстуры (материалы Blender строились на
+    // MIX_SHADER, который glTF не переносит), поэтому вся тональность
+    // приходит от света. С умолчаниями библиотеки он выходит блёклым:
+    // синий ключ гасит кожу, заливка 2 убирает контраст.
+    // Ключ переведён в тёплый белый и усилен, заливка убавлена.
+    lighting: {
+      lightAmbientIntensity: 1.2,
+      lightDirectColor: 0xffeedd,
+      lightDirectIntensity: 36,
     },
   },
 } as const satisfies Record<string, AvatarModelConfig>;
@@ -229,6 +255,7 @@ export function TalkingHeadAvatar({
           mixerGainSpeech: 3,
           modelFPS: 60,
           cameraRotateEnable: false,
+          ...(model.lighting ?? {}),
         });
 
         await head.audioCtx.audioWorklet.addModule(HEADAUDIO_WORKLET_URL);
