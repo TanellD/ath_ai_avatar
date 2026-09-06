@@ -221,6 +221,31 @@ class SonioxTtsProvider(TtsProvider):
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
         enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
+        # Живой сбой: Soniox сама шлёт событие с error_code=408 ("Request
+        # timeout"), если сессия открыта, а текста в неё долго не приходит —
+        # порог нигде не документирован, но обрывы наблюдались уже на ~7-8 с
+        # ожидания. В pipeline._speak() соединение раньше открывалось СРАЗУ,
+        # а `texts` — это `sentences()`, темп которого задаёт LLM: пока модель
+        # не выдаст первое законченное предложение, Soniox-сессия висит
+        # совершенно пустой. Ход, для которого LLM отвечал дольше этого
+        # порога, падал целиком без единого чанка аудио — а задержка ответа
+        # у стороннего LLM-прокси нестабильна и временами превышает 10 с.
+        #
+        # Дожидаемся первого куска ЗДЕСЬ, до connect(): пока мы ждём LLM,
+        # никакой Soniox-таймаут ещё не тикает — секундомер стартует вместе
+        # с самим соединением, а не раньше.
+        spoken = spoken_text_chunks(texts, emotion, intensity, enhanced_prosody)
+        try:
+            first_chunk = await anext(spoken)
+        except StopAsyncIteration:
+            log.warning("tts.soniox.empty_response")
+            return
+
+        async def remaining_chunks() -> AsyncIterator[str]:
+            yield first_chunk
+            async for chunk in spoken:
+                yield chunk
+
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
             model=_MODEL,
@@ -237,10 +262,7 @@ class SonioxTtsProvider(TtsProvider):
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
             sender = asyncio.create_task(
-                connection.send_text_chunks(
-                    spoken_text_chunks(texts, emotion, intensity, enhanced_prosody),
-                    text_end=True,
-                )
+                connection.send_text_chunks(remaining_chunks(), text_end=True)
             )
             events = connection.receive_events().__aiter__()
             pending: AudioChunk | None = None
