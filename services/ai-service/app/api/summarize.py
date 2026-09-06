@@ -77,4 +77,11 @@ async def summarize(payload: SummarizeRequest, request: Request) -> SummarizeRes
         log.warning("summarize.empty_result", evicted_count=len(payload.evicted))
         return SummarizeResponse(summary=payload.previous_summary)
 
+    # Единственное место, где итоговая выжимка вообще видна снаружи —
+    # session.summary не персистится и не отдаётся ни в один API-ответ
+    # (§7 её сознательно не включает: это рабочая память конвейера, не
+    # продуктовый контракт). Без этого лога проверить на живом прогоне,
+    # что вытесненный контекст реально попал в выжимку, а не потерялся,
+    # можно было только патчем кода.
+    log.info("summarize.done", evicted_count=len(payload.evicted), summary=summary)
     return SummarizeResponse(summary=summary)
