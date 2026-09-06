@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ds/clarity-ui.css">
+<style>
+  body { margin: 0; background: var(--bg); }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { color: var(--blue-deep); }
+  @keyframes ptt-ring { 0% { transform: scale(1); opacity: .5 } 100% { transform: scale(1.5); opacity: 0 } }
+</style>
+</helmet>
+<div style="width: 1440px; height: 940px; display: flex; flex-direction: column; gap: 24px; padding: 26px; font-family: Manrope, system-ui, sans-serif; color: var(--ink); background: var(--bg); overflow: hidden">
+
+  <header class="card" style="flex: none; border-radius: 32px; padding: 20px 28px; display: flex; align-items: center; gap: 32px; box-shadow: var(--shadow-sm)">
+    <div style="display: flex; align-items: center; gap: 12px; flex: none">
+      <span style="width: 40px; height: 40px; border-radius: 14px; background: var(--blue); color: #fff; display: grid; place-items: center; box-shadow: 0 10px 22px -8px rgba(36,86,230,.55)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3.4 1.9 6 6 1.9-6 1.9-1.9 6-1.9-6-6-1.9 6-1.9Z"></path></svg>
+      </span>
+      <span style="font-size: 17px; font-weight: 800; letter-spacing: -.03em; line-height: 1.2">Тренажёр<small style="display: block; font-size: 12px; font-weight: 600; color: var(--ink-3); letter-spacing: 0">Отработка возражения «дорого»</small></span>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 18px; margin-left: auto">
+      <span style="font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3)">Этап 3 из 4</span>
+      <div style="display: flex; gap: 6px">
+        <div style="width: 54px; height: 6px; border-radius: 999px; background: var(--blue)"></div>
+        <div style="width: 54px; height: 6px; border-radius: 999px; background: var(--blue)"></div>
+        <div style="width: 54px; height: 6px; border-radius: 999px; background: var(--blue); opacity: .45"></div>
+        <div style="width: 54px; height: 6px; border-radius: 999px; background: var(--blue-100)"></div>
+      </div>
+      <span style="font-size: 14.5px; font-weight: 700">Отработать возражение по цене</span>
+    </div>
+
+    <button type="button" class="btn btn-gray" style="flex: none; padding: 12px 22px; font-size: 14px">Завершить тренировку</button>
+  </header>
+
+  <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: 372px 1fr; gap: 24px">
+
+    <aside class="card" style="border-radius: 32px; padding: 30px 30px 0; display: flex; flex-direction: column; min-height: 0">
+      <div style="flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 16px">
+        <div>
+          <span class="eyebrow">Диалог</span>
+          <h2 style="margin-top: 14px; font-size: 25px">История</h2>
+        </div>
+        <span style="font-size: 13px; font-weight: 700; color: var(--ink-3); padding-bottom: 5px">12 реплик</span>
+      </div>
+
+      <div style="flex: 1; min-height: 0; overflow: auto; margin: 22px -8px 0; padding: 0 8px 8px; display: flex; flex-direction: column; gap: 12px">
+        <sc-for list="{{ history }}" as="t" hint-placeholder-count="9">
+          <div style="{{ t.wrapStyle }}">
+            <div style="{{ t.whoStyle }}">{{ t.who }}</div>
+            <div style="font-size: 14.5px; line-height: 1.55">{{ t.text }}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="flex: none; margin-top: 18px; padding: 16px 0 22px; border-top: 1px solid var(--line); display: flex; align-items: flex-start; gap: 10px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex: none; color: var(--blue); margin-top: 2px"><path d="M12 3.2 19.3 6v5.4c0 4.6-3 7.8-7.3 9.4-4.3-1.6-7.3-4.8-7.3-9.4V6Z"></path></svg>
+        <p style="font-size: 12.5px; font-weight: 600; color: var(--ink-3); line-height: 1.5">Транскрипт разговора виден методисту. Аудиозапись не сохраняется.</p>
+      </div>
+    </aside>
+
+    <main style="display: flex; flex-direction: column; gap: 24px; min-height: 0">
+
+      <section style="flex: 1; min-height: 0; border-radius: 32px; background: linear-gradient(150deg, var(--navy) 0, var(--navy-2) 90%); color: #fff; position: relative; overflow: hidden; padding: 30px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px">
+        <div style="position: absolute; right: -180px; top: -240px; width: 520px; height: 520px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.1); pointer-events: none"></div>
+        <div style="position: absolute; left: -160px; bottom: -280px; width: 560px; height: 560px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.07); pointer-events: none"></div>
+
+        <div style="position: absolute; top: 26px; left: 30px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.1); border-radius: 999px; padding: 9px 16px 9px 13px">
+          <span style="{{ dotStyle }}"></span>
+          <span style="font-size: 13px; font-weight: 700">{{ stateLabel }}</span>
+        </div>
+        <div style="position: absolute; top: 26px; right: 30px; display: flex; align-items: center; gap: 8px">
+          <span class="bento-pill" style="background: rgba(255,255,255,.1); color: rgba(255,255,255,.85)">Ирина, закупщик</span>
+          <span class="bento-pill" style="background: rgba(255,255,255,.1); color: rgba(255,255,255,.85)">сложность 3 / 5</span>
+        </div>
+
+        <div style="width: 100%; max-width: 560px; aspect-ratio: 4 / 3; max-height: 366px; border-radius: 32px; background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.14); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; position: relative; z-index: 2">
+          <span style="width: 62px; height: 62px; border-radius: 22px; background: rgba(255,255,255,.1); display: grid; place-items: center; color: #a9c3ff">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.4" r="3.6"></circle><path d="M4.8 20c0-3.4 3.2-6 7.2-6s7.2 2.6 7.2 6"></path></svg>
+          </span>
+          <span style="font-size: 13px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: rgba(255,255,255,.62)">Здесь 3D-аватар</span>
+          <span style="font-size: 13px; font-weight: 600; color: rgba(255,255,255,.5); max-width: 34ch; text-align: center; line-height: 1.5">Липсинк по фактическому аудио ответа, виземы приходят вместе с речью</span>
+        </div>
+
+        <p style="margin: 0; max-width: 46ch; text-align: center; font-size: 22px; font-weight: 600; line-height: 1.45; position: relative; z-index: 2">
+          <span>{{ subtitleSaid }}</span><span style="color: rgba(255,255,255,.42)">{{ subtitleAhead }}</span>
+        </p>
+      </section>
+
+      <section class="card" style="flex: none; border-radius: 32px; padding: 26px 30px; display: flex; align-items: flex-end; gap: 26px; box-shadow: var(--shadow-sm)">
+
+        <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px; flex: none">
+          <div style="{{ tooltipStyle }}">
+            Нажми, чтобы говорить
+            <span style="position: absolute; bottom: -4px; left: 50%; width: 8px; height: 8px; background: var(--navy); transform: translateX(-50%) rotate(45deg); border-radius: 2px"></span>
+          </div>
+          <button type="button" onClick="{{ toggleTalk }}" style="{{ talkButtonStyle }}" aria-label="Говорить">
+            <span style="{{ ringStyle }}"></span>
+            <span style="{{ micStyle }}">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.4a2.8 2.8 0 0 0-2.8 2.8v5.6a2.8 2.8 0 0 0 5.6 0V6.2A2.8 2.8 0 0 0 12 3.4Z"></path><path d="M18 10.6v1.4a6 6 0 0 1-12 0v-1.4"></path><path d="M12 18v2.6"></path></svg>
+            </span>
+            <span style="position: relative; font-size: 16px; font-weight: 700; letter-spacing: -.01em">{{ talkLabel }}</span>
+          </button>
+          <span style="font-size: 12px; font-weight: 600; color: var(--ink-3)">{{ talkHint }}</span>
+        </div>
+
+        <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px">
+            <span style="font-size: 13px; font-weight: 700; color: var(--ink-2)">Или напишите реплику</span>
+            <span style="font-size: 12px; font-weight: 600; color: var(--ink-3)">Enter — отправить, Shift+Enter — перенос строки</span>
+          </div>
+          <div style="display: flex; align-items: flex-end; gap: 12px">
+            <textarea rows="2" placeholder="Ваша реплика" style="flex: 1; min-width: 0; font-family: inherit; font-size: 15px; font-weight: 500; color: var(--ink); background: var(--surface-2); border: 0; border-radius: 18px; padding: 15px 18px; min-height: 62px; max-height: 110px; resize: none; box-shadow: inset 0 0 0 1px var(--line); outline: 0"></textarea>
+            <button type="button" class="btn btn-gray" style="flex: none; height: 62px">{{ sendLabel }}</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:940}}">
+class Component extends DCLogic {
+  state = { talking: false };
+
+  renderVals() {
+    const talking = this.state.talking;
+
+    const line = (who, text, kind) => {
+      const user = who === 'Вы';
+      return {
+        who, text,
+        wrapStyle: 'border-radius: 18px; padding: 14px 16px; background: ' +
+          (kind === 'live' ? 'var(--blue-soft)' : 'var(--surface-2)') +
+          (kind === 'live' ? '; box-shadow: inset 0 0 0 1.5px var(--blue-100);' : ';') +
+          (user ? ' margin-left: 22px;' : ' margin-right: 22px;'),
+        whoStyle: 'font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 5px; color: ' +
+          (user ? 'var(--blue)' : 'var(--ink-3)') + ';',
+      };
+    };
+
+    const history = [
+      line('Персонаж', 'Здравствуйте. У меня десять минут, давайте по делу.'),
+      line('Вы', 'Марина, компания «Стальпром». Прежде чем что-то предлагать — расскажите, как сейчас закрываете потребность в крепеже?'),
+      line('Персонаж', 'Мы уже работаем с другим поставщиком, нас всё устраивает.'),
+      line('Вы', 'А что именно у текущего поставщика вас не устраивает — сроки, брак или документы?'),
+      line('Персонаж', 'Ну, брак бывает. Процента три-четыре в партии, приходится перебирать вручную.'),
+      line('Вы', 'Сколько человеко-часов уходит на перебор партии?'),
+      line('Персонаж', 'Часов шесть на партию, если не больше. Но это не повод платить на двадцать процентов больше.'),
+      line('Вы', 'Давайте посчитаем эти шесть часов в деньгах.'),
+      line('Персонаж', 'Я посмотрела ваш прайс. У вас дороже процентов на двадцать. Зачем мне это?', 'live'),
+    ];
+
+    return {
+      history,
+      toggleTalk: () => this.setState((s) => ({ talking: !s.talking })),
+      stateLabel: talking ? 'Слушаю вас — персонаж остановлен' : 'Персонаж говорит',
+      dotStyle: 'width: 9px; height: 9px; border-radius: 999px; display: block; background: ' +
+        (talking ? '#fff' : '#a9c3ff') + ';',
+      subtitleSaid: talking
+        ? 'Я посмотрела ваш прайс. У вас дороже процентов на двадцать.'
+        : 'Я посмотрела ваш прайс. У вас дороже процентов ',
+      subtitleAhead: talking ? '' : 'на двадцать. Зачем мне это?',
+      talkLabel: talking ? 'Отпустить' : 'Говорить',
+      talkHint: talking ? 'Запись идёт · нажмите ещё раз, чтобы отправить' : 'Голосовой ввод',
+      sendLabel: talking ? 'Отправить' : 'Перебить',
+      tooltipStyle: [
+        'position: absolute', 'bottom: calc(100% + 12px)', 'left: 50%', 'transform: translateX(-50%)',
+        'white-space: nowrap', 'padding: 8px 14px', 'border-radius: 999px', 'font-size: 12.5px',
+        'font-weight: 700', 'background: var(--navy)', 'color: #fff',
+        'box-shadow: 0 12px 28px -14px rgba(11,29,78,.6)',
+        'opacity: ' + (talking ? '0' : '1'), 'transition: opacity .25s var(--ease)',
+      ].join(';'),
+      talkButtonStyle: [
+        'position: relative', 'display: inline-flex', 'align-items: center', 'gap: 12px',
+        'padding: 0 30px 0 22px', 'height: 62px', 'border-radius: 999px', 'border: 0',
+        'cursor: pointer', 'font-family: inherit', 'color: #fff',
+        'transition: background .25s var(--ease), box-shadow .25s var(--ease)',
+        'background: ' + (talking ? 'var(--navy)' : 'var(--blue)'),
+        'box-shadow: 0 1px 2px rgba(11,29,78,.26), 0 12px 28px -14px rgba(11,29,78,.48)',
+      ].join(';'),
+      micStyle: 'position: relative; width: 38px; height: 38px; flex: none; border-radius: 999px; display: grid; place-items: center; background: #fff; color: ' +
+        (talking ? 'var(--navy)' : 'var(--blue-deep)') + ';',
+      ringStyle: talking
+        ? 'position: absolute; inset: 0; border-radius: 999px; box-shadow: inset 0 0 0 2px var(--blue); animation: ptt-ring 1.2s ease-out infinite; pointer-events: none;'
+        : 'display: none;',
+    };
+  }
+}
+</script>
+</body>
+</html>

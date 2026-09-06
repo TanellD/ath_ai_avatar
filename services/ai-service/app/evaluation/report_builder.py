@@ -42,8 +42,13 @@ def build_report(
     duration_sec: int,
     stages_completed: int,
     stages_total: int,
+    model: str = "",
 ) -> Report:
-    """Собрать Report из ответа модели, проверив цитаты."""
+    """Собрать Report из ответа модели, проверив цитаты.
+
+    `model` — чем посчитано; попадает в отчёт, чтобы оценку заглушкой можно
+    было отличить от настоящей, не вчитываясь в вердикт.
+    """
     user_texts = [_normalize(t.text) for t in transcript if t.role is TurnRole.USER]
     weights = {item.id: item.weight for item in scenario.rubric}
 
@@ -57,6 +62,8 @@ def build_report(
 
     return Report(
         session_id=session_id,
+        scenario_id=scenario.id,
+        model=model,
         verdict=raw["verdict"],
         total_score=_weighted_total(scores, weights),
         scores=scores,

@@ -31,7 +31,12 @@ async def character_reply(payload: CharacterReplyRequest, request: Request):
     settings = get_settings()
     provider = request.app.state.llm
 
-    system = build_character_system(payload.persona, payload.stage)
+    system = build_character_system(
+        payload.persona,
+        payload.stage,
+        opening_kind=payload.opening_kind,
+        off_topic_streak=payload.off_topic_streak,
+    )
     messages = build_messages(payload.history, payload.summary, payload.user_text)
 
     async def event_stream() -> AsyncIterator[dict[str, str]]:
@@ -40,6 +45,13 @@ async def character_reply(payload: CharacterReplyRequest, request: Request):
         parser = EmotionPrefixParser(fallback)
         selected_emotion: Emotion | None = None
 
+        # Открывающую реплику целиком пишет модель. Раньше сюда первым токеном
+        # подставлялось готовое самопредставление («меня зовут N, <роль>») —
+        # оно снимало вызов LLM с критического пути до первого звука, но
+        # угадывало роль лишь в половине сценариев: закупщик, которому звонит
+        # продавец, представляется первым только в плохом тренажёре. Роль
+        # важнее задержки, поэтому шаблон убран; кто здоровается и как —
+        # решает промпт (_OPENING_SESSION_START).
         async for token in provider.stream(
             system=system,
             messages=messages,

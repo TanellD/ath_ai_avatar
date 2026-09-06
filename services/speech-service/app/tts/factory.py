@@ -8,6 +8,7 @@
 from app.core.config import Settings
 from app.core.logging import get_logger
 from app.tts.base import TtsProvider
+from app.tts.cache import CachingTtsProvider
 from app.tts.elevenlabs import ElevenLabsTtsProvider
 from app.tts.mock import MockTtsProvider
 from app.tts.soniox import SonioxTtsProvider
@@ -21,6 +22,18 @@ class UnknownProviderError(ValueError):
 
 
 def create_tts_provider(settings: Settings) -> TtsProvider:
+    """Провайдер по конфигу, при включённом кэше — обёрнутый в него.
+
+    Кэш снаружи, а не внутри провайдеров: он одинаково полезен всем и не
+    должен дублироваться в каждом (см. app/tts/cache.py).
+    """
+    provider = _create_raw_provider(settings)
+    if settings.tts_cache_enabled:
+        return CachingTtsProvider(provider, max_entries=settings.tts_cache_max_entries)
+    return provider
+
+
+def _create_raw_provider(settings: Settings) -> TtsProvider:
     provider = settings.tts_provider.lower()
 
     match provider:

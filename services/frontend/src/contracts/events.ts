@@ -36,7 +36,15 @@ export interface Ping {
   type: 'ping';
 }
 
-export type ClientEvent = UserMessage | Ping;
+/**
+ * Сотрудник заканчивает тренировку досрочно (Claude.md §3, «завершить»).
+ * Автомат завершает сессию и сам, когда пройден последний этап.
+ */
+export interface FinishSession {
+  type: 'finish_session';
+}
+
+export type ClientEvent = UserMessage | Ping | FinishSession;
 
 // [STT] Голосовая фаза — объявлено в питоновском контракте, здесь появится
 // вместе с реализацией. См. docs/stt-phase.md.
@@ -155,6 +163,21 @@ export interface Report {
   duration_sec: number;
   stages_completed: number;
   stages_total: number;
+  /** Пусто у отчётов, сохранённых до появления поля. Нужен, чтобы подтянуть рубрику. */
+  scenario_id: string;
+  /** Чем посчитано: `anthropic/claude-opus-5`, `mock/...`. Пусто у старых отчётов. */
+  model: string;
+}
+
+/** Строка списка сессий у методиста — зеркало ath_contracts/api.py. */
+export interface SessionSummaryItem {
+  session_id: string;
+  scenario_id: string;
+  status: SessionStatus;
+  turn_count: number;
+  created_at: string;
+  finished_at: string | null;
+  has_report: boolean;
 }
 
 export interface Persona {
@@ -188,6 +211,7 @@ export interface Scenario {
   persona: Persona;
   stages: Stage[];
   rubric: RubricItem[];
+  tags: string[];
 }
 
 export interface ScenarioSummary {
@@ -196,4 +220,5 @@ export interface ScenarioSummary {
   persona_name: string;
   stages_count: number;
   rubric_count: number;
+  tags: string[];
 }

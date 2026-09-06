@@ -5,6 +5,7 @@ import { PlaybackClock } from '@/audio/PlaybackClock';
 import {
   AVATAR_MODELS,
   TalkingHeadAvatar,
+  type AvatarModelConfig,
   type AvatarPlaybackHandle,
 } from '@/avatar/TalkingHeadAvatar';
 import type { Emotion } from '@/contracts/events';
@@ -142,10 +143,16 @@ interface TtsChunk {
   is_final: boolean;
 }
 
+/** Оба поколения — только aith и tom; выбор модели раньше требовал
+ *  `?model=` в URL и полной перезагрузки страницы (см. историю AvatarLab,
+ *  docs/bugs_front.md №7). Порядок — тот, что видит выпадающий список. */
+const AVATAR_MODEL_OPTIONS = [AVATAR_MODELS.aith, AVATAR_MODELS.tom];
+
 export function EmotionLab() {
-  const requestedModel = new URLSearchParams(window.location.search).get('model');
-  const avatarModel =
-    requestedModel === AVATAR_MODELS.tom.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith;
+  const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(() => {
+    const requested = new URLSearchParams(window.location.search).get('model');
+    return requested === AVATAR_MODELS.tom.id ? AVATAR_MODELS.tom : AVATAR_MODELS.aith;
+  });
   const isTom = avatarModel.id === AVATAR_MODELS.tom.id;
   const voices = isTom ? TOM_VOICES : AITH_VOICES;
   const [emotion, setEmotion] = useState<Emotion>('neutral');
@@ -192,6 +199,22 @@ export function EmotionLab() {
     const current = EMOTIONS.find((item) => item.value === emotion) ?? EMOTIONS[0];
     const samples = isTom ? TOM_SAMPLES[current.value] : current;
     setText(next === 'long' ? samples.longSample : samples.sample);
+  };
+
+  // Смена модели пересоздаёт TalkingHeadAvatar (key={avatarModel.id} ниже) —
+  // прежний rig/сокет для неё уже не годятся, останавливаем как при обычном
+  // stop(). Голос и текст переподбираются под новую модель тем же способом,
+  // что и при смене эмоции/длины реплики.
+  const selectModel = (next: AvatarModelConfig) => {
+    if (next.id === avatarModel.id) return;
+    stop();
+    setRig(null);
+    const nextIsTom = next.id === AVATAR_MODELS.tom.id;
+    const current = EMOTIONS.find((item) => item.value === emotion) ?? EMOTIONS[0];
+    const samples = nextIsTom ? TOM_SAMPLES[current.value] : current;
+    setAvatarModel(next);
+    setVoice(nextIsTom ? 'Daniel' : 'Reese');
+    setText(sampleLength === 'long' ? samples.longSample : samples.sample);
   };
 
   const speak = () => {
@@ -258,18 +281,46 @@ export function EmotionLab() {
 
   return (
     <main className="emotion-lab">
-      <section className="emotion-lab__stage">
+      {/* Тот же тёмный контейнер сцены, что на экране тренировки
+          (.session__avatar-panel) — раньше сцена была белой на белом фоне
+          страницы без какого-либо визуального отделения (№2). */}
+      <section className="emotion-lab__stage session__avatar-panel">
         <TalkingHeadAvatar
+          key={avatarModel.id}
           model={avatarModel}
           isSpeaking={isSpeaking}
+          // В лаборатории модель разглядывают, а не разговаривают с ней:
+          // кадр «по разговору» здесь слишком крупный.
+          zoomOut={1.4}
           onReady={handleAvatarReady}
           onError={handleAvatarError}
         />
       </section>
 
       <section className="emotion-lab__controls">
-        <h1>Лаборатория эмоций</h1>
-        <p>Выберите выражение, затем проверьте отдельно лицо или голос вместе с lip-sync.</p>
+        <h1>Лаборатория аватара</h1>
+        <p>Выберите модель и выражение, затем проверьте отдельно лицо или голос вместе с lip-sync.</p>
+        {isTom && (
+          <p>Эмоциональные ARKit-морфы Tom пока пустые; проверяем позу, idle и взгляд.</p>
+        )}
+
+        <label className="emotion-lab__field">
+          Модель
+          <select
+            value={avatarModel.id}
+            onChange={(event) => {
+              const next = AVATAR_MODEL_OPTIONS.find((m) => m.id === event.target.value);
+              if (next) selectModel(next);
+            }}
+          >
+            {AVATAR_MODEL_OPTIONS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
 
         <div className="emotion-lab__buttons">
           {EMOTIONS.map((item) => (

@@ -10,7 +10,15 @@ upgrade-обработчике. См. docs/stt-phase.md.
 внутри пайплайна.
 """
 
-from ath_contracts import ErrorEvent, Ping, ServerEvent, UserMessage, parse_client_event
+from ath_contracts import (
+    ErrorEvent,
+    FinishSession,
+    Ping,
+    ServerEvent,
+    TurnRole,
+    UserMessage,
+    parse_client_event,
+)
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
@@ -52,8 +60,17 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
 
     log.info("ws.connected", scenario_id=session.scenario.id)
 
-    # TODO: отправить agent_opening текущего этапа сразу после подключения,
-    # чтобы инициативу держал агент (§1) — сейчас первый ход делает человек.
+    # Инициативу держит агент (§1): персонаж заговаривает сам, не дожидаясь
+    # реплики сотрудника.
+    #
+    # Два условия, а не одно. Пустая история отсекает переподключение посреди
+    # сценария (её поднимает _restore_session ниже) — но сама по себе она
+    # ненадёжна: ход записывается уже после того, как реплика договорена, и
+    # второе подключение, успевшее втиснуться в этот промежуток, увидело бы
+    # историю всё ещё пустой. Нулевой счётчик поколений закрывает окно: он
+    # растёт синхронно, первым же действием open_session().
+    if not session.turns and session.generations.current == 0:
+        await pipeline.open_session()
 
     try:
         while True:
@@ -68,6 +85,10 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             if isinstance(event, Ping):
+                continue
+
+            if isinstance(event, FinishSession):
+                await pipeline.handle_finish_request()
                 continue
 
             if isinstance(event, UserMessage):
@@ -88,8 +109,14 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
 async def _restore_session(websocket: WebSocket, session_id: str):
     """Поднять сессию из БД в память процесса (перезапуск сервера, reconnect).
 
-    TODO: восстанавливать turns и stage_history, а не только идентификаторы —
-    сейчас после переподключения персонаж теряет контекст разговора.
+    Отрабатывает не только на переподключении: живое состояние появляется в
+    реестре лишь когда сокет подключился хотя бы раз, а POST /sessions пишет
+    только строку в БД — значит через эту функцию проходит и самое первое
+    подключение к свежей сессии.
+
+    Поэтому историю обязательно восстанавливать: по её пустоте выше решается,
+    открывать ли сессию приветствием (§1). Без этого персонаж здоровался бы
+    заново после каждого разрыва связи посреди сценария.
     """
     async with session_factory()() as db:
         state = await SqlSessionRepository(db).get(session_id)
@@ -107,6 +134,16 @@ async def _restore_session(websocket: WebSocket, session_id: str):
 
     session = websocket.app.state.sessions.create(session_id, scenario)
     session.current_stage_id = state.current_stage
+    session.turns = list(state.turns)
+    session.stage_history = list(state.stage_history)
+    # Автомат считает ходы ТЕКУЩЕГО этапа: max_turns не должен срабатывать
+    # раньше времени из-за ходов, потраченных на предыдущие этапы (§5).
+    session.turns_in_stage = sum(
+        1
+        for turn in state.turns
+        if turn.role is TurnRole.USER and turn.stage_id == state.current_stage
+    )
+    log.info("ws.session_restored", turns=len(session.turns), stage_id=state.current_stage)
     return session
 
 
