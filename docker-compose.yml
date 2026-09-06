@@ -146,6 +146,7 @@ services:
       SCENARIO_LLM_PROVIDER: ${SCENARIO_LLM_PROVIDER:-}
       SCENARIO_LLM_MODEL: ${SCENARIO_LLM_MODEL:-}
       SCENARIO_LLM_ENDPOINT: ${SCENARIO_LLM_ENDPOINT:-}
+      SCENARIO_LLM_API_KEY: ${SCENARIO_LLM_API_KEY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8030/health')"]
       interval: 10s

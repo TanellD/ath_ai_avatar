@@ -1,9 +1,9 @@
 """Резолюция SCENARIO_LLM_* — Claude.md §5, §7.
 
-Генерация сценария может жить на своём провайдере/модели/хосте, отдельно от
-реплик персонажа и оценки. Пустая переменная должна прозрачно наследовать
-основную — иначе включение фичи потребовало бы продублировать весь LLM_*
-блок в .env даже тем, кому не нужен отдельный провайдер.
+Генерация сценария может жить на своём провайдере/модели/хосте/ключе,
+отдельно от реплик персонажа и оценки. Пустая переменная должна прозрачно
+наследовать основную — иначе включение фичи потребовало бы продублировать
+весь LLM_* блок в .env даже тем, кому не нужен отдельный провайдер.
 """
 
 from app.core.config import Settings
@@ -43,3 +43,17 @@ def test_scenario_endpoint_is_empty_by_default() -> None:
 def test_scenario_endpoint_can_be_overridden() -> None:
     settings = Settings(scenario_llm_endpoint="https://scenario-proxy.internal/v1")
     assert settings.effective_scenario_endpoint == "https://scenario-proxy.internal/v1"
+
+
+def test_scenario_api_key_is_empty_by_default() -> None:
+    """Пусто — factory берёт ключ основного провайдера (anthropic_api_key/
+    openai_compatible_api_key), а не отдельный ключ."""
+    settings = Settings()
+    assert settings.effective_scenario_api_key == ""
+
+
+def test_scenario_api_key_can_be_overridden() -> None:
+    """Свой аккаунт/лимит/биллинг под генерацию сценария — отдельно от того,
+    чем оплачены реплики персонажа и оценка."""
+    settings = Settings(scenario_llm_api_key="sk-scenario-only")
+    assert settings.effective_scenario_api_key == "sk-scenario-only"

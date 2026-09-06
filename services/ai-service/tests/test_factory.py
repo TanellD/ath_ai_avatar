@@ -134,3 +134,24 @@ def test_no_base_url_override_keeps_the_provider_default() -> None:
     provider = create_llm_provider(settings)
 
     assert "main.proxy" in str(provider._client.base_url)
+
+
+# ------------------------- SCENARIO_LLM_API_KEY (свой ключ провайдера)
+
+
+def test_api_key_override_reaches_the_client() -> None:
+    """SCENARIO_LLM_API_KEY — свой аккаунт/лимит под генерацию сценария,
+    отдельно от ANTHROPIC_API_KEY основного провайдера."""
+    settings = Settings(anthropic_api_key="main-key")
+    provider = create_llm_provider(settings, provider_name="anthropic", api_key="scenario-key")
+
+    assert provider._client.api_key == "scenario-key"
+
+
+def test_missing_api_key_falls_back_to_the_main_one() -> None:
+    """Отдельный ключ не обязателен — методисту может хватать того же
+    аккаунта, что у основного провайдера."""
+    settings = Settings(anthropic_api_key="main-key")
+    provider = create_llm_provider(settings, provider_name="anthropic")
+
+    assert provider._client.api_key == "main-key"
