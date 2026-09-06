@@ -122,11 +122,37 @@ export interface AvatarPlaybackHandle {
   setView: (view: CameraView) => void;
 }
 
+/**
+ * Базовое удаление камеры по планам — из setView() самой TalkingHead
+ * (`z += 2` для head, 4.5 для upper и т.д.). Нужно здесь, потому что
+ * `cameraDistance` в опциях — это СЛАГАЕМОЕ к этой базе, а не итоговое
+ * расстояние: чтобы отодвинуть камеру на N процентов, надо знать, от чего
+ * считать проценты.
+ */
+const VIEW_BASE_DISTANCE: Record<CameraView, number> = {
+  head: 2,
+  upper: 4.5,
+  mid: 8,
+  full: 12,
+};
+
+/** Итоговая поправка расстояния под требуемый зум. */
+function tunedDistance(model: AvatarModelConfig, view: CameraView, zoomOut: number): number {
+  const base = VIEW_BASE_DISTANCE[view];
+  return (model.cameraTuning[view].cameraDistance + base) * zoomOut - base;
+}
+
 interface Props {
   /** Профиль модели фиксируется на время жизни компонента. */
   model?: AvatarModelConfig;
   /** Во время речи держать зрительный контакт с пользователем, а не с курсором. */
   isSpeaking: boolean;
+  /**
+   * Множитель удаления камеры: 1 — кадр как задуман профилем модели,
+   * 1.4 — на 40% дальше. Нужен лаборатории, где модель разглядывают
+   * целиком, а не ведут с ней разговор.
+   */
+  zoomOut?: number;
   onReady: (handle: AvatarPlaybackHandle) => void;
   onError: (message: string) => void;
 }
@@ -134,6 +160,7 @@ interface Props {
 export function TalkingHeadAvatar({
   model = AVATAR_MODELS.aith,
   isSpeaking,
+  zoomOut = 1,
   onReady,
   onError,
 }: Props) {
@@ -191,7 +218,7 @@ export function TalkingHeadAvatar({
           ttsEndpoint: 'N/A',
           lipsyncModules: [],
           cameraView: model.cameraView,
-          cameraDistance: initialTuning.cameraDistance,
+          cameraDistance: tunedDistance(model, model.cameraView, zoomOut),
           cameraY: initialTuning.cameraY,
           mixerGainSpeech: 3,
           modelFPS: 60,
@@ -266,10 +293,9 @@ export function TalkingHeadAvatar({
         let currentView: CameraView = model.cameraView;
         const applyView = (view: CameraView) => {
           currentView = view;
-          const tuning = model.cameraTuning[view];
           head.setView(view, {
-            cameraDistance: tuning.cameraDistance,
-            cameraY: tuning.cameraY,
+            cameraDistance: tunedDistance(model, view, zoomOut),
+            cameraY: model.cameraTuning[view].cameraY,
           });
         };
 
@@ -308,7 +334,9 @@ export function TalkingHeadAvatar({
       avatarCleanupRef.current?.();
       avatarCleanupRef.current = null;
     };
-  }, [model, onReady, onError]);
+    // zoomOut читается один раз при инициализации сцены: startedRef держит
+    // setup() однократным, и менять зум на лету компонент не обещает.
+  }, [model, zoomOut, onReady, onError]);
 
   return <div ref={containerRef} className="avatar" />;
 }

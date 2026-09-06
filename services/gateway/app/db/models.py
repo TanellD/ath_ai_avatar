@@ -5,11 +5,18 @@
 audio_ref.turn), и такая ссылка должна быть настоящим ключом.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
+
+
+def _utcnow() -> datetime:
+    """Наивный UTC — как хранит остальная схема (DateTime без таймзоны) и как
+    считает окна `admin_repository`. `datetime.utcnow()` дал бы то же самое,
+    но он объявлен устаревшим."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Base(DeclarativeBase):
@@ -123,7 +130,15 @@ class SpanRow(Base):
     # Настенное время записи спана — start_ms/end_ms относительны началу
     # хода и не годятся для графика активности во времени (дашборд
     # нагрузки, /admin/load). created_at даёт на это абсолютную ось.
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    #
+    # default (питоновский), а не только server_default: колонку добавляли в
+    # уже существующую таблицу руками, а SQLite умеет в ALTER ... ADD COLUMN
+    # только КОНСТАНТНЫЙ дефолт — в схеме осел литерал времени миграции, и
+    # все спаны получали одну и ту же метку. Графики по времени из-за этого
+    # были пусты всегда. server_default оставлен для свежесозданных БД.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, server_default=func.now(), index=True
+    )
 
     __table_args__ = (Index("ix_spans_session_gen", "session_id", "gen_id"),)
 

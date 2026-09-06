@@ -30,6 +30,18 @@ from app.llm.base import LlmProvider
 
 log = get_logger(__name__)
 
+# Reasoning-модели (Qwen3 через Ollama и т.п.) по умолчанию генерируют
+# скрытый chain-of-thought в отдельном поле `reasoning` ПЕРЕД `content` —
+# наш стрим читает только `delta.content` (см. ниже), так что "думание" не
+# протечёт в субтитры, но съест весь time-to-first-token бюджет (§9
+# Claude.md: 300–800 мс на первый токен) и может исчерпать max_tokens раньше,
+# чем модель дойдёт до самого ответа (`finish_reason: "length"` с пустым
+# content). `reasoning_effort: "none"` — параметр OpenAI Chat Completions,
+# который Ollama (0.32+) уважает и отключает reasoning-трейс целиком.
+# На провайдерах, где это поле не поддерживается (VseLLM/gemini), лишний
+# необязательный параметр в теле запроса игнорируется.
+_DISABLE_REASONING: dict[str, Any] = {"reasoning_effort": "none"}
+
 
 class OpenAiCompatibleProvider(LlmProvider):
     def __init__(self, api_key: str, base_url: str) -> None:
@@ -62,6 +74,7 @@ class OpenAiCompatibleProvider(LlmProvider):
             temperature=temperature,
             messages=[{"role": "system", "content": system}, *messages],
             stream=True,
+            extra_body=_DISABLE_REASONING,
         )
 
         async for chunk in stream:
@@ -93,6 +106,7 @@ class OpenAiCompatibleProvider(LlmProvider):
             temperature=temperature,
             messages=[{"role": "system", "content": system}, *messages],
             response_format={"type": "json_object"},
+            extra_body=_DISABLE_REASONING,
         )
 
         content = response.choices[0].message.content
