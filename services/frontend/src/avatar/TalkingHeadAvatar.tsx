@@ -212,6 +212,19 @@ export function nextAvatarAfter(current: AvatarModelConfig): AvatarModelConfig {
   return AVATAR_MODEL_LIST[(index + 1) % AVATAR_MODEL_LIST.length];
 }
 
+/**
+ * Модель по id, с запасным путём на неизвестный/отсутствующий id.
+ *
+ * Нужна на экране предпросмотра сценария (§8): выбор персонажа сотрудник
+ * делает там, до входа в разговор, а не только тумблером внутри сессии —
+ * id уезжает в query-параметр ссылки и возвращается сюда уже строкой,
+ * которую нельзя просто привести типом (правка URL руками, устаревшая
+ * ссылка на удалённую модель).
+ */
+export function avatarById(id: string | null | undefined): AvatarModelConfig {
+  return AVATAR_MODEL_LIST.find((model) => model.id === id) ?? AVATAR_MODELS.aith;
+}
+
 /** Что аватар отдаёт наверх, когда готов принимать звук. */
 export interface AvatarPlaybackHandle {
   audioCtx: AudioContext;
