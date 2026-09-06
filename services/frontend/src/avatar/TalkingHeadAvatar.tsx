@@ -185,9 +185,9 @@ export const AVATAR_MODELS = {
     visemeRampMs: 150,
     visemeSmoothMs: 120,
     lighting: {
-      lightAmbientIntensity: 0.85,
+      lightAmbientIntensity: 1.1,
       lightDirectColor: 0xfff0e2,
-      lightDirectIntensity: 46,
+      lightDirectIntensity: 32,
     },
   },
 } as const satisfies Record<string, AvatarModelConfig>;
