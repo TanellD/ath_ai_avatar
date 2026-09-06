@@ -57,6 +57,7 @@ import { SessionEndOverlay } from '@/components/SessionEndOverlay';
 import { SessionStartOverlay } from '@/components/SessionStartOverlay';
 import { StageHint } from '@/components/StageHint';
 import type { Scenario, ServerEvent, SubtitleEvent } from '@/contracts/events';
+import { appendAgentToken } from '@/session/agentLines';
 import { SilenceFollowup, type SilencePhase } from '@/session/SilenceFollowup';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
@@ -125,6 +126,14 @@ export function TraineeSession() {
    */
   const genRef = useRef(0);
   const emotionGenerationRef = useRef<number | null>(null);
+  /**
+   * Поколение, к реплике которого сейчас дописываются токены. Без него
+   * инициативная реплика по молчанию приклеивалась к ПРЕДЫДУЩЕМУ ответу
+   * персонажа: до неё два ответа подряд всегда разделяла реплика
+   * пользователя, и «последняя строка агента» однозначно означала «та же
+   * самая реплика». Теперь это больше не так.
+   */
+  const agentLineGenRef = useRef<number | null>(null);
   const activeCaptureRef = useRef<string | null>(null);
   const captureEndingRef = useRef(false);
   const voiceTimingRef = useRef<VoiceTimingMarks | null>(null);
@@ -213,11 +222,17 @@ export function TraineeSession() {
   const handleEvent = useCallback(
     (event: ServerEvent) => {
       switch (event.type) {
-        case 'token':
+        case 'token': {
           silenceFollowupRef.current?.pause();
           setPlayback('speaking');
-          setTranscript((lines) => appendAgentToken(lines, event.text));
+          // Токен продолжает текущую реплику, только если он из того же
+          // поколения. Иначе это новый ответ персонажа — ему нужен свой
+          // пузырь, даже если предыдущая строка тоже принадлежит персонажу.
+          const continues = agentLineGenRef.current === event.gen_id;
+          agentLineGenRef.current = event.gen_id;
+          setTranscript((lines) => appendAgentToken(lines, event.text, continues));
           break;
+        }
 
         case 'audio_chunk':
           // Аватар мог ещё не догрузиться (13 МБ GLB) к моменту первого
@@ -777,15 +792,6 @@ export function TraineeSession() {
       {finished && <SessionEndOverlay />}
     </main>
   );
-}
-
-/** Токены персонажа дописываются в последнюю его реплику, а не создают новую. */
-function appendAgentToken(lines: ChatTurn[], token: string): ChatTurn[] {
-  const last = lines[lines.length - 1];
-  if (last?.role === 'agent') {
-    return [...lines.slice(0, -1), { ...last, text: last.text + token }];
-  }
-  return [...lines, { role: 'agent', text: token }];
 }
 
 function formatMetric(value: number | undefined): string {
