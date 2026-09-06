@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { micAvailability } from '@/audio/mic/secureContext';
+
 export type MicState = 'idle' | 'listening' | 'recognizing' | 'denied' | 'unavailable';
 
 export interface MicCapture {
@@ -45,9 +47,10 @@ export function useMicCapture({ onFrame, onError }: Options): MicCapture {
   const start = useCallback(async () => {
     if (resources.current) return;
     const epoch = ++startEpoch.current;
-    if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) {
+    const availability = micAvailability();
+    if (!availability.available) {
       setState('unavailable');
-      callbacks.current.onError('Браузер не поддерживает захват речи');
+      callbacks.current.onError(availability.reason);
       throw new Error('microphone capture is unavailable');
     }
     let stream: MediaStream | null = null;
@@ -59,6 +62,12 @@ export function useMicCapture({ onFrame, onError }: Options): MicCapture {
         return;
       }
       context = new AudioContext();
+      // Контекст создаётся ПОСЛЕ await getUserMedia, то есть вне жеста
+      // пользователя. На iOS такой контекст стартует suspended: process() в
+      // ворклете не вызывается ни разу, кадры PCM не идут, и запись висит с
+      // нулевым уровнем — без ошибки, без таймаута, без единого признака, что
+      // что-то не так. resume() здесь дешёв и на десктопе не меняет ничего.
+      if (context.state === 'suspended') await context.resume();
       await context.audioWorklet.addModule('/pcm-capture.worklet.js');
       if (epoch !== startEpoch.current) {
         stream.getTracks().forEach((track) => track.stop());

@@ -124,6 +124,33 @@ export interface AvatarPlaybackHandle {
 }
 
 /**
+ * Звук без лица — запасной путь, когда аватар не поднялся.
+ *
+ * Claude.md §8 формулирует направление деградации прямо: «лицо замирает, голос
+ * продолжается. Не наоборот». До этой функции было ровно наоборот: любая ошибка
+ * WebGL или загрузки GLB оставляла `audio === null`, и экран становился тупиком
+ * — кнопка старта навсегда висела «Загружаем персонажа…», композер и микрофон
+ * были заблокированы, тренировка не начиналась вовсе.
+ *
+ * На телефоне это не гипотеза: 12.7 МБ модели по сотовой сети и агрессивная
+ * потеря WebGL-контекста при сворачивании вкладки. Сессия обязана идти и без
+ * лица: персонаж слышен, субтитры идут, оценка выставляется.
+ *
+ * Мимика становится пустышками — вызывать их можно откуда угодно, они ничего
+ * не знают о том, что лица нет.
+ */
+export function createFacelessPlayback(): AvatarPlaybackHandle {
+  const audioCtx = new AudioContext();
+  return {
+    audioCtx,
+    destination: audioCtx.destination,
+    resetFace: () => {},
+    setEmotion: () => {},
+    setView: () => {},
+  };
+}
+
+/**
  * Базовое удаление камеры по планам — из setView() самой TalkingHead
  * (`z += 2` для head, 4.5 для upper и т.д.). Нужно здесь, потому что
  * `cameraDistance` в опциях — это СЛАГАЕМОЕ к этой базе, а не итоговое
@@ -300,6 +327,16 @@ export function TalkingHeadAvatar({
             cameraY: model.cameraTuning[view].cameraY,
           });
         };
+
+        // Мобильный Safari отбирает WebGL-контекст у фоновых вкладок, и
+        // вернуть его сам TalkingHead не умеет. Без этого обработчика лицо
+        // просто чернеет молча; с ним ошибка доходит наверх, и сессия
+        // переключается на звук без лица (§8) вместо тихой поломки.
+        const canvas = mount.querySelector('canvas');
+        canvas?.addEventListener('webglcontextlost', (event) => {
+          event.preventDefault();
+          onError('WebGL-контекст потерян');
+        });
 
         onReady({
           audioCtx: head.audioCtx,

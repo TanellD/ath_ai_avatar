@@ -25,15 +25,18 @@ export function StageHint({ goal }: Props) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
     };
-    const onClickOutside = (event: MouseEvent) => {
+    // pointerdown, а не mousedown: iOS синтезирует мышиные события только для
+    // того, что считает кликабельным, и тап по пустому месту их не даёт —
+    // подсказка залипала открытой, а Escape на телефоне взять неоткуда.
+    const onClickOutside = (event: PointerEvent) => {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
     };
 
     window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('mousedown', onClickOutside);
+    window.addEventListener('pointerdown', onClickOutside);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('mousedown', onClickOutside);
+      window.removeEventListener('pointerdown', onClickOutside);
     };
   }, [open]);
 

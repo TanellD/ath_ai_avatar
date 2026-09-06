@@ -919,8 +919,13 @@ button.tag-chip--active:hover {
 .ptt__button {
   position: relative;
   overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   min-width: 150px;
-  padding: 9px 16px;
+  /* 44px — минимальная цель нажатия пальцем; ниже начинают промахиваться. */
+  min-height: 44px;
+  padding: 9px 18px;
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   background: var(--surface);
@@ -928,7 +933,35 @@ button.tag-chip--active:hover {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-  touch-action: none;
+  /* Было `none` — палец, начавший движение с кнопки, не мог прокрутить
+     карточку композера. `manipulation` снимает задержку тапа, но прокрутку
+     оставляет; так же сделано у .btn в ките. */
+  touch-action: manipulation;
+}
+
+.ptt__button .ic {
+  /* Поверх заливки уровня (::before), иначе значок под ней тонет. */
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.ptt__button-label {
+  position: relative;
+  z-index: 1;
+}
+
+/* Объяснение, почему голос недоступен. Без него погашенный тумблер выглядит
+   поломкой, а не следствием отсутствия HTTPS. */
+.ptt__note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .ptt__button::before {

@@ -38,6 +38,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { gatewayApi, scenarioApi } from '@/api/client';
+import { micAvailability, randomUuid } from '@/audio/mic/secureContext';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
@@ -46,6 +47,7 @@ import { useMicCapture } from '@/audio/mic/useMicCapture';
 import {
   AVATAR_MODELS,
   TalkingHeadAvatar,
+  createFacelessPlayback,
   type AvatarModelConfig,
   type AvatarPlaybackHandle,
 } from '@/avatar/TalkingHeadAvatar';
@@ -97,6 +99,12 @@ export function TraineeSession() {
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
   const [pushToTalk, setPushToTalk] = useState(false);
+  /**
+   * Считается один раз: ни защищённость контекста, ни поддержка ворклета за
+   * время сессии не меняются. Тумблер голосового ввода без микрофона не просто
+   * бесполезен — он обещает то, чего не будет.
+   */
+  const [mic] = useState(micAvailability);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState('');
   // Распознавание ушло на резервный движок без партиалов: черновик больше
@@ -105,6 +113,15 @@ export function TraineeSession() {
   const [voiceMetrics, setVoiceMetrics] = useState<VoiceMetrics | null>(null);
   const [playback, setPlayback] = useState<PlaybackState>('disconnected');
   const [audio, setAudio] = useState<AudioRig | null>(null);
+  /**
+   * Зеркало `audio` для обработчика ошибки аватара: тот не должен подменять
+   * уже работающий звук запасным, если лицо отвалилось посреди сессии
+   * (мобильный Safari роняет WebGL-контекст при сворачивании вкладки). Ref, а
+   * не состояние в замыкании, — чтобы не менять identity колбэка, который
+   * уходит пропсом в TalkingHeadAvatar.
+   */
+  const audioRef = useRef<AudioRig | null>(null);
+  audioRef.current = audio;
   /**
    * Пока false — сокет не открыт, и персонаж молчит. Разделение нужно из-за
    * автоплея: агент говорит первым (§1), а звук в браузере не пойдёт, пока
@@ -194,9 +211,35 @@ export function TraineeSession() {
     });
   }, []);
 
-  const handleAvatarError = useCallback((message: string) => {
-    setError({ type: 'audio', message: 'Не удалось загрузить аватара', details: message });
-  }, []);
+  /**
+   * Аватар не поднялся — тренировка всё равно должна идти. Claude.md §8:
+   * «лицо замирает, голос продолжается. Не наоборот». Раньше здесь ставился
+   * только баннер, `audio` оставался null, и экран превращался в тупик: кнопка
+   * старта навсегда «Загружаем персонажа…», композер и микрофон заблокированы.
+   *
+   * Собираем звук без лица тем же контрактом, что отдаёт живой аватар, и
+   * пускаем его через обычный handleAvatarReady — дальше по коду разницы нет.
+   */
+  const handleAvatarError = useCallback(
+    (message: string) => {
+      setError({
+        type: 'audio',
+        message: 'Персонаж не отображается — тренировка идёт со звуком и субтитрами',
+        details: message,
+      });
+      if (audioRef.current) return;
+      try {
+        handleAvatarReady(createFacelessPlayback());
+      } catch (cause) {
+        setError({
+          type: 'audio',
+          message: 'Не удалось включить звук',
+          details: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    },
+    [handleAvatarReady],
+  );
 
   // Сессия заводится по нажатию «Начать», а не на монтировании страницы —
   // см. handleStart. Раньше строка в БД появлялась на каждый заход, и список
@@ -596,7 +639,7 @@ export function TraineeSession() {
   const handleVoiceStart = useCallback(() => {
     if (!audio || connection !== 'open' || activeCaptureRef.current) return;
     silenceFollowupRef.current?.beginUserTurn();
-    const captureId = crypto.randomUUID();
+    const captureId = randomUuid();
     const captureStartedAt = performance.now();
     const wasPlaying = audio.clock.isPlaying;
     activeCaptureRef.current = captureId;
@@ -785,13 +828,14 @@ export function TraineeSession() {
 
           <section className="card session__composer-card">
             <PushToTalkToggle
-              enabled={pushToTalk}
+              enabled={pushToTalk && mic.available}
               onChange={setPushToTalk}
               active={voiceActive}
               level={micLevel}
               onStart={handleVoiceStart}
               onEnd={handleVoiceEnd}
-              disabled={connection !== 'open' || !audio || finished}
+              disabled={connection !== 'open' || !audio || finished || !mic.available}
+              unavailableReason={mic.reason}
             />
             <MessageComposer
               disabled={connection !== 'open' || !audio || voiceActive || finished}
