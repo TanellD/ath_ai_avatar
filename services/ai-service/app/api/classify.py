@@ -36,7 +36,20 @@ async def classify(payload: ClassifyRequest, request: Request) -> ClassifyRespon
         schema=CLASSIFICATION_SCHEMA,
     )
 
-    classification = Classification(result["classification"])
+    try:
+        classification = Classification(result["classification"])
+    except (KeyError, ValueError):
+        # Модель вернула JSON без ожидаемого поля/значения (наблюдалось на
+        # локальных Qwen через Ollama при недостаточно строгом response_format —
+        # см. openai_compatible.py). gateway (pipeline._advance_stage) и так
+        # ловит любое исключение отсюда и подставляет INCOMPLETE, но это
+        # превращалось в необработанный 500 и шумный traceback вместо
+        # предсказуемого «этап не засчитан» — той же деградации, что и на
+        # честном INCOMPLETE. Явный дефолт здесь дешевле и не теряет
+        # диагностику: сырой ответ модели остаётся в логе.
+        log.warning("classify.malformed_response", stage_id=payload.stage.id, raw=result)
+        classification = Classification.INCOMPLETE
+
     log.info("classify.done", stage_id=payload.stage.id, classification=classification.value)
 
     return ClassifyResponse(classification=classification, reason=result.get("reason", ""))
