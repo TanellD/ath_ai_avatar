@@ -161,6 +161,67 @@ async def spoken_text_chunks(
             yield f" {spoken}"
 
 
+_IDLE_GUARD_SEC = 4.0
+"""Сколько ждать следующий кусок текста, прежде чем закрыть сессию Soniox.
+
+Замерено на живом сервисе: паузы по 4 с — 3 успеха из 4, паузы по 10 с — 0 из
+4, каждый обрыв ровно на 10.0 с. Берём с запасом вдвое: 4 с ещё почти всегда
+проходят сами, а лишнее переоткрытие стоит одного рукопожатия и случается
+только тогда, когда LLM и так задумалась.
+"""
+
+_PULL_DONE = object()
+"""Исходный поток текста кончился. Часовой, а не исключение: StopAsyncIteration
+из задачи ловится неудобно и легко теряется."""
+
+
+async def _pull_next(source: AsyncIterator[str]) -> object:
+    try:
+        return await anext(source)
+    except StopAsyncIteration:
+        return _PULL_DONE
+
+
+async def _idle_bounded_batches(
+    source: AsyncIterator[str], idle_sec: float
+) -> AsyncIterator[list[str]]:
+    """Резать поток текста на пачки, ни одна из которых не ждала дольше idle_sec.
+
+    ПЕРВОГО куска пачки ждём без ограничения: пока его нет, ни одной сессии не
+    открыто и таймаут Soniox не тикает — ждать можно сколько угодно. А вот
+    внутри уже начатой пачки пауза означает открытое соединение, и её обрываем.
+
+    Задача чтения переживает тайм-аут (`shield`) и дочитывается следующей
+    итерацией — иначе кусок, пришедший в момент нарезки, потерялся бы.
+    """
+    puller: asyncio.Task[object] | None = None
+    batch: list[str] = []
+    try:
+        while True:
+            if puller is None:
+                puller = asyncio.create_task(_pull_next(source))
+            try:
+                item = await asyncio.wait_for(
+                    asyncio.shield(puller), timeout=idle_sec if batch else None
+                )
+            except TimeoutError:
+                yield batch
+                batch = []
+                continue
+
+            puller = None
+            if item is _PULL_DONE:
+                if batch:
+                    yield batch
+                return
+            batch.append(item)  # type: ignore[arg-type]
+    finally:
+        if puller is not None:
+            puller.cancel()
+            with suppress(asyncio.CancelledError):
+                await puller
+
+
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
     """Обернуть кусок сырого PCM16 mono в самостоятельный WAV-контейнер.
 
@@ -221,31 +282,63 @@ class SonioxTtsProvider(TtsProvider):
         intensity: EmotionIntensity = EmotionIntensity.NORMAL,
         enhanced_prosody: bool = True,
     ) -> AsyncIterator[AudioChunk]:
-        # Живой сбой: Soniox сама шлёт событие с error_code=408 ("Request
-        # timeout"), если сессия открыта, а текста в неё долго не приходит —
-        # порог нигде не документирован, но обрывы наблюдались уже на ~7-8 с
-        # ожидания. В pipeline._speak() соединение раньше открывалось СРАЗУ,
-        # а `texts` — это `sentences()`, темп которого задаёт LLM: пока модель
-        # не выдаст первое законченное предложение, Soniox-сессия висит
-        # совершенно пустой. Ход, для которого LLM отвечал дольше этого
-        # порога, падал целиком без единого чанка аудио — а задержка ответа
-        # у стороннего LLM-прокси нестабильна и временами превышает 10 с.
-        #
-        # Дожидаемся первого куска ЗДЕСЬ, до connect(): пока мы ждём LLM,
-        # никакой Soniox-таймаут ещё не тикает — секундомер стартует вместе
-        # с самим соединением, а не раньше.
+        """Озвучить реплику, не давая сессии Soniox простаивать.
+
+        Soniox обрывает открытую сессию, если текста в неё долго не приходит, и
+        присылает событие с `error_code=408`. Порог не документирован, но
+        измерен на живом сервисе: паузы по 4 с между кусками — 3 успеха из 4,
+        паузы по 10 с — 0 из 4, причём каждый обрыв ровно на 10.0 с. Без пауз
+        подряд 4 успеха из 4.
+
+        А `texts` — это `sentences()`, темп которого задаёт LLM. Пока модель
+        думает над следующим предложением, сессия висит пустой: на медленном
+        провайдере ход падал целиком, и вместо ответа персонажа звучала
+        запасная скриптовая реплика.
+
+        Поэтому поток режется на пачки: как только текст замолкает дольше
+        порога, текущая сессия закрывается штатным `text_end`, а следующая
+        открывается уже под новый текст. Аудио от этого не рвётся — куски
+        просто идут дальше по очереди, — а ожидание LLM больше не тикает ни в
+        одном открытом соединении.
+        """
         spoken = spoken_text_chunks(texts, emotion, intensity, enhanced_prosody)
-        try:
-            first_chunk = await anext(spoken)
-        except StopAsyncIteration:
+        # У новой сессии нет памяти о подаче: тег эмоции повторяем в начале
+        # каждой следующей пачки, иначе хвост реплики зазвучит нейтрально.
+        prefix = _EMOTION_TAGS[emotion][intensity]
+
+        pending: AudioChunk | None = None
+        produced = False
+        first_batch = True
+
+        async for batch in _idle_bounded_batches(spoken, _IDLE_GUARD_SEC):
+            if not first_batch:
+                batch = [f"{prefix} {batch[0].lstrip()}", *batch[1:]]
+            first_batch = False
+
+            async for chunk in self._synthesize_batch(batch, voice_id):
+                produced = True
+                # На один кусок позади: `is_final` ставится только последнему
+                # за всю реплику, а не последнему в каждой пачке.
+                if pending is not None:
+                    yield pending
+                pending = chunk
+
+        if pending is not None:
+            yield AudioChunk(
+                data=pending.data,
+                sample_rate=pending.sample_rate,
+                is_final=True,
+                subtitle_text=pending.subtitle_text,
+                subtitle_start_ms=pending.subtitle_start_ms,
+                subtitle_end_ms=pending.subtitle_end_ms,
+            )
+        elif not produced:
             log.warning("tts.soniox.empty_response")
-            return
 
-        async def remaining_chunks() -> AsyncIterator[str]:
-            yield first_chunk
-            async for chunk in spoken:
-                yield chunk
-
+    async def _synthesize_batch(
+        self, batch: list[str], voice_id: str | None
+    ) -> AsyncIterator[AudioChunk]:
+        """Одна пачка текста — одна сессия Soniox. `is_final` здесь не ставится."""
         config = RealtimeTTSConfig(
             stream_id=str(uuid.uuid4()),
             model=_MODEL,
@@ -256,17 +349,19 @@ class SonioxTtsProvider(TtsProvider):
             return_timestamps=True,
         )
 
+        async def batch_chunks() -> AsyncIterator[str]:
+            for chunk in batch:
+                yield chunk
+
         # Отмена (§6): при task.cancel() со стороны gateway CancelledError
         # прорастает сквозь `async for` ниже, и `async with` гарантированно
         # вызывает __aexit__ соединения на разворачивании стека — отдельно
         # закрывать сокет не нужно.
         async with self._client.realtime.tts.connect(config=config) as connection:
             sender = asyncio.create_task(
-                connection.send_text_chunks(remaining_chunks(), text_end=True)
+                connection.send_text_chunks(batch_chunks(), text_end=True)
             )
             events = connection.receive_events().__aiter__()
-            pending: AudioChunk | None = None
-            received_audio = False
             timestamp_filter = TimestampControlTagFilter()
             try:
                 while True:
@@ -292,7 +387,6 @@ class SonioxTtsProvider(TtsProvider):
                     pcm = event.audio_bytes()
                     if pcm is None:
                         continue
-                    received_audio = True
                     timestamps = event.timestamps
                     if timestamps is None:
                         aligned_text, starts, ends = "", [], []
@@ -302,30 +396,15 @@ class SonioxTtsProvider(TtsProvider):
                             timestamps.character_start_times_seconds,
                             timestamps.character_end_times_seconds,
                         )
-                    chunk = AudioChunk(
+                    yield AudioChunk(
                         data=_pcm_to_wav(pcm, self._sample_rate),
                         sample_rate=self._sample_rate,
                         subtitle_text=aligned_text,
                         subtitle_start_ms=round(starts[0] * 1000) if starts else None,
                         subtitle_end_ms=round(ends[-1] * 1000) if ends else None,
                     )
-                    if pending is not None:
-                        yield pending
-                    pending = chunk
             finally:
                 if sender is not None:
                     sender.cancel()
                     with suppress(asyncio.CancelledError, Exception):
                         await sender
-
-            if pending is not None:
-                yield AudioChunk(
-                    data=pending.data,
-                    sample_rate=pending.sample_rate,
-                    is_final=True,
-                    subtitle_text=pending.subtitle_text,
-                    subtitle_start_ms=pending.subtitle_start_ms,
-                    subtitle_end_ms=pending.subtitle_end_ms,
-                )
-            elif not received_audio:
-                log.warning("tts.soniox.empty_response")
