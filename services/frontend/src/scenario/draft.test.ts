@@ -23,6 +23,7 @@ function scenario(patch: Partial<Scenario> = {}): Scenario {
       mood: 'neutral',
       difficulty: 3,
       voice_id: null,
+      holds_initiative: true,
     },
     stages: [
       {
@@ -54,7 +55,15 @@ function blankScenario(): Scenario {
   return scenario({
     id: '',
     title: '',
-    persona: { name: '', role: '', character: '', mood: 'neutral', difficulty: 3, voice_id: null },
+    persona: {
+      name: '',
+      role: '',
+      character: '',
+      mood: 'neutral',
+      difficulty: 3,
+      voice_id: null,
+      holds_initiative: true,
+    },
     stages: [
       { id: 'stage_1', goal: '', agent_opening: '', completion_criteria: '', max_turns: 4 },
     ],
@@ -76,6 +85,7 @@ function draft(patch: Partial<ScenarioDraft> = {}): ScenarioDraft {
       mood: 'irritated',
       difficulty: 4,
       voice_id: null,
+      holds_initiative: true,
     },
     stages: [
       {
