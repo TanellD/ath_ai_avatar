@@ -81,6 +81,15 @@ async def test_unclosed_tag_discards_rest_of_stream() -> None:
 
 
 @pytest.mark.anyio
+async def test_angle_bracket_used_as_comparison_operator_is_not_buffered_forever() -> None:
+    """"<" перед цифрой/пробелом — не начало тега. Раньше буфер ждал ">" до
+    конца стрима вместо того, чтобы сразу отдать текст дальше — ответ
+    задерживался вплоть до последнего чанка."""
+    result = await _collect(["Цена ", "< 100 тысяч, обсудим"])
+    assert result == "Цена < 100 тысяч, обсудим"
+
+
+@pytest.mark.anyio
 async def test_multiple_thought_blocks_in_one_reply() -> None:
     result = await _collect(
         ["<thought>A</thought>Первая часть. ", "<thought>B</thought>Вторая часть."]

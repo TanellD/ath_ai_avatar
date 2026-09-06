@@ -50,6 +50,20 @@ describe('isStaleEvent', () => {
     expect(isStaleEvent(event, 4)).toBe(false);
   });
 
+  it('пропускает ошибку чужого поколения', () => {
+    // gen_id ошибки может отставать от текущего (например, отмена сама и
+    // вызвала ошибку) — отбросить её значит оставить пользователя без
+    // единственного сигнала о сбое.
+    const event: ServerEvent = {
+      type: 'error',
+      gen_id: 3,
+      code: 'voice_capture_active',
+      message: 'x',
+      spoken: false,
+    };
+    expect(isStaleEvent(event, 4)).toBe(false);
+  });
+
   it('отбрасывает транскрипт отменённого хода', () => {
     const event: ServerEvent = {
       type: 'transcript',
