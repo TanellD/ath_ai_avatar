@@ -54,6 +54,20 @@ export interface CameraTuning {
   cameraY: number;
 }
 
+/**
+ * Поправка света под модель.
+ *
+ * TalkingHead светит одинаково всем, а модели с цветом, запечённым в текстуры,
+ * страдают от этого заметнее, чем модели с собственными PBR-картами. Поэтому
+ * поправка задаётся на модель, а не глобально: менять свет остальным аватарам
+ * ради одного нельзя.
+ */
+export interface AvatarLighting {
+  lightAmbientIntensity: number;
+  lightDirectColor: number;
+  lightDirectIntensity: number;
+}
+
 export interface AvatarModelConfig {
   id: AvatarId;
   label: string;
@@ -67,6 +81,22 @@ export interface AvatarModelConfig {
    * пара чисел, а таблица.
    */
   cameraTuning: Record<CameraView, CameraTuning>;
+  /** Поправка света; без неё берутся умолчания библиотеки. */
+  lighting?: AvatarLighting;
+  /**
+   * Длительность полного хода виземы 0→1, мс. В HeadAudio зашито 100, но в
+   * речи виземы сменяются каждые 60-120 мс — рот не успевает доехать до формы
+   * и щёлкает между ними. Чем крупнее рот модели, тем заметнее. Без значения
+   * остаётся ванильное поведение.
+   */
+  visemeRampMs?: number;
+  /**
+   * Экспоненциальное сглаживание выходного значения морфа, мс. Лечит дрожь,
+   * которую не убирает visemeRampMs: при быстрой смене визем их альфы
+   * болтаются в средней зоне, где сигмоида easing самая крутая. 0 или без
+   * значения — фильтр выключен.
+   */
+  visemeSmoothMs?: number;
   embeddedIdleAnimations?: boolean;
 }
 
@@ -108,7 +138,81 @@ export const AVATAR_MODELS = {
     // через штатный head.mixer, а не отдельным микшером.
     embeddedIdleAnimations: false,
   },
+  vincent: {
+    id: 'vincent-avatar',
+    label: 'Vincent',
+    url: '/assets/avatar/vincent.glb',
+    // ВРЕМЕННО false. Шаблоны поз TalkingHead написаны под T-позу: у
+    // avatar-aith руки в rest смотрят строго горизонтально [1,0,0], и шаблон
+    // доворачивает их вниз примерно на 90°. Vincent смоделирован в A-позе,
+    // руки уже опущены на 34.7° — тот же доворот уводит их на столько же
+    // дальше, внутрь корпуса. Отсюда и вывернутые руки, и посторонняя
+    // геометрия, заплывающая в тело.
+    //
+    // Лечится приведением rest-позы Vincent к T-позе (развернуть кости рук,
+    // применить позу как rest, перезапечь тело) — до тех пор позы тела
+    // отключены. Лицо, виземы, моргание и взгляд работают в любом случае:
+    // ими TalkingHead управляет независимо от этого флага.
+    humanoidPose: false,
+    cameraView: 'head',
+    // Риг TalkingHead-совместимый: отдельные кости глаз и полный набор
+    // лицевых morph targets. Тело человеческих пропорций, поэтому планы
+    // upper/mid/full кадрируются штатно и поправки не требуют.
+    //
+    // План head — требует. Голова Vincent 0.487 (от подбородка 1.239 до
+    // макушки волос 1.726) против 0.267 у avatar-aith, то есть в 1.83 раза
+    // крупнее при почти том же уровне глаз (1.542 против 1.482). Формула
+    // setView() берёт размер кадра от avatarHeight, а он у обоих почти
+    // одинаковый — кадр выходит один и тот же, а голова в него не влезает:
+    // при нулях кадр 1.393..1.743 обрезает подбородок.
+    //
+    // Числа подобраны так, чтобы голова занимала в кадре ту же долю, что и у
+    // avatar-aith (0.76): z = 2 + 1.65 = 3.65 даёт кадр 1.154..1.793 — запас
+    // 0.085 под подбородком и 0.067 над волосами.
+    cameraTuning: {
+      head: { cameraDistance: 1.65, cameraY: 0.75 },
+      upper: { cameraDistance: 0, cameraY: 0 },
+      mid: { cameraDistance: 0, cameraY: 0 },
+      full: { cameraDistance: 0, cameraY: 0 },
+    },
+    // Рот у Vincent крупный и мультяшный: на ванильных 100 мс артикуляция
+    // читается дёрганой. 120 мс дают внятное движение без суеты, 70 мс
+    // сглаживания убирают остаточную дрожь на быстрой речи.
+    visemeRampMs: 120,
+    visemeSmoothMs: 70,
+    // Цвет Vincent запечён в текстуры (материалы Blender строились на
+    // MIX_SHADER, который glTF не переносит), поэтому вся тональность
+    // приходит от света. С умолчаниями библиотеки он выходит блёклым: синий
+    // ключ гасит кожу, заливка убирает контраст. Ключ переведён в тёплый
+    // белый и усилен, заливка убавлена.
+    lighting: {
+      lightAmbientIntensity: 1.1,
+      lightDirectColor: 0xfff0e2,
+      lightDirectIntensity: 32,
+    },
+  },
 } as const satisfies Record<string, AvatarModelConfig>;
+
+/**
+ * Порядок перебора моделей в интерфейсе. Список, а не пара: аватаров стало
+ * три, и жёстко зашитый тумблер «aith ↔ tom» на четвёртом сломается снова.
+ */
+export const AVATAR_MODEL_LIST: AvatarModelConfig[] = [
+  AVATAR_MODELS.aith,
+  AVATAR_MODELS.tom,
+  AVATAR_MODELS.vincent,
+];
+
+/**
+ * Следующая модель по кругу. Одна реализация на экран тренировки и на
+ * лабораторию: раньше каждый крутил свою пару и они разъезжались.
+ *
+ * Неизвестная модель отправляет в начало списка, а не роняет перебор.
+ */
+export function nextAvatarAfter(current: AvatarModelConfig): AvatarModelConfig {
+  const index = AVATAR_MODEL_LIST.findIndex((model) => model.id === current.id);
+  return AVATAR_MODEL_LIST[(index + 1) % AVATAR_MODEL_LIST.length];
+}
 
 /** Что аватар отдаёт наверх, когда готов принимать звук. */
 export interface AvatarPlaybackHandle {
@@ -225,6 +329,9 @@ export function TalkingHeadAvatar({
           mixerGainSpeech: 3,
           modelFPS: 60,
           cameraRotateEnable: false,
+          // Последним, чтобы перекрыть умолчания библиотеки. Пусто у моделей
+          // без своей поправки — тогда всё как было.
+          ...(model.lighting ?? {}),
         });
 
         const disposeResize = guardAvatarResize(head, mount);
@@ -241,6 +348,15 @@ export function TalkingHeadAvatar({
             vadMode: 1,
           },
         });
+
+        // Свойства не объявлены в типах HeadAudio: это наш форк вендорного
+        // headaudio.mjs, где они и заведены (visemeRampMs, visemeSmoothMs).
+        const audioTuning = headaudio as unknown as {
+          visemeRampMs: number;
+          visemeSmoothMs: number;
+        };
+        if (model.visemeRampMs) audioTuning.visemeRampMs = model.visemeRampMs;
+        if (model.visemeSmoothMs) audioTuning.visemeSmoothMs = model.visemeSmoothMs;
 
         await headaudio.loadModel(HEADAUDIO_MODEL_URL);
 
