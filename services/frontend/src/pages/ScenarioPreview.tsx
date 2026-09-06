@@ -39,13 +39,19 @@ export function ScenarioPreview() {
   if (error) return <p className="page page--error">Не удалось загрузить сценарий: {error}</p>;
   if (!scenario) return <p className="page">Загружаем сценарий…</p>;
 
+  // Слоты подставляются не только в briefing — role/character методист тоже
+  // пишет со слотами («закупщик в «{client}»»), и без подстановки здесь
+  // сотрудник видел бы фигурные скобки прямо в подзаголовке кейса.
+  const defaults = slotDefaults(scenario.slots);
+
   return (
     <main className="page page--wide">
       <section className="card hero-card">
         <span className="eyebrow">Кейс</span>
         <h1>{scenario.title}</h1>
         <p className="lead">
-          {scenario.persona.name} — {scenario.persona.role}. {scenario.persona.character}.
+          {scenario.persona.name} — {renderBriefing(scenario.persona.role, defaults)}.{' '}
+          {renderBriefing(scenario.persona.character, defaults)}.
         </p>
       </section>
 
@@ -56,9 +62,7 @@ export function ScenarioPreview() {
         <section className="card report__section">
           <span className="eyebrow">Обстановка</span>
           <h2>С чем вы придёте в разговор</h2>
-          <ScenarioBriefing
-            text={renderBriefing(scenario.briefing, slotDefaults(scenario.slots))}
-          />
+          <ScenarioBriefing text={renderBriefing(scenario.briefing, defaults)} />
           {scenario.slots.length > 0 && (
             <p className="admin__hint">
               Имена, названия и цифры в тренировке будут другими — они подбираются заново
