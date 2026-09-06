@@ -12,8 +12,10 @@ PCM-кадры микрофона идут тем же upgrade-обработч�
 
 import asyncio
 import json
+from typing import get_args
 
 from ath_contracts import (
+    AvatarId,
     ErrorEvent,
     FinishSession,
     Ping,
@@ -86,6 +88,17 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
     )
 
     log.info("ws.connected", scenario_id=session.scenario.id)
+
+    # Баг: открывающая реплика играла голосом DEFAULT_AVATAR_ID (Ирина/жен.)
+    # даже если сотрудник выбрал Vincent/Tom — клиент выбирает аватар ДО
+    # открытия сокета, но сервер узнавал его только из первого UserMessage/
+    # SpeechStart, а к открывающей реплике эти события ещё не пришли. Клиент
+    # уже кладёт свой выбор в query, разбираем его здесь, до open_session();
+    # если параметра нет или он не входит в известный набор — session.avatar_id
+    # остаётся дефолтным, как и раньше.
+    requested_avatar = websocket.query_params.get("avatar_id")
+    if requested_avatar in get_args(AvatarId):
+        session.avatar_id = requested_avatar  # type: ignore[assignment]
 
     # Инициативу держит агент (§1): персонаж заговаривает сам, не дожидаясь
     # реплики сотрудника.

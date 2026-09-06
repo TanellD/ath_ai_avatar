@@ -436,6 +436,7 @@ export function TraineeSession() {
     sessionId: started ? sessionId : null,
     onEvent: handleEvent,
     currentGeneration: () => genRef.current,
+    avatarId: () => avatarModel.id,
     onError: setError,
     onReconnect: () => {
       // Незавершённая реплика умерла вместе со старым сокетом: продолжать
@@ -634,6 +635,10 @@ export function TraineeSession() {
     setVoiceMetrics({ stopMs });
     audio.queue.startGeneration(genRef.current);
     setCues([]);
+    // Баг: cancelPlayback() выше замораживает субтитры (freezeSubtitles), а
+    // здесь, в отличие от handleSend, не было снятия заморозки — субтитры
+    // застывали на первой же голосовой реплике и не двигались до конца сессии.
+    setSubtitlesFrozen(false);
     sendSpeechStart(captureId, interrupted, avatarModel.id);
     setPlayback('listening');
 
@@ -820,7 +825,7 @@ export function TraineeSession() {
                 disabled={connection !== 'open' || !audio || voiceActive || finished}
                 isAgentSpeaking={playback === 'speaking'}
                 onSubmit={handleSubmit}
-                onActivity={() => silenceFollowupRef.current?.postpone()}
+                onDraftChange={(hasText) => silenceFollowupRef.current?.setDraftActive(hasText)}
               />
             </div>
             {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
@@ -831,7 +836,11 @@ export function TraineeSession() {
                   : 'Говорите, я записываю — текст появится целиком в конце реплики'}
               </p>
             )}
-            {voiceMetrics && (
+            {/* Только dev-сборка (import.meta.env.DEV — Vite, false в прод-бандле):
+                отладочные тайминги голосового хода не для сотрудника — их
+                когда-то оставили видимыми и на проде, где они читались как
+                «технические данные» посреди тренировки. */}
+            {import.meta.env.DEV && voiceMetrics && (
               <p className="voice-metrics">
                 Voice: ACK {formatMetric(voiceMetrics.ackMs)} · partial{' '}
                 {formatMetric(voiceMetrics.firstPartialMs)} · final{' '}

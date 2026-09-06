@@ -15,6 +15,7 @@ import type {
   Span,
 } from '@/contracts/admin';
 import type {
+  AvatarId,
   Persona,
   Report,
   RubricItem,
@@ -124,8 +125,16 @@ export const gatewayApi = {
     return request(`${API_URL}/sessions/${sessionId}/report`, { method: 'POST' });
   },
 
-  sessionSocketUrl(sessionId: string): string {
-    return `${WS_URL}/ws/session/${sessionId}`;
+  /**
+   * `avatarId` — то, что сотрудник выбрал ДО открытия сокета. Открывающая
+   * реплика (персонаж говорит первым, §1) звучит раньше первого UserMessage/
+   * SpeechStart — единственных событий, которые иначе несли бы avatar_id —
+   * поэтому без query-параметра сервер озвучивал её дефолтным (женским)
+   * голосом даже для Vincent/Tom. Дальнейшие ходы синхронизируются как
+   * раньше, этим параметром только открывающая реплика.
+   */
+  sessionSocketUrl(sessionId: string, avatarId: AvatarId): string {
+    return `${WS_URL}/ws/session/${sessionId}?avatar_id=${encodeURIComponent(avatarId)}`;
   },
 };
 

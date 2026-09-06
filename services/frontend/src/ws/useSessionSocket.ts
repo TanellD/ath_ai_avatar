@@ -51,6 +51,12 @@ interface Options {
   onEvent: (event: ServerEvent) => void;
   /** Текущее поколение. События с другим gen_id отбрасываются. */
   currentGeneration: () => number;
+  /**
+   * Аватар, выбранный к моменту открытия сокета — используется только для
+   * голоса открывающей реплики (см. `gatewayApi.sessionSocketUrl`). Геттер,
+   * а не значение: смена аватара сотрудником не обязана переоткрывать сокет.
+   */
+  avatarId: () => AvatarId;
   onError?: (error: SessionError) => void;
   /**
    * Соединение поднялось заново. Поколение сервера могло уйти вперёд, а
@@ -64,6 +70,7 @@ export function useSessionSocket({
   sessionId,
   onEvent,
   currentGeneration,
+  avatarId,
   onError,
   onReconnect,
 }: Options) {
@@ -72,8 +79,8 @@ export function useSessionSocket({
 
   // Держим колбэки в ref, чтобы пересоздание функции у вызывающего не
   // переоткрывало сокет: переподключение посреди реплики — это оборванный звук.
-  const handlers = useRef({ onEvent, currentGeneration, onError, onReconnect });
-  handlers.current = { onEvent, currentGeneration, onError, onReconnect };
+  const handlers = useRef({ onEvent, currentGeneration, avatarId, onError, onReconnect });
+  handlers.current = { onEvent, currentGeneration, avatarId, onError, onReconnect };
 
   useEffect(() => {
     if (!sessionId) return;
@@ -85,7 +92,9 @@ export function useSessionSocket({
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const open = (isRetry: boolean) => {
-      const socket = new WebSocket(gatewayApi.sessionSocketUrl(sessionId));
+      const socket = new WebSocket(
+        gatewayApi.sessionSocketUrl(sessionId, handlers.current.avatarId()),
+      );
       socketRef.current = socket;
       setState(isRetry ? 'reconnecting' : 'connecting');
 
