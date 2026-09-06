@@ -164,6 +164,42 @@ const VIEW_BASE_DISTANCE: Record<CameraView, number> = {
   full: 12,
 };
 
+/**
+ * Телефон ли это — по грубому указателю и узкому экрану, а не по user-agent:
+ * строку агента подделывают и переписывают, а способ ввода и ширина описывают
+ * ровно то, что нам нужно.
+ */
+export function isHandheld(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(pointer: coarse) and (max-width: 820px)').matches;
+}
+
+/**
+ * Настройки рендера под устройство.
+ *
+ * `modelFPS: 60` при вендорном дефолте 30 и сырой `devicePixelRatio` (2–3.5 на
+ * телефоне, то есть 4–12× работы на фрагментах) — это прямой нагрев и расход
+ * батареи, а не качество картинки: лицо в панели размером с ладонь от 60 кадров
+ * и тройного пиксельного отношения лучше не становится.
+ */
+export interface RenderProfile {
+  modelFPS: number;
+  /**
+   * Коэффициент, а не итоговое разрешение: вендор умножает `modelPixelRatio`
+   * на `window.devicePixelRatio` сам (`setPixelRatio(opt * dpr)`), поэтому
+   * чтобы ограничить эффективное отношение двойкой, сюда идёт 2/dpr.
+   */
+  pixelRatio: number;
+}
+
+export function renderProfile(
+  handheld = isHandheld(),
+  devicePixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
+): RenderProfile {
+  if (!handheld) return { modelFPS: 60, pixelRatio: 1 };
+  return { modelFPS: 30, pixelRatio: Math.min(2, devicePixelRatio) / devicePixelRatio };
+}
+
 /** Итоговая поправка расстояния под требуемый зум. */
 function tunedDistance(model: AvatarModelConfig, view: CameraView, zoomOut: number): number {
   const base = VIEW_BASE_DISTANCE[view];
@@ -183,9 +219,16 @@ interface Props {
   zoomOut?: number;
   onReady: (handle: AvatarPlaybackHandle) => void;
   onError: (message: string) => void;
+  /**
+   * Доля загрузки модели, 0..1. Основная модель весит 12.7 МБ, и по сотовой
+   * сети это десятки секунд, в течение которых кнопка старта просто написана
+   * «Загружаем персонажа…» и ничем не отличается от зависшей.
+   */
+  onProgress?: (fraction: number) => void;
 }
 
 export function TalkingHeadAvatar({
+  onProgress,
   model = AVATAR_MODELS.aith,
   isSpeaking,
   zoomOut = 1,
@@ -243,6 +286,7 @@ export function TalkingHeadAvatar({
 
         const initialTuning = model.cameraTuning[model.cameraView];
 
+        const profile = renderProfile();
         const head = new TalkingHead(mount, {
           ttsEndpoint: 'N/A',
           lipsyncModules: [],
@@ -250,7 +294,11 @@ export function TalkingHeadAvatar({
           cameraDistance: tunedDistance(model, model.cameraView, zoomOut),
           cameraY: initialTuning.cameraY,
           mixerGainSpeech: 3,
-          modelFPS: 60,
+          // На телефоне ниже: см. renderProfile(). modelPixelRatio у вендора
+          // умножается на window.devicePixelRatio, поэтому здесь коэффициент,
+          // а не итоговое значение.
+          modelFPS: profile.modelFPS,
+          modelPixelRatio: profile.pixelRatio,
           cameraRotateEnable: false,
         });
 
@@ -300,11 +348,20 @@ export function TalkingHeadAvatar({
           if (model.humanoidPose) head.speakWithHands();
         };
 
-        await head.showAvatar({
-          url: model.url,
-          body: 'F',
-          avatarMood: 'neutral',
-        });
+        await head.showAvatar(
+          {
+            url: model.url,
+            body: 'F',
+            avatarMood: 'neutral',
+          },
+          // Вендор зовёт onprogress событиями XHR; total известен не всегда
+          // (нет Content-Length при chunked), тогда доли просто не будет.
+          (event: ProgressEvent) => {
+            if (event.lengthComputable && event.total > 0) {
+              onProgress?.(event.loaded / event.total);
+            }
+          },
+        );
 
         if (!model.humanoidPose) {
           restoreRootPosition = stabilizeNonHumanoidPose(head);
@@ -361,7 +418,7 @@ export function TalkingHeadAvatar({
     };
     // zoomOut читается один раз при инициализации сцены: startedRef держит
     // setup() однократным, и менять зум на лету компонент не обещает.
-  }, [model, zoomOut, onReady, onError]);
+  }, [model, zoomOut, onReady, onError, onProgress]);
 
   return <div ref={containerRef} className="avatar" />;
 }

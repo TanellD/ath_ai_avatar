@@ -120,6 +120,8 @@ export function TraineeSession() {
    * не состояние в замыкании, — чтобы не менять identity колбэка, который
    * уходит пропсом в TalkingHeadAvatar.
    */
+  /** Доля загрузки модели, 0..1. null — ещё ни одного события прогресса. */
+  const [avatarProgress, setAvatarProgress] = useState<number | null>(null);
   const audioRef = useRef<AudioRig | null>(null);
   audioRef.current = audio;
   /**
@@ -818,6 +820,7 @@ export function TraineeSession() {
             )}
             <TalkingHeadAvatar
               key={avatarModel.id}
+              onProgress={setAvatarProgress}
               model={avatarModel}
               isSpeaking={playback === 'speaking'}
               onReady={handleAvatarReady}
@@ -869,6 +872,7 @@ export function TraineeSession() {
       {!started && (
         <SessionStartOverlay
           ready={audio !== null}
+          progress={avatarProgress}
           opening={opening}
           onStart={handleStart}
           briefing={briefingShown ? (scenario?.briefing ?? '') : ''}

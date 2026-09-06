@@ -108,7 +108,17 @@ declare module '@met4citizen/talkinghead' {
     audioReverbNode: AudioNode;
     mtAvatar: Record<string, MorphTarget>;
     opt: { update?: (dt: number) => void; [key: string]: unknown };
-    showAvatar(options: ShowAvatarOptions): Promise<void>;
+    /**
+     * Второй аргумент — колбэк прогресса загрузки модели; в рантайме он есть
+     * с самого начала (`async showAvatar(avatar, onprogress=null)` в
+     * talkinghead.mjs), просто в этом объявлении его не было, пока он не
+     * понадобился. Вызывается событиями XHR, поэтому `lengthComputable`
+     * проверять обязательно: при chunked-ответе `total` равен нулю.
+     */
+    showAvatar(
+      options: ShowAvatarOptions,
+      onProgress?: (event: ProgressEvent) => void,
+    ): Promise<void>;
     setView(view: string, options?: { cameraDistance?: number; cameraY?: number }): void;
     lookAtCamera(durationMs: number): void;
     setMood(mood: string): void;

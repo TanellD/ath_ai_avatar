@@ -37,6 +37,12 @@ interface Props {
   briefing?: string;
   onEnter?: () => void;
   title?: string;
+  /**
+   * Доля загрузки модели, 0..1. Основная весит 12.7 МБ: по сотовой сети это
+   * десятки секунд, и без доли «Загружаем персонажа…» неотличимо от зависшей
+   * страницы.
+   */
+  progress?: number | null;
 }
 
 export function SessionStartOverlay({
@@ -46,7 +52,12 @@ export function SessionStartOverlay({
   briefing = '',
   onEnter,
   title,
+  progress = null,
 }: Props) {
+  const loading =
+    progress === null || progress >= 1
+      ? 'Загружаем персонажа…'
+      : `Загружаем персонажа… ${Math.round(progress * 100)}%`;
   return (
     <div className="session-overlay" role="dialog" aria-modal="true" aria-label="Начало тренировки">
       <div className="session-overlay__card">
@@ -75,7 +86,7 @@ export function SessionStartOverlay({
               disabled={!ready || opening}
             >
               {!ready
-                ? 'Загружаем персонажа…'
+                ? loading
                 : opening
                   ? 'Готовим ситуацию…'
                   : 'Начать тренировку'}
