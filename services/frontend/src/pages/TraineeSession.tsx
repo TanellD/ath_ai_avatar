@@ -800,7 +800,13 @@ export function TraineeSession() {
                 level={micLevel}
                 onStart={handleVoiceStart}
                 onEnd={handleVoiceEnd}
-                disabled={connection !== 'open' || !audio || finished}
+                // Соединение блокирует только СТАРТ записи. Во время активной
+                // записи кнопка обязана остаться кликабельной даже если сокет
+                // упал/переподключается — handleVoiceEnd() останавливает
+                // микрофон локально (stopMic()) независимо от сокета, а без
+                // этого исключения сотрудник не смог бы выключить микрофон
+                // кликом до восстановления соединения.
+                disabled={(!voiceActive && connection !== 'open') || !audio || finished}
               />
               <MessageComposer
                 disabled={connection !== 'open' || !audio || voiceActive || finished}
