@@ -42,3 +42,11 @@ benchmarks/stt/manifest.local.jsonl
 
 # reference
 tatarby-main
+
+# Результаты браузерных прогонов (scripts/browser-drive.mjs) — данные замера,
+# а не исходники: у каждого прогона свои цифры, в истории они только шумят
+services/frontend/browser-*.jsonl
+services/frontend/browser-run-*.png
+services/frontend/*.log
+data/full_runs.jsonl
+data/*.txt
