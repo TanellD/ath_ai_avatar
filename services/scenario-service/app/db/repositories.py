@@ -35,6 +35,7 @@ class SqlScenarioRepository:
                 persona_name=row.persona_name,
                 stages_count=row.stages_count,
                 rubric_count=row.rubric_count,
+                tags=row.tags,
             )
             for row in rows
         ]
@@ -58,6 +59,7 @@ class SqlScenarioRepository:
         row.persona_name = scenario.persona.name
         row.stages_count = len(scenario.stages)
         row.rubric_count = len(scenario.rubric)
+        row.tags = scenario.tags
         row.payload = payload
 
         await self._db.commit()

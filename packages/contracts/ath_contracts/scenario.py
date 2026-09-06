@@ -47,3 +47,4 @@ class Scenario(BaseModel):
     persona: Persona
     stages: list[Stage] = Field(min_length=1)
     rubric: list[RubricItem] = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list, description="Для поиска и фильтрации у методиста")

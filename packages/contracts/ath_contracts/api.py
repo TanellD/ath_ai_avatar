@@ -130,6 +130,7 @@ class ScenarioSummary(BaseModel):
     persona_name: str
     stages_count: int
     rubric_count: int
+    tags: list[str] = Field(default_factory=list)
 
 
 class ScenarioListResponse(BaseModel):

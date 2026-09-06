@@ -29,6 +29,7 @@ class ScenarioRow(Base):
     persona_name: Mapped[str] = mapped_column(String(128))
     stages_count: Mapped[int] = mapped_column(Integer, default=0)
     rubric_count: Mapped[int] = mapped_column(Integer, default=0)
+    tags: Mapped[list] = mapped_column(JSON, default=list, doc="Для поиска/фильтрации в списке")
 
     is_template: Mapped[bool] = mapped_column(
         Boolean, default=False, doc="Встроенный шаблон: методист копирует его, а не правит"
