@@ -242,6 +242,8 @@ export interface Persona {
   mood: Mood;
   difficulty: number;
   voice_id: string | null;
+  /** Держит ли персонаж инициативу разговора — см. ath_contracts.Persona. */
+  holds_initiative: boolean;
 }
 
 export interface Stage {
