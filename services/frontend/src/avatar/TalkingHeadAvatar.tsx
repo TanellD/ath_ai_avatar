@@ -182,8 +182,8 @@ export const AVATAR_MODELS = {
     // Ключ переведён в тёплый белый и усилен, заливка убавлена.
     // Рот у Vincent крупный и мультяшный: на ванильных 100 мс артикуляция
     // читается дёрганой. 190 мс дают внятное движение без суеты.
-    visemeRampMs: 150,
-    visemeSmoothMs: 120,
+    visemeRampMs: 120,
+    visemeSmoothMs: 70,
     lighting: {
       lightAmbientIntensity: 1.1,
       lightDirectColor: 0xfff0e2,
