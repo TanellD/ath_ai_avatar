@@ -82,6 +82,13 @@ export interface AvatarModelConfig {
   cameraTuning: Record<CameraView, CameraTuning>;
   /** Поправка света; без неё берутся умолчания библиотеки. */
   lighting?: AvatarLighting;
+  /**
+   * Длительность полного хода виземы 0->1, мс. В HeadAudio зашито 100, но в
+   * речи виземы сменяются каждые 60-120 мс — рот не успевает доехать до формы
+   * и щёлкает между ними. Чем крупнее рот модели, тем заметнее. Без значения
+   * остаётся ванильное поведение.
+   */
+  visemeRampMs?: number;
   embeddedIdleAnimations?: boolean;
 }
 
@@ -166,6 +173,9 @@ export const AVATAR_MODELS = {
     // приходит от света. С умолчаниями библиотеки он выходит блёклым:
     // синий ключ гасит кожу, заливка 2 убирает контраст.
     // Ключ переведён в тёплый белый и усилен, заливка убавлена.
+    // Рот у Vincent крупный и мультяшный: на ванильных 100 мс артикуляция
+    // читается дёрганой. 190 мс дают внятное движение без суеты.
+    visemeRampMs: 190,
     lighting: {
       lightAmbientIntensity: 0.85,
       lightDirectColor: 0xfff0e2,
@@ -281,6 +291,10 @@ export function TalkingHeadAvatar({
             vadMode: 1,
           },
         });
+
+        if (model.visemeRampMs) {
+          (headaudio as unknown as { visemeRampMs: number }).visemeRampMs = model.visemeRampMs;
+        }
 
         await headaudio.loadModel(HEADAUDIO_MODEL_URL);
 

@@ -57,6 +57,7 @@ class HeadAudio extends AudioWorkletNode {
       0.65, 0.65, 0.65, 0.65, 0.65
     ];
     this.visemeAlphas = new Array( this.nVisemes ).fill(0);
+    this.visemeRampMs = 100;
     this.visemeActive = -1;
     this.easing = this.sigmoidFactory(5);
 
@@ -185,7 +186,12 @@ class HeadAudio extends AudioWorkletNode {
   * @param {number} dt Delta time in milliseconds.
   */
   update(dt) {
-    const da = dt / 100;
+    // Длительность полного хода виземы 0->1 в миллисекундах. Ванильное
+    // значение 100 мс: в речи виземы сменяются каждые 60-120 мс, поэтому рот
+    // не успевает доехать до формы и щёлкает между ними. Свойство вынесено
+    // наружу, чтобы задавать его на модель: у мультяшного персонажа с крупным
+    // ртом дёрганье заметнее, чем у реалистичного.
+    const da = dt / (this.visemeRampMs || 100);
 
     for( let i=0; i<this.nVisemes; i++ ) {
 
