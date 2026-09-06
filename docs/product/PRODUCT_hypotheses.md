@@ -59,4 +59,4 @@
 **«Голосовой ввод обязателен для MVP».** Отложена сознательно на момент
 исходной постановки, см. `PRODUCT_mvp_scope.md`. С тех пор голосовой ввод
 реализован (STT provider-agnostic с failover, push-to-talk) — см.
-`docs/stt-phase.md` за статусом и `docs/architecture.md` за потоком хода.
+`docs/engineering/stt-phase.md` за статусом и `docs/engineering/architecture.md` за потоком хода.

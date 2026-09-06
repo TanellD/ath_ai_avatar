@@ -7,14 +7,14 @@ backup-слайды/приложения на вопросы жюри (архи�
 
 | Тема | Файл |
 |---|---|
-| Полная архитектура, поток одного хода, три ключевых решения | [`docs/architecture.md`](../architecture.md) |
-| Контракты данных: события WS, сценарий, отчёт | [`docs/contracts.md`](../contracts.md) |
-| Бюджет задержки по этапам, что и как мерить | [`docs/latency-budget.md`](../latency-budget.md) |
-| Технические метрики демо: 15 синтетических тренировок с числами | [`docs/PRODUCT_demo_technical_metrics.md`](../PRODUCT_demo_technical_metrics.md) |
-| Модель данных, хранение сессий и отчётов | [`docs/data.md`](../data.md) |
-| Инициатива агента: почему персонаж говорит первым | [`docs/agent-initiative.md`](../agent-initiative.md) |
-| Статус голосового ввода, что реализовано, что нет | [`docs/stt-phase.md`](../stt-phase.md) |
-| ADR: рантайм STT и watchdog'и | [`docs/adr/0001-stt-runtime-and-watchdogs.md`](../adr/0001-stt-runtime-and-watchdogs.md) |
+| Полная архитектура, поток одного хода, три ключевых решения | [`docs/engineering/architecture.md`](../engineering/architecture.md) |
+| Контракты данных: события WS, сценарий, отчёт | [`docs/engineering/contracts.md`](../engineering/contracts.md) |
+| Бюджет задержки по этапам, что и как мерить | [`docs/engineering/latency-budget.md`](../engineering/latency-budget.md) |
+| Технические метрики демо: 15 синтетических тренировок с числами | [`docs/product/PRODUCT_demo_technical_metrics.md`](../product/PRODUCT_demo_technical_metrics.md) |
+| Модель данных, хранение сессий и отчётов | [`docs/engineering/data.md`](../engineering/data.md) |
+| Инициатива агента: почему персонаж говорит первым | [`docs/engineering/agent-initiative.md`](../engineering/agent-initiative.md) |
+| Статус голосового ввода, что реализовано, что нет | [`docs/engineering/stt-phase.md`](../engineering/stt-phase.md) |
+| ADR: рантайм STT и watchdog'и | [`docs/engineering/adr/0001-stt-runtime-and-watchdogs.md`](../engineering/adr/0001-stt-runtime-and-watchdogs.md) |
 | Полное техническое описание проекта (рабочий, не сдаточный документ) | [`docs/PROJECT_DESCRIPTION.md`](../PROJECT_DESCRIPTION.md) |
 
 Если жюри спросит что-то техническое глубже, чем в основной презентации —

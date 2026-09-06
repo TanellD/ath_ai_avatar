@@ -11,7 +11,7 @@ class Turn(BaseModel):
     В текстовой фазе `text` пользовательского хода — это ровно то, что человек
     напечатал, то есть истина. Поэтому `stt_confidence` и `audio_ref` всегда
     None: поля объявлены заранее, чтобы контракт отчёта не ломался при
-    переходе на голос. См. docs/stt-phase.md.
+    переходе на голос. См. docs/engineering/stt-phase.md.
     """
 
     role: TurnRole
