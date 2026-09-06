@@ -127,7 +127,19 @@ export const AVATAR_MODELS = {
     id: 'vincent-avatar',
     label: 'Vincent',
     url: '/assets/avatar/vincent.glb',
-    humanoidPose: true,
+    // ВРЕМЕННО false. Шаблоны поз TalkingHead написаны под T-позу: у
+    // avatar-aith руки в rest смотрят строго горизонтально [1,0,0], и
+    // шаблон доворачивает их вниз примерно на 90° ('LeftShoulder.rotation'
+    // ≈ 1.6/-1.77 рад). Vincent смоделирован в A-позе, руки уже опущены на
+    // 34.7° — тот же доворот уводит их на столько же дальше, внутрь
+    // корпуса. Отсюда и вывернутые руки, и посторонняя геометрия,
+    // заплывающая в тело.
+    //
+    // Лечится приведением rest-позы Vincent к T-позе (развернуть кости рук,
+    // применить позу как rest, перезапечь тело) — до тех пор позы тела
+    // отключены. Лицо, виземы, моргание и взгляд работают в любом случае:
+    // ими TalkingHead управляет независимо от этого флага.
+    humanoidPose: false,
     cameraView: 'head',
     // Риг TalkingHead-совместимый: отдельные кости глаз и полный набор
     // лицевых morph targets. Тело человеческих пропорций, поэтому планы
@@ -155,9 +167,9 @@ export const AVATAR_MODELS = {
     // синий ключ гасит кожу, заливка 2 убирает контраст.
     // Ключ переведён в тёплый белый и усилен, заливка убавлена.
     lighting: {
-      lightAmbientIntensity: 1.2,
-      lightDirectColor: 0xffeedd,
-      lightDirectIntensity: 36,
+      lightAmbientIntensity: 0.85,
+      lightDirectColor: 0xfff0e2,
+      lightDirectIntensity: 46,
     },
   },
 } as const satisfies Record<string, AvatarModelConfig>;
