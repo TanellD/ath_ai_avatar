@@ -781,6 +781,15 @@ export function TraineeSession() {
               onReady={handleAvatarReady}
               onError={handleAvatarError}
             />
+            {/* switchAvatar() обнуляет audio сразу, а новая GLB грузится ~1-3 с —
+                без этого индикатора панель на это время просто пустела и следующая
+                модель (другого масштаба и в другой позе) появлялась рывком, что
+                читалось как «интерфейс съехал». */}
+            {!audio && (
+              <div className="avatar-loading" aria-hidden="true">
+                <span className="avatar-loading__spinner" />
+              </div>
+            )}
             {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
           </div>
 

@@ -704,6 +704,35 @@ button.tag-chip--active:hover {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Пока грузится GLB (первый вход и переключение аватара — TalkingHead не
+   даёт прогресс события, только await showAvatar) — .avatar пуст. Без
+   индикатора смена модели выглядела как рывок: пустая панель, затем сразу
+   другой персонаж другого масштаба. */
+.avatar-loading {
+  position: absolute;
+  inset: 24px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(10, 16, 40, 0.35);
+}
+
+.avatar-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: avatar-loading-spin 0.8s linear infinite;
+}
+
+@keyframes avatar-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .session__composer-card {
   flex: none;
   border-radius: var(--r-lg);
@@ -1397,6 +1426,11 @@ a.report-chip--ready:hover {
 /* Требование motion.md дизайн-системы: анимации обязаны выключаться. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer {
+    animation: none;
+  }
+
+  .avatar-loading__spinner,
+  .mic-btn--active .mic-btn__icon {
     animation: none;
   }
 }
