@@ -13,7 +13,7 @@ docs/PROJECT_DESCRIPTION.md). Ниже триггера последовател
     bump() -> cancel(old) -> отбрасывание по gen_id
 
 Поэтому реализация здесь считается финальной, а не временной. См.
-docs/stt-phase.md.
+docs/engineering/stt-phase.md.
 """
 
 import asyncio

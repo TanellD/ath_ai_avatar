@@ -7,7 +7,7 @@
  * видеть, ждёт ли система его ответа или ещё думает.
  *
  * [STT] Состояния 'listening' и 'recognizing' объявлены заранее и появятся
- * вместе с микрофоном. См. docs/stt-phase.md.
+ * вместе с микрофоном. См. docs/engineering/stt-phase.md.
  */
 
 export type PlaybackState =

@@ -19,4 +19,4 @@
   ними не работает, поэтому у каждого своя копия.
 
 См. `services/frontend/src/avatar/TalkingHeadAvatar.tsx` и
-`docs/architecture.md`.
+`docs/engineering/architecture.md`.

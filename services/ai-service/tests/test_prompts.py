@@ -3,7 +3,7 @@
 Проверяется не формулировка (она будет меняться), а инварианты, на которых
 держится тренажёр: критерий этапа не утекает персонажу, открывающая реплика
 получает свой блок инструкций, а тон возврата в русло усиливается со вторым
-подряд уходом от темы. См. docs/agent-initiative.md.
+подряд уходом от темы. См. docs/engineering/agent-initiative.md.
 """
 
 from ath_contracts import Mood, OpeningKind, Persona, Stage
@@ -132,7 +132,7 @@ def test_opening_block_wins_over_off_topic_nudge() -> None:
 
 def test_messages_start_with_user_role_on_empty_history() -> None:
     """Anthropic отклоняет пустой список и список не с роли user — открывающая
-    реплика обязана это пережить (docs/agent-initiative.md)."""
+    реплика обязана это пережить (docs/engineering/agent-initiative.md)."""
     messages = build_messages([], "", "[Ты говоришь первым.]")
 
     assert messages, "пустой список сообщений API не примет"

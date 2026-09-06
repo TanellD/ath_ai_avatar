@@ -96,7 +96,7 @@ class TurnRow(Base):
 
     # [STT] Заполняются только при голосовом вводе; в текстовой фазе всегда NULL.
     # Колонки заведены сразу, чтобы включение голоса не требовало миграции
-    # с переносом данных. См. docs/stt-phase.md.
+    # с переносом данных. См. docs/engineering/stt-phase.md.
     stt_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     audio_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
@@ -127,7 +127,7 @@ class VoiceTurnCommitRow(Base):
 
 class SpanRow(Base):
     """Один шаг конвейера одного хода — данные для Gantt-визуализации в
-    админ-панели (см. docs/architecture.md, «Наблюдаемость»).
+    админ-панели (см. docs/engineering/architecture.md, «Наблюдаемость»).
 
     Не продуктовый контракт (§7) — внутренний инструмент отладки: «откуда
     ушло время на этот ответ». gen_id группирует спаны одного обмена
