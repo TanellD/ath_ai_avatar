@@ -266,6 +266,7 @@ export interface Scenario {
   persona: Persona;
   stages: Stage[];
   rubric: RubricItem[];
+  tags: string[];
 }
 
 export interface ScenarioSummary {
@@ -274,4 +275,5 @@ export interface ScenarioSummary {
   persona_name: string;
   stages_count: number;
   rubric_count: number;
+  tags: string[];
 }

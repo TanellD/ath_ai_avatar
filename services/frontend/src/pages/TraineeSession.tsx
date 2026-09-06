@@ -17,20 +17,32 @@
  * onReady — до этого момента отправка реплики недоступна (см. MessageComposer
  * disabled), так же как в проверенном PoC send оставался disabled, пока
  * аватар не загрузился.
+ *
+ * Вёрстка — по макету front/Экран сотрудника.dc.html. Прогресс по этапам
+ * («Этап X из Y») в макете статичен — здесь он настоящий: сценарий
+ * подгружается отдельным запросом (scenarioApi.get), а текущий этап —
+ * это stage_id из последнего ActionEvent (§5, конечный автомат решает код,
+ * не клиент — клиент только отображает то, что код уже решил). Переключатель
+ * персонажа из макета не воспроизведён: смена персонажа сценарием backend'ом
+ * не поддержана, рисовать нерабочую кнопку — не вариант.
+ *
+ * [STT] Голосовой ввод живёт здесь же и НЕ заменяет текстовый: чекбокс
+ * включает кнопку записи, композер остаётся на месте и блокируется только
+ * на время активной записи. Оба пути идут через один и тот же протокол
+ * перебивания (§6) — cancelPlayback локально, потом новое поколение.
+ * Захват микрофона, детектор паузы и таймер молчания вынесены в
+ * audio/mic/* и session/SilenceFollowup — здесь только их связывание.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
-import { gatewayApi } from '@/api/client';
+import { gatewayApi, scenarioApi } from '@/api/client';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import { cancelPlayback } from '@/audio/cancelPlayback';
+import { DEFAULT_PAUSE_DETECTOR_CONFIG, PauseDetector } from '@/audio/mic/PauseDetector';
 import { useMicCapture } from '@/audio/mic/useMicCapture';
-import {
-  DEFAULT_PAUSE_DETECTOR_CONFIG,
-  PauseDetector,
-} from '@/audio/mic/PauseDetector';
 import {
   AVATAR_MODELS,
   TalkingHeadAvatar,
@@ -43,7 +55,8 @@ import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndi
 import { PushToTalkToggle } from '@/components/PushToTalkToggle';
 import { SessionEndOverlay } from '@/components/SessionEndOverlay';
 import { SessionStartOverlay } from '@/components/SessionStartOverlay';
-import type { ServerEvent, SubtitleEvent } from '@/contracts/events';
+import { StageHint } from '@/components/StageHint';
+import type { Scenario, ServerEvent, SubtitleEvent } from '@/contracts/events';
 import { SilenceFollowup, type SilencePhase } from '@/session/SilenceFollowup';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
@@ -100,6 +113,10 @@ export function TraineeSession() {
   /** Тренировка окончена — по кнопке сотрудника или по решению автомата (§3). */
   const [finished, setFinished] = useState(false);
   const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(AVATAR_MODELS.aith);
+  // Только для шапки (заголовок, прогресс по этапам) — не участвует ни в
+  // одном инварианте отмены/поколений, поэтому обычный useState, не ref.
+  const [scenario, setScenario] = useState<Scenario | null>(null);
+  const [currentStageId, setCurrentStageId] = useState<string | null>(null);
 
   /**
    * Текущее поколение. Именно ref, а не useState: значение читается в
@@ -146,7 +163,10 @@ export function TraineeSession() {
         timing.responseAudioRecorded = true;
         const responseTtfaMs = Math.round(performance.now() + leadMs - timing.speechEndedAt);
         setVoiceMetrics((current) => ({ ...current, responseTtfaMs }));
-        console.info('[voice-metric]', { capture_id: timing.captureId, response_ttfa_ms: responseTtfaMs });
+        console.info('[voice-metric]', {
+          capture_id: timing.captureId,
+          response_ttfa_ms: responseTtfaMs,
+        });
       },
     );
     // Оба поля обязательны: audioCtx нужен, чтобы разблокировать автоплей по
@@ -168,6 +188,21 @@ export function TraineeSession() {
   // Сессия заводится по нажатию «Начать», а не на монтировании страницы —
   // см. handleStart. Раньше строка в БД появлялась на каждый заход, и список
   // тренировок у методиста состоял в основном из пустышек.
+
+  // Персонаж и этапы — только для отображения в шапке. Ошибку здесь не
+  // считаем фатальной (сессия и без неё работает), поэтому молча пропускаем.
+  useEffect(() => {
+    let cancelled = false;
+    scenarioApi
+      .get(scenarioId)
+      .then((data) => {
+        if (!cancelled) setScenario(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [scenarioId]);
 
   // AudioContext больше не наш: им владеет TalkingHeadAvatar (head.audioCtx),
   // закрывать его здесь при размонтировании было бы вмешательством в чужой
@@ -221,6 +256,8 @@ export function TraineeSession() {
             setPlayback('idle');
             silenceFollowupRef.current?.resume();
           }
+          // Только для прогресса в шапке — сам переход уже сделал сервер.
+          setCurrentStageId(event.stage_id);
           break;
 
         case 'cancel':
@@ -319,8 +356,8 @@ export function TraineeSession() {
 
   /**
    * Подтянуть поколение сервера. Свой счётчик клиент ведёт зеркально, но
-   * после обновления страницы он начинается с нуля, а сервер продолжает с
-   * сохранённого значения — и тогда фильтр по gen_id отбросил бы вообще всё.
+   * после переподключения он остаётся на своём значении, а сервер продолжает
+   * с сохранённого — и тогда фильтр по gen_id отбросил бы вообще всё.
    */
   const syncGeneration = useCallback(async (id: string) => {
     try {
@@ -336,6 +373,9 @@ export function TraineeSession() {
     }
   }, [audio]);
 
+  // Сокет открывается только после клика: сервер, увидев подключение, сразу
+  // начинает открывающую реплику (gateway/app/api/ws.py), и генерировать её
+  // в звук, который браузер откажется играть, — значит выбросить её впустую.
   const {
     state: connection,
     send,
@@ -462,6 +502,8 @@ export function TraineeSession() {
       if (!audio) return;
       silenceFollowupRef.current?.beginUserTurn();
 
+      // Текст поверх незаконченной записи: обрываем её, иначе на сервер
+      // придут две реплики одного хода — набранная и распознанная.
       const voiceCapture = activeCaptureRef.current;
       if (voiceCapture) {
         activeCaptureRef.current = null;
@@ -500,6 +542,8 @@ export function TraineeSession() {
     [audio, avatarModel.id, sendSpeechAbort, sendUserMessage, stopMic],
   );
 
+  // --------------------------------------------------------- голосовой ход
+
   const handleVoiceStart = useCallback(() => {
     if (!audio || connection !== 'open' || activeCaptureRef.current) return;
     silenceFollowupRef.current?.beginUserTurn();
@@ -513,6 +557,8 @@ export function TraineeSession() {
     setVoiceBuffered(false);
     pauseDetectorRef.current.reset();
 
+    // Голос перебивает персонажа ровно тем же протоколом, что и текст (§6):
+    // локальная остановка до сети, затем новое поколение.
     const interrupted = wasPlaying ? genRef.current : null;
     cancelPlayback({
       queue: audio.queue,
@@ -556,8 +602,8 @@ export function TraineeSession() {
     setVoiceActive(false);
     setPlayback('recognizing');
     void stopMic().finally(() => {
-      // Soniox recommends about 200 ms of trailing silence before manual
-      // finalize so that the last phoneme isn't clipped.
+      // Soniox просит ~200 мс тишины перед ручной финализацией, иначе
+      // последняя фонема обрезается.
       sendAudio(new ArrayBuffer(6_400));
       sendSpeechEnd(captureId);
     });
@@ -573,6 +619,7 @@ export function TraineeSession() {
     document.addEventListener('visibilitychange', finalizeWhenHidden);
     return () => document.removeEventListener('visibilitychange', finalizeWhenHidden);
   }, [handleVoiceEnd]);
+
   const switchAvatar = () => {
     if (!audio || playback !== 'idle') return;
     audio.queue.stopAll();
@@ -585,12 +632,47 @@ export function TraineeSession() {
 
   // ------------------------------------------------------------------ рендер
 
+  const stages = scenario?.stages ?? [];
+  const stageIndex = stages.findIndex((s) => s.id === (currentStageId ?? stages[0]?.id));
+  const persona = scenario?.persona;
+
   return (
     <main className="session">
-      <header className="session__header">
+      <header className="session__header card">
+        <Link to="/scenarios" className="app__brand session__brand">
+          <span className="app__brand-mark">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m12 3.4 1.9 6 6 1.9-6 1.9-1.9 6-1.9-6-6-1.9 6-1.9Z" />
+            </svg>
+          </span>
+          <span>
+            Тренажёр
+            <small>{scenario?.title ?? '…'}</small>
+          </span>
+        </Link>
+
+        {stages.length > 0 && (
+          <div className="session__progress">
+            <span className="session__progress-label">
+              Этап {Math.max(stageIndex, 0) + 1} из {stages.length}
+            </span>
+            <div className="session__progress-dots">
+              {stages.map((stage, i) => (
+                <div
+                  key={stage.id}
+                  className={`session__progress-dot${i <= stageIndex ? ' session__progress-dot--done' : ''}`}
+                />
+              ))}
+            </div>
+            {stages[Math.max(stageIndex, 0)] && (
+              <StageHint goal={stages[Math.max(stageIndex, 0)].goal} />
+            )}
+          </div>
+        )}
+
         <PlaybackIndicator state={playback} />
-        {/* Обе стороны добавляли сюда свои элементы; обёртка одна —
-            .session__header-actions удалён из styles.css как дубликат. */}
+        {/* Push-to-talk переехал в карточку композера (макет «Экран
+            сотрудника»), в шапке — только смена модели и завершение. */}
         <div className="session__controls">
           <button
             type="button"
@@ -600,22 +682,13 @@ export function TraineeSession() {
           >
             Переключить на {avatarModel.id === AVATAR_MODELS.aith.id ? 'Tom' : 'avatar-aith'}
           </button>
-          <PushToTalkToggle
-            enabled={pushToTalk}
-            onChange={setPushToTalk}
-            active={voiceActive}
-            level={micLevel}
-            onStart={handleVoiceStart}
-            onEnd={handleVoiceEnd}
-            disabled={connection !== 'open' || !audio || finished}
-          />
           <button
             type="button"
-            className="session__finish"
+            className="btn btn-gray session__finish"
             onClick={handleFinish}
             disabled={connection !== 'open' || finished}
           >
-            Завершить
+            Завершить тренировку
           </button>
         </div>
       </header>
@@ -627,48 +700,76 @@ export function TraineeSession() {
       )}
 
       <section className="session__main">
-        <ChatPanel
-          transcript={transcript}
-          cues={cues}
-          clock={audio?.clock ?? null}
-          isAgentReplying={playback === 'speaking'}
-        />
+        <aside className="card session__history">
+          <div className="session__history-head">
+            <div>
+              <span className="eyebrow">Диалог</span>
+              <h2>История</h2>
+            </div>
+            <span className="session__history-count">{transcript.length} реплик</span>
+          </div>
+          <ChatPanel
+            transcript={transcript}
+            cues={cues}
+            clock={audio?.clock ?? null}
+            isAgentReplying={playback === 'speaking'}
+          />
+        </aside>
 
         <div className="session__stage">
-          <TalkingHeadAvatar
-            key={avatarModel.id}
-            model={avatarModel}
-            isSpeaking={playback === 'speaking'}
-            onReady={handleAvatarReady}
-            onError={handleAvatarError}
-          />
-          {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
+          <div className="session__avatar-panel">
+            {persona && (
+              <div className="session__persona-badge">
+                <span className="bento-pill session__badge-dark">{persona.name}</span>
+                <span className="bento-pill session__badge-dark">сложность {persona.difficulty} / 5</span>
+              </div>
+            )}
+            <TalkingHeadAvatar
+              key={avatarModel.id}
+              model={avatarModel}
+              isSpeaking={playback === 'speaking'}
+              onReady={handleAvatarReady}
+              onError={handleAvatarError}
+            />
+            {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
+          </div>
+
+          <section className="card session__composer-card">
+            <PushToTalkToggle
+              enabled={pushToTalk}
+              onChange={setPushToTalk}
+              active={voiceActive}
+              level={micLevel}
+              onStart={handleVoiceStart}
+              onEnd={handleVoiceEnd}
+              disabled={connection !== 'open' || !audio || finished}
+            />
+            <MessageComposer
+              disabled={connection !== 'open' || !audio || voiceActive || finished}
+              isAgentSpeaking={playback === 'speaking'}
+              onSubmit={handleSubmit}
+              onActivity={() => silenceFollowupRef.current?.postpone()}
+            />
+            {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
+            {voiceBuffered && (
+              <p className="voice-draft voice-draft--buffered">
+                {playback === 'recognizing'
+                  ? 'Расшифровываю запись — это чуть дольше обычного'
+                  : 'Говорите, я записываю — текст появится целиком в конце реплики'}
+              </p>
+            )}
+            {voiceMetrics && (
+              <p className="voice-metrics">
+                Voice: ACK {formatMetric(voiceMetrics.ackMs)} · partial{' '}
+                {formatMetric(voiceMetrics.firstPartialMs)} · final{' '}
+                {formatMetric(voiceMetrics.finalizationMs)} · ответ{' '}
+                {formatMetric(voiceMetrics.responseTtfaMs)}
+                {voiceMetrics.stopMs !== undefined && ` · остановка ${voiceMetrics.stopMs} мс`}
+              </p>
+            )}
+          </section>
         </div>
       </section>
-
-      <MessageComposer
-        disabled={connection !== 'open' || !audio || voiceActive || finished}
-        isAgentSpeaking={playback === 'speaking'}
-        onSubmit={handleSubmit}
-        onActivity={() => silenceFollowupRef.current?.postpone()}
-      />
-      {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
-      {voiceBuffered && (
-        <p className="voice-draft voice-draft--buffered">
-          {playback === 'recognizing'
-            ? 'Расшифровываю запись — это чуть дольше обычного'
-            : 'Говорите, я записываю — текст появится целиком в конце реплики'}
-        </p>
-      )}
-      {voiceMetrics && (
-        <p className="voice-metrics">
-          Voice: ACK {formatMetric(voiceMetrics.ackMs)} · partial{' '}
-          {formatMetric(voiceMetrics.firstPartialMs)} · final{' '}
-          {formatMetric(voiceMetrics.finalizationMs)} · ответ{' '}
-          {formatMetric(voiceMetrics.responseTtfaMs)}
-          {voiceMetrics.stopMs !== undefined && ` · остановка ${voiceMetrics.stopMs} мс`}
-        </p>
-      )}
 
       {/* Аватар грузится (13 МБ GLB) под оверлеем, поэтому он смонтирован
           всегда, а закрывает его этот слой — а не условный рендер сессии. */}

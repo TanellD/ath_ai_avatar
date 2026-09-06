@@ -116,6 +116,11 @@ class TurnPipeline:
         # они не завершатся — иначе их может собрать GC на середине, это
         # известная ловушка asyncio.create_task без сохранённой ссылки.
         self._background_tasks: set[asyncio.Task[None]] = set()
+        # Рекордер последнего хода. Финальная оценка — не отдельный ход, но
+        # в админке она рисуется в ганте того поколения, после которого
+        # случилась; со СВОИМ рекордером она получала seq=0 и start_ms=0 и
+        # ложилась в начало графика поверх character_reply.
+        self._last_recorder: SpanRecorder | None = None
 
     def _fire_and_forget(self, coro: Coroutine[object, object, None]) -> None:
         task = asyncio.create_task(coro)
@@ -233,6 +238,7 @@ class TurnPipeline:
     async def _run_turn(self, gen_id: int, user_text: str, avatar_id: str) -> None:
         """Один ход целиком. Отменяется целиком по task.cancel()."""
         recorder = SpanRecorder(self._session.session_id, gen_id)
+        self._last_recorder = recorder
         try:
             await self._speak(gen_id, user_text, avatar_id, recorder)
             transition = await self._advance_stage(gen_id, user_text, recorder)
@@ -287,6 +293,10 @@ class TurnPipeline:
     ) -> None:
         """Ответить на молчание, не добавляя фиктивный пользовательский ход."""
         recorder = SpanRecorder(self._session.session_id, gen_id)
+        # Как и обычный ход: если сценарий закончится сразу после реплики по
+        # молчанию, спан финальной оценки должен отсчитываться от НЕЁ, а не от
+        # давно закрытого хода — иначе оценка снова ляжет в начало гант-графика.
+        self._last_recorder = recorder
         try:
             await self._speak(
                 gen_id,
@@ -351,15 +361,24 @@ class TurnPipeline:
         методисту, а сокета сотрудника к этому моменту может уже не быть.
         """
         session = self._session
+        # Спан вокруг оценки — самый долгий вызов за сессию (сильная модель,
+        # таймаут 120 с), и без него он невидим в ганте админки. Рекордер —
+        # от последнего хода, а не новый: у нового отсчёт времени и seq
+        # начинаются с нуля, и оценка вставала в начало гант-графика, хотя
+        # происходит после всего остального.
+        recorder = self._last_recorder or SpanRecorder(
+            session.session_id, session.generations.current
+        )
         try:
-            report = await self._ai.evaluate(
-                session_id=session.session_id,
-                scenario=session.scenario,
-                transcript=list(session.turns),
-                duration_sec=session.elapsed_sec,
-                stages_completed=len(session.stage_history),
-                stages_total=len(session.scenario.stages),
-            )
+            async with recorder.span("evaluate", f"{session.scenario.title}: финальная оценка"):
+                report = await self._ai.evaluate(
+                    session_id=session.session_id,
+                    scenario=session.scenario,
+                    transcript=list(session.turns),
+                    duration_sec=session.elapsed_sec,
+                    stages_completed=len(session.stage_history),
+                    stages_total=len(session.scenario.stages),
+                )
         except Exception:
             # Сессия уже завершена, выход сотруднику это не ломает — но
             # методист останется без отчёта, поэтому логируем громко.

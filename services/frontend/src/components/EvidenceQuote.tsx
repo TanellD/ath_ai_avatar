@@ -14,6 +14,8 @@
  *   - кнопка воспроизведения фрагмента (audio_ref, ≈5 с);
  *   - флаг низкой уверенности (stt_confidence) — «перепроверь на слух».
  * См. docs/stt-phase.md.
+ *
+ * Вёрстка — по карточкам критериев из front/Дашборд методиста.dc.html.
  */
 
 import type { CriterionScore } from '@/contracts/events';
@@ -27,33 +29,33 @@ interface Props {
 }
 
 export function EvidenceQuote({ score, criterionName, scale }: Props) {
-  const lowConfidence =
-    score.stt_confidence !== null && score.stt_confidence < LOW_CONFIDENCE;
+  const lowConfidence = score.stt_confidence !== null && score.stt_confidence < LOW_CONFIDENCE;
 
   return (
     <li className="evidence">
       <div className="evidence__header">
         <span className="evidence__criterion">{criterionName}</span>
         <span className="evidence__score">
-          {score.score} / {scale}
+          {score.score}
+          <small> / {scale}</small>
         </span>
       </div>
 
-      <blockquote className="evidence__quote">«{score.evidence}»</blockquote>
+      <div className="evidence__quote-box">
+        <blockquote className="evidence__quote">«{score.evidence}»</blockquote>
+
+        {/* [STT] Здесь появится <button> воспроизведения фрагмента по audio_ref. */}
+        {score.audio_ref !== null && (
+          <button className="evidence__play" type="button" disabled>
+            Прослушать фрагмент
+          </button>
+        )}
+      </div>
 
       {score.comment && <p className="evidence__comment">{score.comment}</p>}
 
-      {/* [STT] Здесь появится <button> воспроизведения фрагмента по audio_ref. */}
-      {score.audio_ref !== null && (
-        <button className="evidence__play" type="button" disabled>
-          Прослушать фрагмент
-        </button>
-      )}
-
       {lowConfidence && (
-        <p className="evidence__warning">
-          Низкая уверенность распознавания — перепроверьте на слух.
-        </p>
+        <p className="evidence__warning">Низкая уверенность распознавания — перепроверьте на слух.</p>
       )}
     </li>
   );

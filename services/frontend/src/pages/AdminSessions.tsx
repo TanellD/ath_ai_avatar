@@ -10,6 +10,13 @@ import { adminApi } from '@/api/client';
 import { LoadPanel } from '@/components/LoadPanel';
 import type { LoadStats, SessionSummary } from '@/contracts/admin';
 
+/** «Этап N из M» — docs/bugs_front.md №5. stages_total может быть null,
+ *  если сценарий с тех пор удалён из scenario-service. */
+function stageLabel(item: SessionSummary): string {
+  if (item.stages_total === null) return item.current_stage;
+  return `${Math.min(item.stages_completed + 1, item.stages_total)} из ${item.stages_total}`;
+}
+
 export function AdminSessions() {
   const [items, setItems] = useState<SessionSummary[]>([]);
   const [load, setLoad] = useState<LoadStats | null>(null);
@@ -32,11 +39,6 @@ export function AdminSessions() {
   return (
     <main className="page">
       <h1>Админ-панель · сессии</h1>
-      <p className="admin__hint">
-        Отладочный просмотр внутреннего состояния конвейера: путь сессии и Gantt-график
-        операций по каждому ходу. Для Gantt по конкретной сессии со всеми сообщениями
-        сразу и с учётом параллелизма есть отдельный скрипт: scripts/session_gantt.py.
-      </p>
 
       {load && <LoadPanel stats={load} />}
 
@@ -62,7 +64,7 @@ export function AdminSessions() {
             {items.map((item) => (
               <tr key={item.session_id}>
                 <td>
-                  <Link to={`/admin/sessions/${item.session_id}`}>
+                  <Link className="admin-link" to={`/admin/sessions/${item.session_id}`}>
                     {item.session_id.slice(0, 8)}…
                   </Link>
                 </td>
@@ -73,13 +75,15 @@ export function AdminSessions() {
                     {item.status}
                   </span>
                 </td>
-                <td>{item.current_stage}</td>
+                <td title={item.current_stage}>{stageLabel(item)}</td>
                 <td>{item.turn_count}</td>
                 <td>{new Date(item.created_at).toLocaleString('ru-RU')}</td>
                 <td>
                   {/* Ссылка безусловная: админка — отладочный инструмент, а
                       страница отчёта сама скажет «сессия не завершена». */}
-                  <Link to={`/report/${item.session_id}`}>Отчёт</Link>
+                  <Link className="admin-link" to={`/report/${item.session_id}`}>
+                    Отчёт
+                  </Link>
                 </td>
               </tr>
             ))}

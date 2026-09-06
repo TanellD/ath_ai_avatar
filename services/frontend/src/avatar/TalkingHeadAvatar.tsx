@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { stabilizeNonHumanoidPose, guardAvatarResize } from './runtimeGuards';
 import {
   AnimationMixer,
   LoopOnce,
@@ -122,11 +123,37 @@ export interface AvatarPlaybackHandle {
   setView: (view: CameraView) => void;
 }
 
+/**
+ * Базовое удаление камеры по планам — из setView() самой TalkingHead
+ * (`z += 2` для head, 4.5 для upper и т.д.). Нужно здесь, потому что
+ * `cameraDistance` в опциях — это СЛАГАЕМОЕ к этой базе, а не итоговое
+ * расстояние: чтобы отодвинуть камеру на N процентов, надо знать, от чего
+ * считать проценты.
+ */
+const VIEW_BASE_DISTANCE: Record<CameraView, number> = {
+  head: 2,
+  upper: 4.5,
+  mid: 8,
+  full: 12,
+};
+
+/** Итоговая поправка расстояния под требуемый зум. */
+function tunedDistance(model: AvatarModelConfig, view: CameraView, zoomOut: number): number {
+  const base = VIEW_BASE_DISTANCE[view];
+  return (model.cameraTuning[view].cameraDistance + base) * zoomOut - base;
+}
+
 interface Props {
   /** Профиль модели фиксируется на время жизни компонента. */
   model?: AvatarModelConfig;
   /** Во время речи держать зрительный контакт с пользователем, а не с курсором. */
   isSpeaking: boolean;
+  /**
+   * Множитель удаления камеры: 1 — кадр как задуман профилем модели,
+   * 1.4 — на 40% дальше. Нужен лаборатории, где модель разглядывают
+   * целиком, а не ведут с ней разговор.
+   */
+  zoomOut?: number;
   onReady: (handle: AvatarPlaybackHandle) => void;
   onError: (message: string) => void;
 }
@@ -134,6 +161,7 @@ interface Props {
 export function TalkingHeadAvatar({
   model = AVATAR_MODELS.aith,
   isSpeaking,
+  zoomOut = 1,
   onReady,
   onError,
 }: Props) {
@@ -184,6 +212,7 @@ export function TalkingHeadAvatar({
       try {
         const { TalkingHead } = await import('@met4citizen/talkinghead');
         let embeddedIdle: EmbeddedIdleController | null = null;
+        let restoreRootPosition: (() => void) | undefined;
 
         const initialTuning = model.cameraTuning[model.cameraView];
 
@@ -191,12 +220,15 @@ export function TalkingHeadAvatar({
           ttsEndpoint: 'N/A',
           lipsyncModules: [],
           cameraView: model.cameraView,
-          cameraDistance: initialTuning.cameraDistance,
+          cameraDistance: tunedDistance(model, model.cameraView, zoomOut),
           cameraY: initialTuning.cameraY,
           mixerGainSpeech: 3,
           modelFPS: 60,
           cameraRotateEnable: false,
         });
+
+        const disposeResize = guardAvatarResize(head, mount);
+        avatarCleanupRef.current = disposeResize;
 
         await head.audioCtx.audioWorklet.addModule(HEADAUDIO_WORKLET_URL);
 
@@ -233,6 +265,7 @@ export function TalkingHeadAvatar({
         head.opt.update = (dt: number) => {
           headaudio.update(dt);
           embeddedIdle?.update(dt);
+          restoreRootPosition?.();
         };
 
         headaudio.onstarted = () => {
@@ -247,10 +280,13 @@ export function TalkingHeadAvatar({
         });
 
         if (!model.humanoidPose) {
-          stabilizeNonHumanoidPose(head);
+          restoreRootPosition = stabilizeNonHumanoidPose(head);
           if (model.embeddedIdleAnimations) {
             embeddedIdle = playEmbeddedIdleAnimations(head);
-            avatarCleanupRef.current = () => embeddedIdle?.dispose();
+            avatarCleanupRef.current = () => {
+              disposeResize();
+              embeddedIdle?.dispose();
+            };
           }
         }
 
@@ -258,33 +294,11 @@ export function TalkingHeadAvatar({
         cursorGazeRef.current = cursorGaze;
         cursorGaze.setEnabled(!isSpeakingRef.current);
 
-        // TalkingHead.onResize() не защищён от нулевого размера контейнера:
-        // при сворачивании окна clientWidth/clientHeight дают 0, camera.aspect
-        // становится NaN, и OrbitControls остаются в испорченном состоянии —
-        // после разворачивания аватар оказывается вне кадра. Возвращаем камеру
-        // на место, как только контейнер снова получает ненулевой размер.
-        let currentView: CameraView = model.cameraView;
         const applyView = (view: CameraView) => {
-          currentView = view;
-          const tuning = model.cameraTuning[view];
           head.setView(view, {
-            cameraDistance: tuning.cameraDistance,
-            cameraY: tuning.cameraY,
+            cameraDistance: tunedDistance(model, view, zoomOut),
+            cameraY: model.cameraTuning[view].cameraY,
           });
-        };
-
-        let hadSize = mount.clientWidth > 0 && mount.clientHeight > 0;
-        const sizeGuard = new ResizeObserver(() => {
-          const hasSize = mount.clientWidth > 0 && mount.clientHeight > 0;
-          if (hasSize && !hadSize) applyView(currentView);
-          hadSize = hasSize;
-        });
-        sizeGuard.observe(mount);
-
-        const disposeIdle = avatarCleanupRef.current;
-        avatarCleanupRef.current = () => {
-          sizeGuard.disconnect();
-          disposeIdle?.();
         };
 
         onReady({
@@ -308,7 +322,9 @@ export function TalkingHeadAvatar({
       avatarCleanupRef.current?.();
       avatarCleanupRef.current = null;
     };
-  }, [model, onReady, onError]);
+    // zoomOut читается один раз при инициализации сцены: startedRef держит
+    // setup() однократным, и менять зум на лету компонент не обещает.
+  }, [model, zoomOut, onReady, onError]);
 
   return <div ref={containerRef} className="avatar" />;
 }
@@ -344,35 +360,6 @@ function asNonHumanoidRuntime(head: unknown): NonHumanoidRuntime {
  */
 function prepareNonHumanoidPose(head: unknown): void {
   asNonHumanoidRuntime(head).poseBase.props = {};
-}
-
-/** Зафиксировать нативную базу Tom и оставить из pose-delta только поворот головы. */
-function stabilizeNonHumanoidPose(head: unknown): void {
-  const runtime = asNonHumanoidRuntime(head);
-
-  for (const [key, original] of Object.entries(runtime.poseBase.props)) {
-    const base = original.clone() as TimedPoseTransform;
-    const target = original.clone() as TimedPoseTransform;
-    target.t = runtime.animClock;
-    target.d = 0;
-    runtime.poseBase.props[key] = base;
-    runtime.poseTarget.props[key] = target;
-    runtime.poseAvatar.props[key]?.copy(original);
-  }
-
-  const proceduralPose = runtime.animQueue.find((item) => item.template?.name === 'pose');
-  if (proceduralPose) proceduralPose.ts[0] = Infinity;
-
-  const updatePoseDelta = runtime.updatePoseDelta.bind(runtime);
-  runtime.updatePoseDelta = () => {
-    for (const [key, delta] of Object.entries(runtime.poseDelta.props)) {
-      if (key === 'Head.quaternion') continue;
-      delta.x = 0;
-      delta.y = 0;
-      delta.z = 0;
-    }
-    updatePoseDelta();
-  };
 }
 
 /** Последовательно проигрывать только авторские idle-клипы из GLB Tom. */

@@ -1,23 +1,21 @@
-/* Минимальная база. Дизайн-системы в скоупе нет — важно, чтобы читалось. */
+/* Стили приложения поверх дизайн-системы Clarity UI (styles/clarity-ui.css,
+   импортируется первым в main.tsx). Здесь — только то, что специфично для
+   этого продукта: полноэкранный SPA-шелл вместо скролла страницы целиком,
+   и классы конкретных экранов (сессия сотрудника, отчёт методиста,
+   админ-панель). Общие примитивы (.card, .btn, .eyebrow, .bento-pill,
+   .stats-grid, .product, .arrow-btn…) уже есть в clarity-ui.css — здесь их
+   заново не определяем. */
 
 :root {
-  --bg: #faf9f7;
-  --surface: #ffffff;
-  --border: #e3e0da;
-  --text: #232323;
-  --muted: #6b6660;
-  --accent: #2f6f4f;
-  --danger: #a33a2a;
-  color-scheme: light;
-}
-
-* {
-  box-sizing: border-box;
+  /* Токена «опасности» в Clarity UI нет — она из маркетингового кита без
+     состояний ошибок. Добавляем свой, в тон остальной палитре. */
+  --danger: #b3352f;
+  --danger-soft: #fbe9e7;
 }
 
 /* Страница целиком не скроллится — сама прокрутка живёт внутри .app__body
-   (обычные страницы) или внутри .session__transcript (экран сессии, где
-   шапку, аватар и поле ввода не хочется терять из виду). */
+   (обычные страницы) или внутри .chatpanel__list (экран сессии, где шапку,
+   аватар и поле ввода не хочется терять из виду). */
 html,
 body,
 #root {
@@ -25,11 +23,7 @@ body,
 }
 
 body {
-  margin: 0;
   overflow: hidden;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 .app {
@@ -38,21 +32,100 @@ body {
   height: 100vh;
 }
 
+/* --------------------------------------------------------------- шапка */
+
 .app__nav {
   flex: none;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
+  margin: 16px 24px 0;
+  padding: 14px 22px;
+  border-radius: var(--r-lg);
+  display: flex;
+  align-items: center;
+  gap: 28px;
   background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
-.app__nav a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
+.app__brand,
+.session__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
-/* Обычные страницы (сценарии, отчёт) скроллятся здесь целиком, как документ.
-   .session переопределяет это ниже — там прокручивается только транскрипт. */
+.app__brand small,
+.session__brand small {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0;
+  margin-top: 2px;
+}
+
+.app__brand-mark {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--blue);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 10px 22px -8px rgba(36, 86, 230, 0.55);
+}
+
+.app__nav-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.app__nav-link {
+  padding: 9px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-2);
+  transition:
+    background 0.2s var(--ease),
+    color 0.2s var(--ease);
+}
+
+.app__nav-link:hover {
+  background: var(--surface-2);
+}
+
+.app__nav-link--active {
+  background: var(--blue);
+  color: #fff;
+}
+
+.app__nav-link--muted {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Оба класса ставятся на активный приглушённый пункт одновременно —
+   .app__nav-link--muted ниже по каскаду и иначе перебивает белый текст
+   синим фоном активного состояния (баг: серый текст на синем). */
+.app__nav-link--muted.app__nav-link--active {
+  color: #fff;
+}
+
+/* :hover выигрывает у одноклассового --active по специфичности, поэтому
+   активный пункт под курсором становился серым. Держим синий, но темнее —
+   наведение всё равно должно быть заметно. */
+.app__nav-link--active:hover {
+  background: var(--blue-deep);
+  color: #fff;
+}
+
 .app__body {
   flex: 1;
   min-height: 0;
@@ -65,188 +138,370 @@ body {
   padding: 24px;
 }
 
-/* Шире, чем .page: у сессии теперь два столбца (панель истории + аватар),
-   780px было тесно для обоих сразу. */
-.session {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px;
-  height: 100%;
+.page--wide {
+  max-width: 1080px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  gap: 24px;
 }
 
 .page--error {
   color: var(--danger);
 }
 
-/* ------------------------------------------- оверлеи начала и конца сессии
-   Общая разметка на два экрана: стартовый (перекрывает сессию, пока
-   пользователь не нажал «Начать» — аватар под ним уже грузится, но звук до
-   жеста пользователя браузер не пустит, см. SessionStartOverlay.tsx) и
-   финальный (SessionEndOverlay.tsx). */
+.hero-card {
+  border-radius: var(--r-xl);
+  padding: 36px 40px;
+}
 
-.session-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
+.hero-card .lead {
+  margin-top: 10px;
+}
+
+/* --------------------------------------------------------- сценарии */
+
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+/* Короче исходного hero-card: без длинного .lead под текст, который
+   растягивал верх страницы и не помещал под собой поиск (№9). */
+.hero-card--compact {
+  padding-bottom: 22px;
+}
+
+.scenario-filters {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(250, 249, 247, 0.94);
+  gap: 12px;
 }
 
-.session-overlay__card {
-  max-width: 460px;
-  width: 100%;
-  padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+.scenario-filters__search {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
   background: var(--surface);
-  text-align: center;
-}
-
-.session-overlay__title {
-  margin: 0 0 8px;
-  font-size: 22px;
-}
-
-.session-overlay__lead {
-  margin: 0 0 4px;
-  color: var(--muted);
-}
-
-.session-overlay__button {
-  width: 100%;
-  margin-top: 16px;
-  padding: 12px 20px;
-  border: none;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
+  color: var(--ink);
   font: inherit;
-  font-weight: 500;
+}
+
+.scenario-filters__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Не .chip — тот класс уже занят в Clarity UI под плавающую плашку со
+   своим position:absolute (маркетинговый компонент), переиспользовать её
+   для тегов означало бы унаследовать абсолютное позиционирование. */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.session-overlay__button:disabled {
-  background: var(--border);
-  color: var(--muted);
-  cursor: progress;
+button.tag-chip:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.tag-chip--active {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #fff;
+}
+
+/* Иначе :hover (специфичнее) красил текст в синий поверх синего фона —
+   активный тег под курсором становился нечитаемым. */
+button.tag-chip--active:hover {
+  border-color: var(--blue-deep);
+  background: var(--blue-deep);
+  color: #fff;
+}
+
+.product-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.product-tags .tag-chip {
+  cursor: default;
+  font-size: 11.5px;
+  padding: 4px 10px;
+}
+
+/* ------------------------------------------------- карточка кейса */
+
+.scenario-preview__stages,
+.scenario-preview__rubric {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.scenario-preview__stage {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.scenario-preview__stage p {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+}
+
+.scenario-preview__rubric-item h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.scenario-preview__rubric-item p {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.scenario-preview__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 /* --------------------------------------------------------------- сессия */
 
-.session__header {
-  flex: none;
+.session {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 20px 24px 24px;
+  height: 100%;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 18px;
+  overflow: hidden;
 }
 
-.session__controls {
+.session__header {
+  flex: none;
+  border-radius: var(--r-lg);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.session__progress {
   display: flex;
   align-items: center;
   gap: 14px;
+  margin-left: auto;
 }
 
-/* Второстепенная по виду кнопка: завершить тренировку можно в любой момент,
-   но это не то действие, к которому стоит подталкивать. */
-.session__finish {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.session__progress-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.session__progress-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.session__progress-dot {
+  width: 30px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--blue-100);
+}
+
+.session__progress-dot--done {
+  background: var(--blue);
+}
+
+.stage-hint {
+  position: relative;
+}
+
+.stage-hint__toggle {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
   background: var(--surface);
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
   cursor: pointer;
 }
 
-.session__finish:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
+.stage-hint__toggle:hover,
+.stage-hint__toggle[aria-expanded='true'] {
+  border-color: var(--blue);
+  color: var(--blue);
 }
 
-.session__finish:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.indicator__dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.indicator--speaking .indicator__dot { background: var(--accent); }
-.indicator--thinking .indicator__dot { background: #b8860b; }
-.indicator--idle .indicator__dot { background: #4a8fd1; }
-.indicator--disconnected .indicator__dot { background: var(--danger); }
-
-.consent {
-  flex: none;
-  margin: 12px 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--border);
-  color: var(--muted);
+.stage-hint__popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  width: 260px;
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--ink-2);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
 }
 
 .session__error {
   flex: none;
-  padding: 10px 12px;
-  border: 1px solid var(--danger);
-  border-radius: 6px;
+  padding: 12px 16px;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
   color: var(--danger);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.consent {
+  flex: none;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 /* Единственная область, которая растёт/сжимается в колонке .session —
-   шапка, баннер согласия и поле ввода фиксированной высоты (flex: none)
+   шапка, баннер согласия и композер фиксированной высоты (flex: none)
    вокруг неё гарантируют, что композер никогда не окажется за пределами
    экрана: раньше при нехватке высоты обрезался именно он. */
 .session__main {
   flex: 1;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 18px;
+}
+
+.session__history {
+  border-radius: var(--r-lg);
+  padding: 22px 22px 8px;
   display: flex;
-  gap: 20px;
-  align-items: stretch;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.session__history-head {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+
+.session__history-head h2 {
+  margin-top: 8px;
+  font-size: 20px;
+}
+
+.session__history-count {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+  padding-bottom: 4px;
 }
 
 .session__stage {
-  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.session__avatar-panel {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--r-lg);
+  background: linear-gradient(150deg, var(--navy) 0%, var(--navy-2) 90%);
+  color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 12px 0;
+  gap: 16px;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Раньше лежал поверх .avatar абсолютным позиционированием и при высокой
+   модели визуально налезал на неё. Теперь обычная строка в потоке — первый
+   flex-элемент панели, прижатый вправо, .avatar получает flex:1 под то,
+   что осталось, наложения больше нет ни при каком размере модели. */
+.session__persona-badge {
+  align-self: flex-end;
+  display: flex;
+  gap: 8px;
+}
+
+.session__badge-dark {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.session__composer-card {
+  flex: none;
+  border-radius: var(--r-lg);
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* TalkingHead создаёт canvas внутри этого контейнера сам и подгоняет его под
-   размер родителя — без явной высоты блок схлопывается в 0. Высота через
-   clamp(), а не фиксированный px: на невысоком экране 420px не оставлял бы
-   места ни панели истории, ни полю ввода. */
+   размер родителя — без явной высоты блок схлопывается в 0. */
 .avatar {
   width: 100%;
   max-width: 480px;
-  height: clamp(220px, 42vh, 420px);
-  border-radius: 8px;
-  background: #202020;
+  flex: 1;
+  min-height: 160px;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.14);
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .subtitles {
@@ -254,11 +509,50 @@ body {
   min-height: 1.6em;
   max-width: 560px;
   text-align: center;
-  font-size: 17px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.45;
+  position: relative;
+  z-index: 2;
 }
 
 .subtitles--frozen {
   opacity: 0.55;
+}
+
+/* Ниже этой ширины фиксированная колонка 320px + сцена аватара уже не
+   помещаются рядом — на ноутбучных экранах это давало горизонтальный
+   overflow и обрезанные по краю элементы. Складываем в один столбец и
+   переносим прокрутку с недостижимого внешнего .session (у него
+   overflow:hidden ради того, чтобы шапка и ошибка не уезжали) на
+   .session__main; композер прижимаем стики-позиционированием, чтобы поле
+   ввода не терялось при скролле истории и сцены. */
+@media (max-width: 1080px) {
+  .session__header {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  .session__progress {
+    margin-left: 0;
+  }
+
+  .session__main {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .session__history {
+    max-height: 320px;
+  }
+
+  .session__composer-card {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    box-shadow: var(--shadow-md);
+  }
 }
 
 /* ------------------------------------------------------ панель истории */
@@ -268,75 +562,59 @@ body {
    :hover и :focus-within вместо JS-состояния — панель ничего не решает сама,
    просто открывается, пока на ней внимание. */
 .chatpanel {
-  flex: 0 0 300px;
-  min-width: 0;
-  align-self: flex-start;
-  max-height: 100%;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  flex: 1;
+  min-height: 0;
   outline: none;
 }
 
 .chatpanel__list {
-  max-height: 150px;
-  overflow: hidden;
-  padding: 12px 14px;
+  max-height: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0 4px 16px 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  transition: max-height 0.18s ease;
-}
-
-.chatpanel:hover .chatpanel__list,
-.chatpanel:focus-within .chatpanel__list {
-  max-height: min(60vh, 520px);
-  overflow-y: auto;
+  gap: 10px;
 }
 
 .chatpanel__line {
   margin: 0;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: var(--surface-2);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .chatpanel__role {
-  color: var(--muted);
-  font-size: 12px;
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
 }
 
 .chatpanel__line--user {
-  color: var(--text);
+  color: var(--ink);
+  margin-left: 18px;
 }
 
 .chatpanel__line--agent {
-  color: #38434f;
+  color: var(--ink);
+  margin-right: 18px;
 }
 
-/* Реплика, которая ещё раскрывается в такт голосу — лёгкий акцент, чтобы
-   было видно, что это «сейчас», а не уже сказанное. */
+/* Реплика, которая ещё раскрывается в такт голосу — синяя плашка вместо
+   серой, чтобы было видно, что это «сейчас», а не уже сказанное. */
 .chatpanel__line--live {
-  color: var(--text);
-  border-left: 2px solid var(--accent);
-  padding-left: 8px;
-  margin-left: -10px;
+  background: var(--blue-soft);
+  box-shadow: inset 0 0 0 1.5px var(--blue-100);
 }
 
-.line {
-  margin: 0;
-}
-
-.line__role {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.line--user {
-  color: var(--text);
-}
-
-.line--agent {
-  color: #38434f;
+.chatpanel__line--live .chatpanel__role {
+  color: var(--blue);
 }
 
 /* --------------------------------------------------------------- ввод */
@@ -344,39 +622,54 @@ body {
 .composer {
   flex: none;
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: flex-end;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
 }
 
 .composer__input {
   flex: 1;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
   font: inherit;
-  resize: vertical;
+  font-size: 15px;
+  color: var(--ink);
+  resize: none;
+  outline: 0;
   /* .composer — flex: none (сознательно, чтобы не съедать место у панели
      истории и аватара), а значит ручной resize текстового поля мог бы
      раздуть его за пределы .session и вытолкнуть сам композер за экран —
      ровно то, на что жаловались. Потолок сверху решает. */
-  max-height: 160px;
+  max-height: 120px;
+}
+
+.composer__input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--blue);
 }
 
 .composer__submit {
-  padding: 10px 18px;
-  border: none;
-  border-radius: 8px;
-  background: var(--accent);
+  flex: none;
+  height: 50px;
+  padding: 0 22px;
+  border-radius: var(--r-sm);
+  background: var(--blue);
   color: #fff;
   font: inherit;
+  font-weight: 700;
+  font-size: 14px;
   cursor: pointer;
+  transition: background 0.2s var(--ease);
+}
+
+.composer__submit:hover:not(:disabled) {
+  background: var(--blue-deep);
 }
 
 .composer__submit:disabled {
-  background: var(--border);
-  color: var(--muted);
+  background: var(--btn-gray);
+  color: var(--ink-3);
   cursor: not-allowed;
 }
 
@@ -384,27 +677,32 @@ body {
   display: inline-flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 13px;
+  gap: 7px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .ptt label {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
 }
 
+/* [STT] Кнопка записи. Заливка внутри неё — уровень микрофона: сотрудник
+   должен видеть, что его слышат, до того как придёт первый транскрипт
+   (Claude.md §8, «пользователь должен понимать, слышат ли его»). */
 .ptt__button {
   position: relative;
   overflow: hidden;
   min-width: 150px;
-  padding: 9px 14px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  padding: 9px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
   background: var(--surface);
-  color: inherit;
+  color: var(--ink-2);
   font: inherit;
+  font-weight: 700;
   cursor: pointer;
   touch-action: none;
 }
@@ -412,16 +710,16 @@ body {
 .ptt__button::before {
   position: absolute;
   inset: 0;
-  background: var(--accent);
+  background: var(--blue);
   content: '';
-  opacity: var(--mic-level);
+  opacity: var(--mic-level, 0);
   pointer-events: none;
 }
 
 .ptt__button--active {
-  border-color: var(--accent);
-  color: var(--text);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--blue);
+  color: var(--ink);
+  box-shadow: 0 0 0 3px var(--blue-soft);
 }
 
 .ptt__button:disabled {
@@ -429,204 +727,276 @@ body {
   opacity: 0.55;
 }
 
+/* Черновик распознавания под композером: партиалы STT до финала. */
 .voice-draft {
   flex: none;
   margin: 0;
-  padding: 6px 20px 12px;
-  color: var(--muted);
+  color: var(--ink-3);
   font-size: 13px;
 }
 
+/* Буферизованный текст — тот же курсив в оригинале, но бриф дизайн-системы
+   запрещает курсив; отделяем прозрачностью. */
 .voice-draft--buffered {
-  font-style: italic;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 
 .voice-metrics {
   flex: none;
   margin: 0;
-  padding: 0 20px 10px;
-  color: var(--muted);
+  color: var(--ink-3);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
-/* --------------------------------------------------------- сценарии */
+/* ----------------------------------------------------------- индикатор */
 
-.scenarios {
-  list-style: none;
-  margin: 16px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.scenarios__item {
-  display: flex;
+.indicator {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink-2);
 }
 
-.scenarios__item h2 {
-  margin: 0 0 4px;
-  font-size: 16px;
+.indicator__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ink-3);
 }
 
-.scenarios__meta {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
+.indicator--speaking .indicator__dot {
+  background: var(--blue);
 }
 
-.scenarios__start {
-  padding: 8px 16px;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  text-decoration: none;
-  white-space: nowrap;
+.indicator--thinking .indicator__dot {
+  background: #c98a1f;
+}
+
+.indicator--idle .indicator__dot {
+  background: #3b9e6a;
+}
+
+.indicator--disconnected .indicator__dot {
+  background: var(--danger);
+}
+
+/* [STT] Слушаем сотрудника и распознаём сказанное. Оба состояния «мяч на
+   стороне пользователя», поэтому оттенок ближе к idle, а не к speaking:
+   иначе зелёный «ваш ход» и синий «слушаю» читаются как одно и то же. */
+.indicator--listening .indicator__dot {
+  background: #3b9e6a;
+  box-shadow: 0 0 0 3px rgba(59, 158, 106, 0.22);
+}
+
+.indicator--recognizing .indicator__dot {
+  background: #c98a1f;
 }
 
 /* ----------------------------------------------------------- отчёт */
 
-.report__verdict {
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-.report__summary {
+.report__top {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin: 16px 0 24px;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 18px;
+  align-items: stretch;
 }
 
-.report__summary dt {
-  color: var(--muted);
-  font-size: 13px;
+.report__verdict-card {
+  border-radius: var(--r-lg);
+  padding: 30px 32px;
+  background: linear-gradient(150deg, var(--navy) 0%, var(--navy-2) 90%);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.report__summary dd {
-  margin: 2px 0 0;
-  font-size: 20px;
+.report__verdict-eyebrow {
+  color: #a9c3ff;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+  align-self: flex-start;
+}
+
+/* id сессии — полный UUID, а не обрезок: переносим по строкам, а не
+   заставляем карточку растягиваться или обрезаем текст многоточием.
+   Только перенос, без цвета — .eyebrow остаётся как есть на любом фоне. */
+.eyebrow--wrap {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Голый .card без собственного модификатора padding не получает (см.
+   clarity-ui.css .card) — эти два раздела отчёта его не задавали, и
+   контент упирался прямо в скруглённый край карточки. */
+.report__section {
+  padding: 28px 30px;
+}
+
+.report__verdict-text {
+  margin-top: 16px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.report__stats {
+  padding: 26px 28px;
 }
 
 .report__scores {
   list-style: none;
-  margin: 0;
+  margin: 18px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 .evidence {
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
+  padding: 22px 24px;
+  background: var(--surface-2);
 }
 
 .evidence__header {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 14px;
 }
 
 .evidence__criterion {
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .evidence__score {
-  color: var(--muted);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence__score small {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.evidence__quote-box {
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: var(--blue-soft);
 }
 
 /* Цитата — главный элемент отчёта, поэтому она выделена, а не спрятана. */
 .evidence__quote {
   margin: 0;
-  padding: 8px 12px;
-  border-left: 3px solid var(--accent);
-  background: #f4f7f4;
-  font-style: italic;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--blue-ink);
+}
+
+.evidence__play {
+  margin-top: 10px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: not-allowed;
 }
 
 .evidence__comment {
-  margin: 8px 0 0;
-  color: var(--muted);
+  margin: 14px 0 0;
+  color: var(--ink-2);
   font-size: 14px;
+  line-height: 1.6;
 }
 
 .evidence__warning {
   margin: 8px 0 0;
   color: var(--danger);
   font-size: 13px;
+  font-weight: 600;
 }
 
-/* Отчёт заглушки невозможно отличить от настоящего по содержанию — только по
-   этой плашке и полю model. */
-.report__stub {
-  padding: 10px 14px;
-  border: 1px solid var(--danger);
-  border-radius: 8px;
-  background: #fdf3f1;
-  color: var(--danger);
-  font-size: 14px;
+.report__transcript-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.report__rebuild {
-  padding: 8px 16px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.report__rebuild:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.report__rebuild:disabled {
-  opacity: 0.6;
-  cursor: progress;
+.report__transcript-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-3);
+  padding-bottom: 4px;
 }
 
 .report__transcript {
-  padding-left: 20px;
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+}
+
+.transcript-line {
+  border-radius: 14px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+}
+
+.transcript-line--user {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.transcript-line__who {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+
+.transcript-line--user .transcript-line__who {
+  color: var(--blue);
+}
+
+.transcript-line__text {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink);
 }
 
 /* ------------------------------------------------------------ админ-панель
    Внутренний инструмент отладки конвейера, не роль продукта (Claude.md §2) —
-   поэтому оформление нарочно суше остального интерфейса. */
-
-.app__nav-admin {
-  margin-left: 16px;
-  color: var(--muted) !important;
-  font-size: 13px;
-}
+   поэтому оформление нарочно суше остального интерфейса: обычная таблица на
+   токенах Clarity UI, без карточных красивостей. */
 
 .admin__hint {
-  color: var(--muted);
+  color: var(--ink-3);
   font-size: 13px;
 }
 
 .admin-detail {
-  max-width: 1000px;
+  max-width: 1080px;
 }
 
 .admin-section {
@@ -641,45 +1011,130 @@ body {
 
 .admin-table th,
 .admin-table td {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
 }
 
 .admin-table th {
-  color: var(--muted);
-  font-weight: 500;
+  color: var(--ink-3);
+  font-weight: 700;
 }
 
 .admin-table__row--selected {
-  background: #f4f7f4;
+  background: var(--blue-soft);
 }
 
 .admin-status {
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
   font-size: 12px;
-  background: var(--border);
+  font-weight: 700;
+  background: var(--btn-gray);
+  color: var(--ink-2);
 }
 
 .admin-status--finished {
-  background: #dcece1;
-  color: var(--accent);
+  background: var(--blue-soft);
+  color: var(--blue-ink);
 }
 
 .admin-status--abandoned {
-  background: #f2ddd8;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
-.admin-genlink {
+.report-pending__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+  max-width: 620px;
+}
+
+.report-pending__line {
+  height: 18px;
+  border-radius: var(--r-sm);
+}
+
+.report-pending__line--short {
+  width: 55%;
+}
+
+/* --------------------------------------------- состояние отчёта в списке */
+
+/* Оценка — вызов сильной модели, она идёт десятками секунд после конца
+   тренировки. Раньше всё это время в колонке стояло «нет», и выглядело
+   это как «отчёт не сформировался, надо жать кнопку руками». */
+.report-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.report-chip--ready {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+a.report-chip--ready:hover {
+  background: var(--blue);
+  color: #fff;
+}
+
+.report-chip--pending {
+  color: var(--ink-3);
+  background: var(--btn-gray);
+}
+
+.report-chip--none {
+  color: var(--ink-3);
+}
+
+/* Мерцание «контент ещё грузится»: серая плашка с бегущим бликом. */
+.skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--btn-gray) 25%,
+    var(--surface-2) 37%,
+    var(--btn-gray) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s var(--ease-soft) infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* Требование motion.md дизайн-системы: анимации обязаны выключаться. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer {
+    animation: none;
+  }
+}
+
+/* Общий стиль кликабельной ссылки/кнопки в админке — глобальный сброс
+   Clarity UI (a { color:inherit; text-decoration:none }) делает обычные
+   <Link> неотличимыми от текста ячейки таблицы без этого класса. */
+.admin-link {
   border: none;
   background: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--blue);
   cursor: pointer;
   font: inherit;
+  font-weight: 700;
   text-decoration: underline;
 }
 
@@ -687,14 +1142,18 @@ body {
   display: block;
   margin-bottom: 16px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--ink-3);
 }
 
 .admin-gen-select select {
   display: block;
   margin-top: 4px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   max-width: 100%;
+  border-radius: var(--r-sm);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: inherit;
 }
 
 /* ------------------------------------------------------------- нагрузка */
@@ -702,7 +1161,7 @@ body {
 .load-summary {
   display: flex;
   gap: 24px;
-  margin-bottom: 14px;
+  margin: 16px 0 18px;
 }
 
 .load-summary__item {
@@ -711,23 +1170,29 @@ body {
 }
 
 .load-summary__value {
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
 }
 
 .load-summary__label {
-  color: var(--muted);
+  color: var(--ink-3);
   font-size: 12px;
+  font-weight: 600;
 }
 
 .load-cell--warn {
   color: var(--danger);
-  font-weight: 600;
+  font-weight: 700;
 }
 
+/* minmax под ширину, на которой у линейного графика ещё читаются оси —
+   recharts рисует в ResponsiveContainer, ему нужна определённая ширина,
+   а 1fr в гриде её даёт. */
 .load-timelines {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 24px;
   margin-top: 16px;
 }
@@ -741,39 +1206,15 @@ body {
 .load-timeline__title {
   margin: 0 0 6px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
+  font-weight: 700;
+  color: var(--ink-3);
 }
 
-.load-timeline__bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 70px;
-}
+/* Самих баров/подписей здесь больше нет — их рисует recharts внутри
+   ResponsiveContainer. Осталась только рамка вокруг графика. */
 
-.load-timeline__col {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  flex: 1;
-  height: 100%;
-}
-
-.load-timeline__bar {
-  width: 100%;
-  min-height: 2px;
-  background: var(--accent);
-  border-radius: 2px 2px 0 0;
-}
-
-.load-timeline__label {
-  margin-top: 4px;
-  font-size: 9px;
-  color: var(--muted);
-  writing-mode: vertical-rl;
-  white-space: nowrap;
+.load-timeline--errors {
+  margin-top: 20px;
 }
 
 /* ---------------------------------------------------------- Gantt-график */
@@ -784,21 +1225,21 @@ body {
 }
 
 .gantt__empty {
-  color: var(--muted);
+  color: var(--ink-3);
 }
 
 .gantt__gridline {
-  stroke: var(--border);
+  stroke: var(--line);
   stroke-width: 1;
 }
 
 .gantt__tick {
-  fill: var(--muted);
+  fill: var(--ink-3);
   text-anchor: middle;
 }
 
 .gantt__row-label {
-  fill: var(--text);
+  fill: var(--ink);
   dominant-baseline: middle;
 }
 
@@ -812,7 +1253,7 @@ body {
 }
 
 .gantt__bar--cancelled {
-  stroke: var(--muted);
+  stroke: var(--ink-3);
   stroke-dasharray: 4 2;
 }
 
@@ -822,88 +1263,208 @@ body {
   pointer-events: none;
 }
 
-.avatar-switch {
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
+/* ------------------------------------------------- оверлеи сессии */
+
+/* Экранов из макета для них нет: оба оверлея — про поведение, а не про
+   продуктовую роль. Стартовый снимает блокировку автоплея (агент говорит
+   первым, §1, а браузер не пустит звук без жеста пользователя), финальный
+   сообщает о конце тренировки. Токены — из Clarity UI. */
+
+.session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(237, 241, 247, 0.94);
+  backdrop-filter: blur(6px);
+}
+.session-overlay__card {
+  max-width: 460px;
+  width: 100%;
+  padding: 32px;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.session-overlay__title {
+  margin: 0 0 8px;
+  font-size: var(--fs-h3);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+.session-overlay__lead {
+  margin: 0 0 4px;
+  color: var(--ink-3);
+}
+.session-overlay__button {
+  width: 100%;
+  margin-top: 20px;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--blue);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
   cursor: pointer;
+  transition: background var(--dur-2) var(--ease);
+}
+.session-overlay__button:hover:not(:disabled) {
+  background: var(--blue-deep);
+}
+.session-overlay__button:disabled {
+  background: var(--btn-gray);
+  color: var(--ink-3);
+  cursor: progress;
 }
 
+/* ------------------------------------- органы управления в шапке сессии */
+
+.session__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Базовый вид даёт .btn.btn-gray из Clarity UI — здесь только состояние
+   «нажать нельзя», которого в маркетинговом ките нет. */
+.session__finish:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Отладочный переключатель модели: намеренно тише кнопки завершения,
+   это инструмент разработки, а не действие сотрудника. */
+.avatar-switch {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
 .avatar-switch:disabled {
   cursor: default;
   opacity: 0.5;
 }
 
-.app__nav-tool {
-  margin-left: 16px;
+/* --------------------------------------------------- отчёт: служебное */
+
+.report__scores-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.report__scores-head h2 {
+  margin: 0;
 }
 
-/* ---------------------------------------------------- лаборатория эмоций */
+/* Провенанс оценки: отчёт от заглушки нельзя молча показать как настоящий —
+   методист примет выдуманные баллы за результат. */
+.report__stub {
+  margin: 0 0 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-ui);
+}
 
+.report__rebuild {
+  flex: none;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-ui);
+  cursor: pointer;
+  transition: border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+}
+.report__rebuild:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+.report__rebuild:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* ------------------------------------------------ лаборатории (отладка) */
+
+/* Как и админ-панель, нарочно суше продуктовых экранов: это инструменты
+   разработки (подбор эмоций и посадка моделей), а не роль из §2. */
+
+/* height (не min-height) + собственная прокрутка в колонке настроек:
+   сцена аватара стоит на месте, а список эмоций/голосов/реплик длиннее
+   экрана и уезжал за нижнюю границу вместе с аватаром. */
 .emotion-lab {
   display: grid;
   grid-template-columns: minmax(320px, 1fr) minmax(320px, 440px);
   gap: 28px;
   max-width: 1100px;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
   margin: 0 auto;
   padding: 24px;
 }
-
 .emotion-lab__stage {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 0;
 }
-
 .emotion-lab__controls {
-  align-self: center;
   padding: 22px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  min-height: 0;
+  overflow-y: auto;
 }
-
 .emotion-lab__controls h1 {
   margin-top: 0;
 }
-
 .emotion-lab__buttons,
 .emotion-lab__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-
 .emotion-lab button {
   padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
   background: var(--surface);
-  color: var(--text);
+  color: var(--ink);
+  font: inherit;
   cursor: pointer;
 }
-
 .emotion-lab button:disabled {
   cursor: default;
   opacity: 0.5;
 }
-
 .emotion-lab__emotion.is-active,
 .emotion-lab__actions button:nth-child(2) {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--blue);
+  background: var(--blue);
   color: #fff;
 }
-
 .emotion-lab__field {
   display: block;
   margin: 20px 0 10px;
-  color: var(--muted);
+  color: var(--ink-3);
 }
-
 .emotion-lab__field textarea,
 .emotion-lab__field select {
   display: block;
@@ -911,35 +1472,23 @@ body {
   margin-top: 6px;
   padding: 10px;
   resize: vertical;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
   font: inherit;
 }
-
-.emotion-lab__field select {
-  background: #fff;
-}
-
 .emotion-lab__toggle {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 12px 0;
-  color: var(--muted);
+  color: var(--ink-3);
 }
-
 .emotion-lab__meta {
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--ink-3);
+  font-size: var(--fs-caption);
 }
-
 .emotion-lab__error {
   color: var(--danger);
-}
-
-@media (max-width: 760px) {
-  .emotion-lab {
-    grid-template-columns: 1fr;
-  }
 }

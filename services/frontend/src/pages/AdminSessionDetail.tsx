@@ -53,14 +53,20 @@ export function AdminSessionDetail() {
   return (
     <main className="page admin-detail">
       <p>
-        <Link to="/admin/sessions">← ко всем сессиям</Link>
+        <Link className="admin-link" to="/admin/sessions">← ко всем сессиям</Link>
         {' · '}
-        <Link to={`/report/${path.session.session_id}`}>отчёт методиста</Link>
+        <Link className="admin-link" to={`/report/${path.session.session_id}`}>
+          отчёт методиста
+        </Link>
       </p>
       <h1>Сессия {path.session.session_id}</h1>
       <p className="admin__hint">
         Пользователь: {path.session.user_display_name} · сценарий: {path.session.scenario_id} ·
-        статус: {path.session.status} · текущий этап: {path.session.current_stage}
+        статус: {path.session.status} · этап{' '}
+        {path.session.stages_total === null
+          ? path.session.current_stage
+          : `${Math.min(path.session.stages_completed + 1, path.session.stages_total)} из ${path.session.stages_total}`}{' '}
+        ({path.session.current_stage})
       </p>
 
       <section className="admin-section">
@@ -85,7 +91,7 @@ export function AdminSessionDetail() {
                 <td>
                   <button
                     type="button"
-                    className="admin-genlink"
+                    className="admin-link"
                     onClick={() => setSelectedGen(turn.gen_id)}
                   >
                     {turn.gen_id}

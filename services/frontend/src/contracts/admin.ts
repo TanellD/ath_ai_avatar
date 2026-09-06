@@ -13,6 +13,9 @@ export interface SessionSummary {
   user_display_name: string;
   status: string;
   current_stage: string;
+  stages_completed: number;
+  /** null — сценарий с тех пор удалён из scenario-service. */
+  stages_total: number | null;
   turn_count: number;
   created_at: string;
 }
@@ -73,4 +76,7 @@ export interface LoadStats {
   sessions_by_status: Record<string, number>;
   sessions_timeline: TimeBucket[];
   activity_timeline: TimeBucket[];
+  /** Один список бакетов на сервис — ключ совпадает с OperationLoad.service. */
+  error_timeline: Record<string, TimeBucket[]>;
+  freed_hours: number;
 }
