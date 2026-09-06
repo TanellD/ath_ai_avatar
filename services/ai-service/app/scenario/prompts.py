@@ -148,8 +148,15 @@ def _current_persona_lines(persona: Persona) -> list[str]:
 
 
 def _current_stage_lines(stages: list[Stage]) -> list[str]:
+    """Нумерует только непустые этапы, подряд — не по позиции в форме.
+
+    В форме между двумя заполненными этапами может стоять пустая заготовка
+    (добавили строку, не успели заполнить): если нумеровать по исходному
+    индексу, модель увидит «1. ... 3. ...» без «2.» и решит, что второй этап
+    потерялся, а не что его ещё не заполнили.
+    """
     lines = []
-    for index, stage in enumerate(stages, start=1):
+    for stage in stages:
         pieces = []
         if _filled(stage.goal):
             pieces.append(f"цель «{stage.goal}»")
@@ -158,21 +165,22 @@ def _current_stage_lines(stages: list[Stage]) -> list[str]:
         if _filled(stage.completion_criteria):
             pieces.append(f"зачтено, когда: {stage.completion_criteria}")
         if pieces:
-            lines.append(f"{index}. {'; '.join(pieces)}")
-    return lines
+            lines.append("; ".join(pieces))
+    return [f"{index}. {line}" for index, line in enumerate(lines, start=1)]
 
 
 def _current_rubric_lines(rubric: list[RubricItem]) -> list[str]:
+    """Та же нумерация «подряд по непустым», что у `_current_stage_lines`."""
     lines = []
-    for index, item in enumerate(rubric, start=1):
+    for item in rubric:
         pieces = []
         if _filled(item.name):
             pieces.append(f"«{item.name}»")
         if _filled(item.description):
             pieces.append(item.description)
         if pieces:
-            lines.append(f"{index}. {' — '.join(pieces)}")
-    return lines
+            lines.append(" — ".join(pieces))
+    return [f"{index}. {line}" for index, line in enumerate(lines, start=1)]
 
 
 def _current_block(current: ScenarioDraftResponse | None) -> str:
@@ -212,16 +220,37 @@ def _current_block(current: ScenarioDraftResponse | None) -> str:
     )
 
 
+def _count_part(count: int | None, singular: str) -> str:
+    """`(реши сам…)` привязана к своему числу, а не растёт в отдельное предложение —
+    на смешанном вводе (этапы заданы, критерии — авто) иначе непонятно, к чему она
+    относится."""
+    if count is not None:
+        return f"{count} {singular}"
+    return f"{_AUTO_MIN}–{_AUTO_MAX} {singular}"
+
+
 def _count_instruction(stages_count: int | None, rubric_count: int | None) -> str:
-    auto = (
-        f"от {_AUTO_MIN} до {_AUTO_MAX} — сколько реально нужно этому разговору, "
-        "а не круглое число"
-    )
-    stages_part = f"{stages_count} этап(ов)" if stages_count is not None else auto + " этапов"
-    rubric_part = (
-        f"{rubric_count} критери(ев) оценки" if rubric_count is not None else auto + " критериев"
-    )
-    return f"Сделай {stages_part} и {rubric_part}."
+    """И этапы, и критерии — обычно "Авто": методист не трогал селекты, это дефолт
+    формы. Общий случай оформлен отдельной веткой, а не общей формулой на два поля,
+    чтобы не получить одно и то же пояснение "реши сам" дважды подряд в предложении —
+    неряшливый промпт от нас, а не от модели.
+    """
+    stages_part = _count_part(stages_count, "этап(ов)")
+    rubric_part = _count_part(rubric_count, "критери(ев) оценки")
+    counts = f"Сделай {stages_part} и {rubric_part}."
+
+    if stages_count is None and rubric_count is None:
+        return counts + (
+            " Оба числа реши сам, исходя из того, сколько шагов реально нужно "
+            "этому разговору, а не бери круглое число."
+        )
+    if stages_count is None:
+        return counts + " Число этапов реши сам — сколько шагов реально нужно этому разговору."
+    if rubric_count is None:
+        return counts + (
+            " Число критериев реши сам — сколько их реально может показать этот разговор."
+        )
+    return counts
 
 
 def build_draft_message(

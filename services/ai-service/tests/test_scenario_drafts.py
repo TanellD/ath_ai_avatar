@@ -123,6 +123,26 @@ def test_auto_count_message_names_a_range_not_a_round_number() -> None:
     assert "3" in message and "6" in message
 
 
+def test_auto_count_explanation_is_not_duplicated() -> None:
+    """Оба поля обычно «Авто» — это дефолт формы, самый частый вызов кнопки.
+    Формула на два поля когда-то склеивала два одинаковых пояснения подряд
+    в одном предложении — неряшливый промпт, не ошибка модели, но такое же
+    реальное качество текста, которое видит модель."""
+    message = build_draft_message("Тест", stages_count=None, rubric_count=None)
+
+    assert message.count("реши сам") == 1
+
+
+def test_mixed_counts_attach_the_auto_note_to_the_right_field() -> None:
+    """Этапы заданы явно, критерии — авто: пояснение «реши сам» обязано
+    называть критерии, а не повиснуть непонятно к чему на смешанном вводе."""
+    message = build_draft_message("Тест", stages_count=4, rubric_count=None)
+
+    assert message.count("реши сам") == 1
+    assert "критери" in message.lower().split("реши сам")[0][-40:]
+    assert "этап" not in message.lower().split("реши сам")[0][-40:]
+
+
 def test_current_form_state_is_not_sent_when_form_is_blank() -> None:
     """Пустая заготовка формы (пустые emptyStage()/emptyRubricItem()) не
     должна попасть в промпт как будто это требование методиста."""
@@ -153,6 +173,29 @@ def test_current_form_state_is_carried_into_the_message() -> None:
     assert "уже заполнил" in message.lower()
     assert "Ирина" in message
     assert "не противоречь" in message.lower()
+
+
+def test_current_stages_are_numbered_consecutively_skipping_blanks() -> None:
+    """Между двумя заполненными этапами в форме может стоять пустая заготовка
+    (добавили строку, не успели заполнить). Нумерация по позиции в форме дала
+    бы «1. ... 3. ...» без «2.» — модель решила бы, что этап потерялся, а не
+    что его ещё не заполнили."""
+    current = ScenarioDraftResponse(
+        title="Т",
+        persona=PERSONA,
+        stages=[
+            Stage(id="s1", goal="Установить контакт", agent_opening="", completion_criteria=""),
+            Stage(id="s2", goal="", agent_opening="", completion_criteria=""),
+            Stage(id="s3", goal="Закрыть сделку", agent_opening="", completion_criteria=""),
+        ],
+        rubric=[RubricItem(id="criterion_1", name="", description="")],
+    )
+
+    message = build_draft_message("Тест", None, None, current=current)
+
+    assert "1. цель «Установить контакт»" in message
+    assert "2. цель «Закрыть сделку»" in message
+    assert "3." not in message.split("Критерии:")[0]
 
 
 # ------------------------------------------------- сборка из сырого ответа
