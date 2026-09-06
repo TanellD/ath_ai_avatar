@@ -4,8 +4,15 @@
 минуту» (§11). На пустой базе этот шаг сломан, поэтому шаблоны кладутся при
 первом запуске.
 
-Существующие сценарии не перезаписываются: методист мог поправить шаблон под
-себя, и терять его правку при рестарте контейнера недопустимо.
+Существующие сценарии при старте не перезаписываются: методист мог поправить
+шаблон под себя, и терять его правку при рестарте контейнера недопустимо.
+
+Обратная сторона — правка шаблона в репозитории не доезжает до уже поднятой
+установки. Так и вышло с `holds_initiative` у interview_junior: в шаблоне
+`false`, в базе поля нет вовсе, и персонаж-кандидат продолжал допрашивать
+интервьюера. Поэтому есть `refresh_templates()` — ОТДЕЛЬНАЯ команда, а не
+поведение старта: обновление шаблонов должно быть решением человека, а не
+побочным эффектом рестарта.
 """
 
 import json
@@ -33,6 +40,38 @@ def load_templates() -> list[Scenario]:
         data = json.loads(path.read_text(encoding="utf-8"))
         scenarios.append(Scenario.model_validate(data))
     return scenarios
+
+
+async def refresh_templates(force: bool = False) -> list[str]:
+    """Обновить встроенные шаблоны из файлов. Возвращает изменённые id.
+
+    Трогает только строки с `is_template=True`: сценарии, созданные методистом
+    с нуля или скопированные из шаблона, — не шаблоны и остаются нетронутыми.
+    Модель прямо говорит, что шаблон методист копирует, а не правит
+    (`ScenarioRow.is_template`), поэтому обновление встроенного шаблона из
+    репозитория — не потеря чужой работы.
+
+    `force` снимает сравнение и переписывает даже совпадающие: нужно, если
+    строку правили руками в обход API.
+    """
+    templates = load_templates()
+    changed: list[str] = []
+
+    async with session_factory()() as db:
+        repository = SqlScenarioRepository(db)
+        for scenario in templates:
+            current = await repository.get(scenario.id)
+            if current is None:
+                # Шаблона в базе нет — это работа seed_templates(), не наша:
+                # молча создавать его здесь значило бы дублировать засев.
+                continue
+            if not force and current == scenario:
+                continue
+            await repository.upsert(scenario, is_template=True)
+            changed.append(scenario.id)
+
+    log.info("seed.refresh_done", found=len(templates), changed=len(changed))
+    return changed
 
 
 async def seed_templates() -> None:

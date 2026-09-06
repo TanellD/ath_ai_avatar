@@ -33,20 +33,24 @@ test: ## Тесты gateway, speech-service, ai-service и фронтенда (�
 	$(COMPOSE) exec gateway pytest -v
 	$(COMPOSE) exec speech-service pytest -v
 	$(COMPOSE) exec ai-service pytest -v
+	$(COMPOSE) exec scenario-service pytest -v
 	$(COMPOSE) exec frontend npm test
 
 lint: ## ruff по сервисам + eslint во фронтенде
 	$(COMPOSE) exec gateway ruff check app tests
 	$(COMPOSE) exec speech-service ruff check app tests
 	$(COMPOSE) exec ai-service ruff check app tests
-	$(COMPOSE) exec scenario-service ruff check app
+	$(COMPOSE) exec scenario-service ruff check app tests
 	$(COMPOSE) exec frontend npm run lint
 
 fmt: ## Форматирование
 	$(COMPOSE) exec gateway ruff format app tests
 	$(COMPOSE) exec speech-service ruff format app tests
 	$(COMPOSE) exec ai-service ruff format app tests
-	$(COMPOSE) exec scenario-service ruff format app
+	$(COMPOSE) exec scenario-service ruff format app tests
+
+seed-refresh: ## Обновить встроенные шаблоны сценариев из репозитория (после git pull, перед демо)
+	$(COMPOSE) exec scenario-service python -m app.seed
 
 gigaam-setup: ## Скачать и сверить веса GigaAM заранее (до демо; старт worker'а офлайновый)
 	$(COMPOSE) --profile gigaam run --rm --no-deps gigaam-worker \

@@ -46,6 +46,9 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8050 --reload --reload-dir /app/app --reload-dir /opt/packages
     volumes:
       - ./services/scenario-service/app:/app/app
+      # Как у остальных сервисов: без этого `pytest` в контейнере не видит
+      # тестов и молча сообщает «no tests ran» — зелено и бессмысленно.
+      - ./services/scenario-service/tests:/app/tests
       - ./packages:/opt/packages
       - ./data:/data
     environment:
