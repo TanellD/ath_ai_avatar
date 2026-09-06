@@ -26,6 +26,16 @@ from app.orchestrator.voice_recovery import VoiceRecoveryPlayer
 
 log = get_logger(__name__)
 
+# Формат, в котором клиент обязан присылать PCM (см. events.py::SpeechStart и
+# useMicCapture.ts) — тот же канонический формат, что speech-service объявляет
+# в app/stt/capture_buffer.py (CANONICAL_SAMPLE_RATE/SAMPLE_WIDTH_BYTES).
+# Одна и та же пара чисел заведена дважды, а не через общий импорт: gateway и
+# speech-service — разные пакеты с разными зависимостями. Клиент формат не
+# сверяет (SpeechStart.sample_rate/audio_format летят, но не проверяются) —
+# если он когда-нибудь изменится, этот лимит молча станет неверным.
+_PCM_SAMPLE_RATE_HZ = 16_000
+_PCM_SAMPLE_WIDTH_BYTES = 2
+
 
 @dataclass
 class _ActiveCapture:
@@ -106,7 +116,9 @@ class VoiceTurnRegistry:
                 gen_id=gen_id,
                 provider_epoch=0,
                 stream=stream,
-                max_bytes=self._max_capture_seconds * 16_000 * 2,
+                max_bytes=self._max_capture_seconds
+                * _PCM_SAMPLE_RATE_HZ
+                * _PCM_SAMPLE_WIDTH_BYTES,
                 started_at=time.monotonic(),
             )
             self._active = active
@@ -342,8 +354,17 @@ class VoiceTurnRegistry:
                 "Распознавание прервалось; используйте текстовый ввод",
             )
         finally:
+            # `_abort_locked` (start/end/abort/aclose, все под self._lock) может
+            # выполняться конкурентно с этим finally — оно не под локом, потому
+            # что выполняется внутри самой reader_task, снаружи вызова с
+            # `async with self._lock`. Без лока здесь `self._active = None` и
+            # отмена watchdog гонялись бы с той же мутацией из `_abort_locked`.
+            # `stream.aclose()` оставлен вне лока: закрытие websocket безопасно
+            # вызывать конкурентно (библиотека идемпотентна), а долгий await
+            # под локом задержал бы другие операции этой capture.
             await active.stream.aclose()
-            if active.watchdog_task is not None:
-                active.watchdog_task.cancel()
-            if self._active is active:
-                self._active = None
+            async with self._lock:
+                if active.watchdog_task is not None:
+                    active.watchdog_task.cancel()
+                if self._active is active:
+                    self._active = None

@@ -1,14 +1,16 @@
-"""Провайдер OpenAI-совместимого API (VseLLM/gemini) — второй вариант LLM.
+"""Провайдер OpenAI-совместимого API — второй вариант LLM.
 
-Добавлен по итогам ветки `poc`: рабочий стек хакатон-команды — VseLLM
-(OpenAI-совместимый прокси) → `google/gemini-2.5-flash`. Не замена
-AnthropicProvider, а второй селектируемый вариант:
-`LLM_PROVIDER=openai_compatible`.
+Добавлен по итогам ветки `poc` изначально для VseLLM (OpenAI-совместимый
+прокси) → `google/gemini-2.5-flash`. Тот же провайдер сейчас использует
+фактическая рабочая конфигурация команды — собственная Ollama на удалённом
+сервере, модель `qwen3.6:35b` (см. docs/PROJECT_DESCRIPTION.md, «Переход на
+локальную модель», и `.env.example`). Не замена AnthropicProvider, а второй
+селектируемый вариант: `LLM_PROVIDER=openai_compatible`.
 
 Модель берётся из тех же `LLM_FAST_MODEL`/`LLM_STRONG_MODEL`, что и у
 Anthropic — отдельных переменных под конкретный провайдер не заводим,
-значение просто передаётся дальше как есть (для VseLLM это
-`"google/gemini-2.5-flash"`).
+значение просто передаётся дальше как есть (сейчас это `"qwen3.6:35b"`, для
+VseLLM было бы `"google/gemini-2.5-flash"`).
 
 Structured output здесь не то же самое, что у Anthropic.
 `response_format={"type": "json_object"}` — стандартный параметр Chat
@@ -76,6 +78,114 @@ def _json_schema_response_format(schema: dict[str, Any]) -> dict[str, Any]:
 # необязательный параметр в теле запроса игнорируется.
 _DISABLE_REASONING: dict[str, Any] = {"reasoning_effort": "none"}
 
+# Вторая линия защиты от той же утечки. `reasoning_effort: none` — просьба к
+# серверу не генерировать трейс вовсе, а не гарантия: на живой сессии модель
+# всё равно написала рассуждение прямо ВНУТРИ content как
+# `<thought>...</thought>`, а не в отдельном поле `reasoning` — оно ушло в
+# субтитры и озвучилось сотруднику дословно, вместе с «Формулировка ответа
+# Ирины: ...» и прочей служебной рефлексией персонажа. Список — известные
+# варианты этого паттерна у разных открытых моделей, а не только тот, что
+# видели на практике.
+_REASONING_TAGS = frozenset({"think", "thinking", "thought", "reasoning"})
+
+
+def _partial_suffix_match(lowered_buffer: str, needle: str) -> int:
+    """Длина максимального суффикса `lowered_buffer`, совпадающего с началом
+    `needle` — то есть сколько символов хвоста буфера могут оказаться
+    оборванным началом ещё не долетевшего `needle` целиком.
+    """
+    max_len = min(len(lowered_buffer), len(needle) - 1)
+    for length in range(max_len, 0, -1):
+        if lowered_buffer[-length:] == needle[:length]:
+            return length
+    return 0
+
+
+async def _strip_inline_reasoning(chunks: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Вырезать `<TAG>...</TAG>` (TAG из `_REASONING_TAGS`) из потока текста.
+
+    Стриминговый, а не построчный: блок рассуждения может растянуться на
+    десятки чанков, а открывающий/закрывающий тег — располовиниться между
+    двумя чанками (сеть режет как придётся). Буферизуем ровно настолько,
+    чтобы всегда быть уверены — очередной `<` либо точно не начало тега (уже
+    видно, что после буквы не подходящее слово), либо однозначно тег, либо
+    ещё нужно подождать следующий чанк.
+    """
+    buffer = ""
+    in_tag = False
+    close_tag = ""
+
+    async for delta in chunks:
+        buffer += delta
+        while True:
+            if not in_tag:
+                start = buffer.find("<")
+                if start == -1:
+                    if buffer:
+                        yield buffer
+                        buffer = ""
+                    break
+                if start > 0:
+                    yield buffer[:start]
+                    buffer = buffer[start:]
+                if len(buffer) < 2:
+                    # Видели только "<" — не знаем ещё, что за ним: буква
+                    # (потенциальный тег) или что угодно другое. Ждём.
+                    break
+                if not buffer[1].isalpha():
+                    # После "<" не буква — не начало тега (например, "цена
+                    # < 100"). Не ждём ">" неопределённо долго — отдаём "<"
+                    # как обычный символ и разбираем остаток буфера сразу.
+                    yield buffer[0]
+                    buffer = buffer[1:]
+                    continue
+                end = buffer.find(">")
+                if end == -1:
+                    # Открывающий тег ещё не долетел целиком — ждём.
+                    break
+                tag_name = buffer[1:end].strip().lower()
+                if tag_name in _REASONING_TAGS:
+                    in_tag = True
+                    close_tag = f"</{tag_name}>"
+                    buffer = buffer[end + 1 :]
+                    continue
+                # Не наш тег (модель почти никогда так не пишет обычную
+                # речь, но на всякий случай не теряем текст) — отдаём как
+                # есть и продолжаем разбор остатка буфера.
+                yield buffer[: end + 1]
+                buffer = buffer[end + 1 :]
+                continue
+
+            lowered = buffer.lower()
+            idx = lowered.find(close_tag)
+            if idx == -1:
+                # Закрывающий тег ещё не пришёл целиком — это рассуждение,
+                # наружу не идёт ничего из уже накопленного. Но хвост буфера
+                # может оказаться отломанным НАЧАЛОМ закрывающего тега (сеть
+                # режет чанк как придётся, например "...</though" + "t>") —
+                # такой хвост храним, иначе следующий чанк "t>" уже не с чем
+                # склеить, и тег никогда не найдётся.
+                keep = _partial_suffix_match(lowered, close_tag)
+                buffer = buffer[len(buffer) - keep :] if keep else ""
+                break
+            buffer = buffer[idx + len(close_tag) :]
+            in_tag = False
+            close_tag = ""
+
+    if in_tag:
+        # Стрим оборвался внутри рассуждения — незакрытый тег означает, что
+        # вся реплика персонажа молча ушла в пустоту (см. коммит,
+        # добавивший эту функцию). Раньше это было видно только по тому, что
+        # клиент навсегда завис на "Персонаж думает" — теперь хотя бы видно
+        # в логах, что причина именно здесь, а не где-то ещё в конвейере.
+        log.warning(
+            "openai_compatible.unterminated_reasoning_tag",
+            close_tag=close_tag,
+            buffered_chars=len(buffer),
+        )
+    elif buffer:
+        yield buffer
+
 
 class OpenAiCompatibleProvider(LlmProvider):
     def __init__(self, api_key: str, base_url: str) -> None:
@@ -111,12 +221,16 @@ class OpenAiCompatibleProvider(LlmProvider):
             extra_body=_DISABLE_REASONING,
         )
 
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        async def raw_deltas() -> AsyncIterator[str]:
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+
+        async for delta in _strip_inline_reasoning(raw_deltas()):
+            yield delta
 
     async def complete_json(
         self,

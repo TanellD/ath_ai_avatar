@@ -1,8 +1,10 @@
 # Архитектура
 
-Текстовый ввод остаётся рабочим fallback; PTT/Soniox voice path реализуется по
-[voice-input-plan.md](voice-input-plan.md). Оба способа ввода сходятся в одном
-`TurnPipeline` после commit пользовательской реплики.
+Текстовый ввод остаётся рабочим fallback; голосовой ввод (push-to-talk,
+Soniox с автоматическим failover на локальный GigaAM) реализован — план в
+[voice-input-plan.md](voice-input-plan.md) описывает исходный замысел, а не
+текущий статус (см. `docs/PROJECT_DESCRIPTION.md` за актуальным). Оба способа
+ввода сходятся в одном `TurnPipeline` после commit пользовательской реплики.
 
 ## Поток одного хода
 
@@ -94,7 +96,7 @@ Claude.md §3 запрещает независимые таймеры для м
 |---|---|---|
 | Рендер + липсинк | TalkingHead + HeadAudio (self-hosted, MIT) | план на Simli из Claude.md §10 — тот уже помечен предупреждением про read-only репозиторий |
 | TTS | Soniox, реализован по-настоящему (`TTS_PROVIDER=soniox`) | заглушки ElevenLabs/Yandex остаются заглушками |
-| LLM | OpenAI-совместимый прокси / VseLLM, второй вариант (`LLM_PROVIDER=openai_compatible`) | не замена Anthropic, а альтернатива |
+| LLM | OpenAI-совместимый прокси, второй вариант (`LLM_PROVIDER=openai_compatible`) — изначально VseLLM, сейчас фактически своя Ollama, `qwen3.6:35b` | не замена Anthropic, а альтернатива |
 
 `TalkingHeadAvatar.tsx` заменил заглушку `SimliAvatar.tsx` целиком: HeadAudio
 анализирует РЕАЛЬНО проигрываемый звук через AudioWorklet (посэмпльно, в

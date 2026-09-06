@@ -37,7 +37,7 @@ export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'closed';
  * которое уже не текущее, и отбросить их значит не узнать об отмене.
  */
 export function isStaleEvent(event: ServerEvent, currentGeneration: number): boolean {
-  if (event.type === 'cancel') return false;
+  if (event.type === 'cancel' || event.type === 'error') return false;
   if (!('gen_id' in event) || event.gen_id === null) return false;
   return event.gen_id !== currentGeneration;
 }
