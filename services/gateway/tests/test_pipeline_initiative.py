@@ -8,7 +8,7 @@ ai-service): персонаж заговаривает сам в начале с
 """
 
 import pytest
-from ath_contracts import Classification, OpeningKind, Scenario, TurnRole
+from ath_contracts import Classification, ErrorEvent, OpeningKind, Scenario, TurnRole
 
 from app.orchestrator.session_manager import LiveSession
 from tests.conftest import build_pipeline, drain
@@ -62,6 +62,34 @@ async def test_silence_followups_speak_without_fake_user_turns(built) -> None:  
     assert [turn.role for turn in session.turns] == [TurnRole.AGENT, TurnRole.AGENT]
     assert session.current_stage_id == session.machine.first_stage_id
     assert session.turns_in_stage == 0
+
+
+async def test_silence_followup_tts_failure_reaches_client(
+    built,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Живой баг: обрыв TTS-стрима на реплике по молчанию не давал клиенту ни
+    одного события. У этого хода нет ActionEvent (в отличие от обычного) и
+    может не быть ни единого audio_chunk — клиент навсегда застревал в
+    'thinking', а таймер молчания, не получив resume(), замолкал до конца
+    сессии. ErrorEvent — единственный сигнал, что ход мёртв и пора вернуться
+    в покой."""
+    pipeline, session, _ai, speech, sent = built
+
+    async def broken_stream(*_args, **_kwargs):
+        raise ConnectionError("tts stream closed: 1011 internal error")
+        yield  # pragma: no cover — делает функцию асинхронным генератором
+
+    monkeypatch.setattr(speech, "stream_tts_reply", broken_stream)
+
+    await pipeline.handle_silence_timeout("nudge", avatar_id="tom-avatar")
+    await drain(session)
+
+    errors = [event for event in sent if isinstance(event, ErrorEvent)]
+    assert len(errors) == 1
+    assert errors[0].code == "silence_followup_failed"
+    assert errors[0].spoken is False
+    assert errors[0].gen_id == 1
 
 
 async def test_off_topic_streak_grows_and_reaches_the_next_reply(built) -> None:  # noqa: ANN001

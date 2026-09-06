@@ -355,6 +355,14 @@ export function TraineeSession() {
             setVoiceActive(false);
             setVoiceBuffered(false);
           }
+          if (event.code === 'silence_followup_failed') {
+            // Для этой реплики сервер больше не пришлёт ни token, ни action,
+            // ни audio_chunk — эта ошибка единственный сигнал, что ход мёртв.
+            // Без явного возврата в idle индикатор завис бы навсегда, а таймер
+            // молчания, не получив resume(), замолчал бы до конца сессии.
+            setPlayback('idle');
+            silenceFollowupRef.current?.resume();
+          }
           // Персонаж уже переспросил вслух — красный баннер поверх этого
           // сообщил бы об одной неудаче дважды и вывел бы собеседника из роли.
           if (!event.spoken) {

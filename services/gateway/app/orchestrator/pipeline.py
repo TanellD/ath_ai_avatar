@@ -27,6 +27,7 @@ from ath_contracts import (
     CancelEvent,
     Classification,
     Emotion,
+    ErrorEvent,
     OpeningKind,
     ReportEvent,
     ServerEvent,
@@ -309,7 +310,24 @@ class TurnPipeline:
             log.info("pipeline.silence_followup_cancelled", gen_id=gen_id)
             raise
         except Exception:
+            # Раньше сбой (чаще всего обрыв TTS-стрима до первого чанка, см.
+            # ConnectionClosedError из speech_client.stream_tts_reply) просто
+            # логировался — клиент не получал ни токена, ни аудио, ни ошибки
+            # и оставался в 'thinking'/'speaking' навсегда: у этой реплики нет
+            # ни ActionEvent (в отличие от обычного хода), ни единого чанка,
+            # который довёл бы AudioQueue до onIdle. Хуже того — таймер
+            # молчания, ни разу не получив resume(), молчал до конца сессии.
+            # Явная ошибка — единственный способ клиенту об этом узнать.
             log.exception("pipeline.silence_followup_failed", gen_id=gen_id)
+            await self._send(
+                gen_id,
+                ErrorEvent(
+                    gen_id=gen_id,
+                    code="silence_followup_failed",
+                    message="Персонаж не смог договорить — попробуйте написать сами.",
+                    spoken=False,
+                ),
+            )
 
     async def _finish(self) -> None:
         """Завершить сессию. Общее тело для обоих триггеров, идемпотентное.
