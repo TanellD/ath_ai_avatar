@@ -52,8 +52,8 @@ import {
 } from '@/avatar/TalkingHeadAvatar';
 import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
 import { MessageComposer } from '@/components/MessageComposer';
+import { MicButton } from '@/components/MicButton';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
-import { PushToTalkToggle } from '@/components/PushToTalkToggle';
 import { SessionEndOverlay } from '@/components/SessionEndOverlay';
 import { SessionStartOverlay } from '@/components/SessionStartOverlay';
 import { StageHint } from '@/components/StageHint';
@@ -97,7 +97,6 @@ export function TraineeSession() {
   const [transcript, setTranscript] = useState<ChatTurn[]>([]);
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
-  const [pushToTalk, setPushToTalk] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState('');
   // Распознавание ушло на резервный движок без партиалов: черновик больше
@@ -782,25 +781,40 @@ export function TraineeSession() {
               onReady={handleAvatarReady}
               onError={handleAvatarError}
             />
+            {/* switchAvatar() обнуляет audio сразу, а новая GLB грузится ~1-3 с —
+                без этого индикатора панель на это время просто пустела и следующая
+                модель (другого масштаба и в другой позе) появлялась рывком, что
+                читалось как «интерфейс съехал». */}
+            {!audio && (
+              <div className="avatar-loading" aria-hidden="true">
+                <span className="avatar-loading__spinner" />
+              </div>
+            )}
             {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
           </div>
 
           <section className="card session__composer-card">
-            <PushToTalkToggle
-              enabled={pushToTalk}
-              onChange={setPushToTalk}
-              active={voiceActive}
-              level={micLevel}
-              onStart={handleVoiceStart}
-              onEnd={handleVoiceEnd}
-              disabled={connection !== 'open' || !audio || finished}
-            />
-            <MessageComposer
-              disabled={connection !== 'open' || !audio || voiceActive || finished}
-              isAgentSpeaking={playback === 'speaking'}
-              onSubmit={handleSubmit}
-              onActivity={() => silenceFollowupRef.current?.postpone()}
-            />
+            <div className="composer-row">
+              <MicButton
+                active={voiceActive}
+                level={micLevel}
+                onStart={handleVoiceStart}
+                onEnd={handleVoiceEnd}
+                // Соединение блокирует только СТАРТ записи. Во время активной
+                // записи кнопка обязана остаться кликабельной даже если сокет
+                // упал/переподключается — handleVoiceEnd() останавливает
+                // микрофон локально (stopMic()) независимо от сокета, а без
+                // этого исключения сотрудник не смог бы выключить микрофон
+                // кликом до восстановления соединения.
+                disabled={(!voiceActive && connection !== 'open') || !audio || finished}
+              />
+              <MessageComposer
+                disabled={connection !== 'open' || !audio || voiceActive || finished}
+                isAgentSpeaking={playback === 'speaking'}
+                onSubmit={handleSubmit}
+                onActivity={() => silenceFollowupRef.current?.postpone()}
+              />
+            </div>
             {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
             {voiceBuffered && (
               <p className="voice-draft voice-draft--buffered">

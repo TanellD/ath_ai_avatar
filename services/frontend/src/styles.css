@@ -704,6 +704,35 @@ button.tag-chip--active:hover {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* Пока грузится GLB (первый вход и переключение аватара — TalkingHead не
+   даёт прогресс события, только await showAvatar) — .avatar пуст. Без
+   индикатора смена модели выглядела как рывок: пустая панель, затем сразу
+   другой персонаж другого масштаба. */
+.avatar-loading {
+  position: absolute;
+  inset: 24px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(10, 16, 40, 0.35);
+}
+
+.avatar-loading__spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: avatar-loading-spin 0.8s linear infinite;
+}
+
+@keyframes avatar-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .session__composer-card {
   flex: none;
   border-radius: var(--r-lg);
@@ -778,6 +807,7 @@ button.tag-chip--active:hover {
     box-shadow: var(--shadow-md);
   }
 }
+
 
 /* ------------------------------------------------------ панель истории */
 
@@ -897,56 +927,76 @@ button.tag-chip--active:hover {
   cursor: not-allowed;
 }
 
-.ptt {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  color: var(--ink-3);
-  font-size: 12.5px;
-  font-weight: 600;
+/* Микрофон и текстовое поле в одном ряду: значок всегда на месте, а не
+   появляется после отдельного шага «включить голосовой ввод» (см.
+   MicButton.tsx). */
+.composer-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
 }
 
-.ptt label {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
+.composer-row .composer {
+  flex: 1;
 }
 
-/* [STT] Кнопка записи. Заливка внутри неё — уровень микрофона: сотрудник
-   должен видеть, что его слышат, до того как придёт первый транскрипт
-   (Claude.md §8, «пользователь должен понимать, слышат ли его»). */
-.ptt__button {
+/* [STT] Заливка внутри — уровень микрофона: сотрудник должен видеть, что
+   его слышат, до того как придёт первый транскрипт (Claude.md §8,
+   «пользователь должен понимать, слышат ли его»). Круглая, высотой с
+   .composer__submit рядом — единый ряд элементов одной высоты. */
+.mic-btn {
   position: relative;
+  flex: none;
+  width: 50px;
+  height: 50px;
   overflow: hidden;
-  min-width: 150px;
-  padding: 9px 16px;
   border: 1px solid var(--line);
-  border-radius: var(--r-pill);
+  border-radius: 999px;
   background: var(--surface);
   color: var(--ink-2);
-  font: inherit;
-  font-weight: 700;
   cursor: pointer;
   touch-action: none;
+  display: grid;
+  place-items: center;
 }
 
-.ptt__button::before {
+.mic-btn__level {
   position: absolute;
   inset: 0;
   background: var(--blue);
-  content: '';
   opacity: var(--mic-level, 0);
   pointer-events: none;
 }
 
-.ptt__button--active {
+.mic-btn__icon {
+  position: relative;
+  z-index: 1;
+}
+
+.mic-btn--active {
   border-color: var(--blue);
   color: var(--ink);
   box-shadow: 0 0 0 3px var(--blue-soft);
 }
 
-.ptt__button:disabled {
+/* Пульсация — тот же сигнал «идёт запись», что и заливка уровнем, но
+   заметный и когда сотрудник молчит долю секунды (--mic-level тогда ~0). */
+.mic-btn--active .mic-btn__icon {
+  color: var(--blue);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.mic-btn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -1378,6 +1428,11 @@ a.report-chip--ready:hover {
   .skeleton-shimmer {
     animation: none;
   }
+
+  .avatar-loading__spinner,
+  .mic-btn--active .mic-btn__icon {
+    animation: none;
+  }
 }
 
 /* Общий стиль кликабельной ссылки/кнопки в админке — глобальный сброс
@@ -1754,4 +1809,43 @@ a.report-chip--ready:hover {
 }
 .emotion-lab__error {
   color: var(--danger);
+}
+
+/* Телефон: на 1080px .session__composer-card уже сжат до одной колонки, но
+   ряд «микрофон 50px + текстовое поле + кнопка отправки» всё равно не
+   помещается в ~327px полезной ширины (375px экран минус паддинги .session
+   и .session__composer-card) — .session::overflow-x: hidden в этом случае
+   не даёт горизонтальный скролл, а молча обрезает кнопку отправки справа.
+   Экономим на паддингах и размерах компонентов ряда, а не меняем раскладку —
+   три элемента остаются в один ряд, это по-прежнему быстрее находить
+   взглядом, чем перенос кнопки отправки на вторую строку.
+   Блок обязан идти ПОСЛЕ базовых .mic-btn/.composer/.composer__submit —
+   при равной специфичности выигрывает более позднее по каскаду правило
+   независимо от @media, а не более узкое условие. */
+@media (max-width: 480px) {
+  .session {
+    padding: 12px 12px 16px;
+  }
+
+  .session__composer-card {
+    padding: 12px 14px;
+  }
+
+  .composer-row {
+    gap: 6px;
+  }
+
+  .mic-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .composer {
+    gap: 8px;
+  }
+
+  .composer__submit {
+    padding: 0 14px;
+    font-size: 13px;
+  }
 }

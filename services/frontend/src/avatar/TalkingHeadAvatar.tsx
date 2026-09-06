@@ -170,7 +170,7 @@ export const AVATAR_MODELS = {
     // avatar-aith (0.76): z = 2 + 1.65 = 3.65 даёт кадр 1.154..1.793 — запас
     // 0.085 под подбородком и 0.067 над волосами.
     cameraTuning: {
-      head: { cameraDistance: 1.65, cameraY: 0.75 },
+      head: { cameraDistance: 1.65, cameraY: 1.1 },
       upper: { cameraDistance: 0, cameraY: 0 },
       mid: { cameraDistance: 0, cameraY: 0 },
       full: { cameraDistance: 0, cameraY: 0 },
