@@ -7,10 +7,9 @@
 """
 
 from fastapi import APIRouter, Request, Response, status
-from sqlalchemy import text
 
 from app.core.config import get_settings
-from app.db.engine import session_factory
+from app.db.engine import check_writable
 
 router = APIRouter(tags=["health"])
 
@@ -25,8 +24,9 @@ async def ready(request: Request, response: Response) -> dict[str, object]:
     dependencies: dict[str, str] = {}
 
     try:
-        async with session_factory()() as db:
-            await db.execute(text("SELECT 1"))
+        # Именно на запись, а не `SELECT 1`: в WAL чтение переживает
+        # заблокированную запись, и готовность становится ложно-зелёной.
+        await check_writable()
         dependencies["database"] = "ok"
     except Exception as exc:  # noqa: BLE001 — в ответ уходит текст причины
         dependencies["database"] = f"fail: {exc}"
