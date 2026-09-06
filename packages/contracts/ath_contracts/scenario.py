@@ -82,6 +82,18 @@ class Scenario(BaseModel):
     rubric: list[RubricItem] = Field(min_length=1)
     tags: list[str] = Field(default_factory=list, description="Для поиска и фильтрации у методиста")
 
+    brief: str = Field(
+        default="",
+        description="Что тренируем, своими словами. Вход генерации черновика: из него "
+        "собираются персонаж, этапы и рубрика",
+    )
+    """Заметка методиста, а не текст для чтения вслух.
+
+    Поэтому `brief` не участвует в `render_scenario` и не показывается сотруднику: тот же
+    принцип, что у `completion_criteria`, — не всё, что лежит в сценарии, предназначено
+    тому, кто его проходит.
+    """
+
     briefing: str = Field(
         default="",
         description="Что сотрудник читает перед разговором: обстановка, кто перед ним "

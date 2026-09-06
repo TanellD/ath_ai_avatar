@@ -32,7 +32,12 @@ from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.scenario.drafts import build_details, build_rubric_draft, build_scenario_draft
+from app.scenario.drafts import (
+    InvalidDraftError,
+    build_details,
+    build_rubric_draft,
+    build_scenario_draft,
+)
 from app.scenario.prompts import (
     build_details_message,
     build_details_schema,
@@ -48,8 +53,9 @@ from app.scenario.prompts import (
 router = APIRouter(prefix="/scenario", tags=["scenario"])
 log = get_logger(__name__)
 
-_DRAFT_MAX_TOKENS = 4000
-"""Сценарий на 4 этапа и 4 критерия — того же порядка текст, что и отчёт."""
+_DRAFT_MAX_TOKENS = 6000
+"""Сценарий до 6 этапов и 6 критериев (авто-режим, Claude.md §5) плюс бриф со слотами —
+на 4/4 бы влезло в 4000, на верхней границе авто-диапазона уже нет."""
 
 _RUBRIC_MAX_TOKENS = 2000
 
@@ -68,7 +74,7 @@ async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> Sce
             {
                 "role": "user",
                 "content": build_draft_message(
-                    payload.brief, payload.stages_count, payload.rubric_count
+                    payload.brief, payload.stages_count, payload.rubric_count, payload.current
                 ),
             }
         ],
@@ -161,7 +167,7 @@ def _build[T: (ScenarioDraftResponse, RubricDraft)](
     """
     try:
         return builder(raw)
-    except ValidationError as exc:
+    except (ValidationError, InvalidDraftError) as exc:
         log.error("scenario.draft.invalid", kind=kind, error=str(exc))
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,

@@ -320,16 +320,12 @@ class ReadyResponse(BaseModel):
 # нет — его задаёт человек, и он же адрес страницы.
 
 
-class ScenarioDraftRequest(BaseModel):
-    """POST /scenario/draft — «развернуть черновик» из пары строк."""
-
-    brief: str = Field(min_length=1, description="Что тренируем, своими словами")
-    stages_count: int = Field(default=4, ge=1, le=8)
-    rubric_count: int = Field(default=4, ge=1, le=8)
-
-
 class ScenarioDraftResponse(BaseModel):
-    """Всё, кроме `id`: остальные поля формы редактора."""
+    """Всё, кроме `id`: остальные поля формы редактора.
+
+    `brief` сюда тоже не входит — его написал методист, и переписывать его моделью
+    незачем.
+    """
 
     title: str
     persona: Persona
@@ -338,6 +334,39 @@ class ScenarioDraftResponse(BaseModel):
     tags: list[str] = Field(default_factory=list)
     briefing: str = ""
     slots: list[ScenarioSlot] = Field(default_factory=list)
+
+
+class ScenarioDraftRequest(BaseModel):
+    """POST /scenario/draft — «развернуть черновик» из пары строк."""
+
+    brief: str = Field(min_length=1, description="Что тренируем, своими словами")
+
+    stages_count: int | None = Field(
+        default=None,
+        ge=1,
+        le=8,
+        description="Сколько этапов нужно. None — модель решает сама по описанию",
+    )
+    """`None` — не «сколько-нибудь», а осознанное «реши сам».
+
+    Число этапов — часть методики: разговор либо проходит четыре шага, либо два.
+    Методист может его зафиксировать, но по умолчанию решение принимается из описания,
+    а не из того, сколько пустых строк оказалось в форме.
+    """
+
+    rubric_count: int | None = Field(default=None, ge=1, le=8)
+
+    current: ScenarioDraftResponse | None = Field(
+        default=None,
+        description="Что методист уже заполнил в форме. Черновик обязан это учесть, "
+        "а не спорить с ним",
+    )
+    """Опора на правку — то, что делает кнопку пригодной не только для пустого бланка.
+
+    Методист правит персонажа руками и просит пересобрать остальное; без этого поля
+    модель каждый раз начинала бы с нуля и стирала его формулировки по смыслу, даже
+    если в форме они формально сохранились.
+    """
 
 
 class RubricDraftRequest(BaseModel):

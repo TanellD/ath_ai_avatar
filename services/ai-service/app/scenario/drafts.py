@@ -26,6 +26,31 @@ from collections.abc import Callable
 from ath_contracts import Persona, RubricItem, ScenarioSlot, Stage
 from ath_contracts.api import RubricDraft, ScenarioDraftResponse
 
+
+class InvalidDraftError(ValueError):
+    """Черновик не прошёл проверку формы и не должен уходить в форму редактора.
+
+    Тот же принцип, что `InvalidReportError` в `evaluation/report_builder.py`:
+    `complete_json()` типизирован как `dict`, но это контракт, а не гарантия — модель
+    может ответить JSON-массивом или скаляром. `_build` (`api/scenario.py`) ловит этот
+    тип наравне с `ValidationError` и отдаёт 502 «попробуйте ещё раз», а не 500 на
+    `AttributeError` от `raw.get(...)` на не-словаре.
+    """
+
+
+def _require_dict(raw: object, what: str) -> dict:
+    if not isinstance(raw, dict):
+        raise InvalidDraftError(f"{what}: ответ модели не JSON-объект ({type(raw).__name__})")
+    return raw
+
+
+def _require_list(raw: dict, key: str) -> list:
+    value = raw.get(key, [])
+    if not isinstance(value, list):
+        raise InvalidDraftError(f"{key!r}: ожидался список, пришло {type(value).__name__}")
+    return value
+
+
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
@@ -76,7 +101,8 @@ def _rubric_items(raw_items: list[dict]) -> list[RubricItem]:
 
 
 def build_rubric_draft(raw: dict) -> RubricDraft:
-    return RubricDraft(items=_rubric_items(raw.get("items", [])))
+    raw = _require_dict(raw, "rubric")
+    return RubricDraft(items=_rubric_items(_require_list(raw, "items")))
 
 
 def build_details(raw: dict, slots: list[ScenarioSlot]) -> dict[str, str]:
@@ -87,6 +113,7 @@ def build_details(raw: dict, slots: list[ScenarioSlot]) -> dict[str, str]:
     персонажу — в промпте. Своих ключей, которых методист не объявлял, здесь
     быть не может: подставлять их всё равно некуда.
     """
+    raw = _require_dict(raw, "details")
     values = raw.get("values") or {}
     return {
         slot.id: str(values.get(slot.id) or slot.example).strip() or slot.example
@@ -141,11 +168,12 @@ def build_scenario_draft(raw: dict) -> ScenarioDraftResponse:
     этапов, в брифе их нет вовсе. Правь мы один бриф, переименованный слот
     разъехался бы ровно с тем текстом, который персонаж произносит вслух.
     """
-    raw_slots = raw.get("slots", [])
+    raw = _require_dict(raw, "draft")
+    raw_slots = _require_list(raw, "slots")
     slot_ids = _unique_ids(raw_slots, "slot")
     repair = _repairer(_slot_renames(raw_slots, slot_ids))
 
-    raw_stages = raw.get("stages", [])
+    raw_stages = _require_list(raw, "stages")
     stage_ids = _unique_ids(raw_stages, "stage")
 
     draft = ScenarioDraftResponse(
@@ -158,7 +186,7 @@ def build_scenario_draft(raw: dict) -> ScenarioDraftResponse:
             for stage, stage_id in zip(raw_stages, stage_ids, strict=True)
         ],
         rubric=_rubric_items(
-            [_fix(item, _TEXT_FIELDS["rubric"], repair) for item in raw.get("rubric", [])]
+            [_fix(item, _TEXT_FIELDS["rubric"], repair) for item in _require_list(raw, "rubric")]
         ),
         tags=raw.get("tags", []),
         briefing=repair(raw.get("briefing", "")),

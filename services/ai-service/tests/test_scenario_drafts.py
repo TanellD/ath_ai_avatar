@@ -5,12 +5,14 @@
 «идентификаторы не повторяются» меняться не должны.
 """
 
-from ath_contracts import Mood, Persona, Stage
+import pytest
+from ath_contracts import Mood, Persona, RubricItem, Stage
 from ath_contracts.api import ScenarioDraftResponse
 
 from app.llm.mock import MockLlmProvider
-from app.scenario.drafts import build_rubric_draft, build_scenario_draft
+from app.scenario.drafts import InvalidDraftError, build_rubric_draft, build_scenario_draft
 from app.scenario.prompts import (
+    build_draft_message,
     build_draft_schema,
     build_draft_system,
     build_rubric_message,
@@ -91,6 +93,68 @@ def test_schema_pins_mood_to_the_contract_enum() -> None:
     assert set(mood["enum"]) == {m.value for m in Mood}
 
 
+def test_unset_counts_give_the_model_a_range_instead_of_one() -> None:
+    """`stages_count=None` значит «методист не задавал число» — на пустом
+    бланке форма даёт 1 (длина emptyStage()), и без диапазона черновик
+    приходил бы ровно с одним этапом и одним критерием."""
+    schema = build_draft_schema(stages_count=None, rubric_count=None)
+
+    assert schema["properties"]["stages"]["minItems"] > 1
+    assert schema["properties"]["stages"]["maxItems"] > schema["properties"]["stages"]["minItems"]
+    assert schema["properties"]["rubric"]["minItems"] > 1
+
+
+def test_one_count_set_and_the_other_auto_are_independent() -> None:
+    """Методист может зафиксировать только этапы или только критерии."""
+    schema = build_draft_schema(stages_count=5, rubric_count=None)
+
+    assert schema["properties"]["stages"]["minItems"] == 5
+    assert schema["properties"]["stages"]["maxItems"] == 5
+    assert schema["properties"]["rubric"]["minItems"] != schema["properties"]["rubric"]["maxItems"]
+
+
+# ------------------------------------------------------- опора на форму
+
+
+def test_auto_count_message_names_a_range_not_a_round_number() -> None:
+    message = build_draft_message("Тест", stages_count=None, rubric_count=None)
+
+    assert "Сделай" in message
+    assert "3" in message and "6" in message
+
+
+def test_current_form_state_is_not_sent_when_form_is_blank() -> None:
+    """Пустая заготовка формы (пустые emptyStage()/emptyRubricItem()) не
+    должна попасть в промпт как будто это требование методиста."""
+    blank = ScenarioDraftResponse(
+        title="",
+        persona=Persona(name="", role="", character=""),
+        stages=[Stage(id="stage_1", goal="", agent_opening="", completion_criteria="")],
+        rubric=[RubricItem(id="criterion_1", name="", description="")],
+    )
+
+    message = build_draft_message("Тест", None, None, current=blank)
+
+    assert "уже заполнил" not in message.lower()
+
+
+def test_current_form_state_is_carried_into_the_message() -> None:
+    """Методист поправил персонажа руками и просит пересобрать остальное —
+    модель обязана увидеть эту правку, а не начать с нуля."""
+    current = ScenarioDraftResponse(
+        title="Возражение по цене",
+        persona=PERSONA,
+        stages=[Stage(id="stage_1", goal="", agent_opening="", completion_criteria="")],
+        rubric=[RubricItem(id="criterion_1", name="", description="")],
+    )
+
+    message = build_draft_message("Тест", None, None, current=current)
+
+    assert "уже заполнил" in message.lower()
+    assert "Ирина" in message
+    assert "не противоречь" in message.lower()
+
+
 # ------------------------------------------------- сборка из сырого ответа
 
 
@@ -159,6 +223,38 @@ def test_stage_ids_are_deduplicated_too() -> None:
     assert [s.id for s in draft.stages] == ["opening", "opening_2"]
 
 
+# ---------------------------------------------------- устойчивый разбор
+#
+# Тот же принцип, что в evaluation/report_builder.py (PR #32): complete_json()
+# типизирован как dict, но это контракт, а не гарантия. Не-объект от модели
+# обязан дать один тип ошибки, который вызывающий (_build в api/scenario.py)
+# уже умеет превращать в 502, а не в AttributeError → 500.
+
+
+def test_scenario_draft_rejects_a_non_object_response() -> None:
+    with pytest.raises(InvalidDraftError):
+        build_scenario_draft(["not", "an", "object"])
+
+
+def test_rubric_draft_rejects_a_non_object_response() -> None:
+    with pytest.raises(InvalidDraftError):
+        build_rubric_draft("not an object")
+
+
+def test_scenario_draft_rejects_stages_that_are_not_a_list() -> None:
+    """Схема это гарантирует, но schema — не гарантия (см. докстринг файла)."""
+    with pytest.raises(InvalidDraftError):
+        build_scenario_draft(
+            {
+                "title": "Т",
+                "persona": PERSONA.model_dump(mode="json"),
+                "stages": "не список",
+                "rubric": [{"id": "a", "name": "Н", "description": "О"}],
+                "tags": [],
+            }
+        )
+
+
 # ------------------------------------------------------- сквозь заглушку
 
 
@@ -184,3 +280,17 @@ async def test_mock_provider_produces_a_valid_rubric_draft() -> None:
     )
 
     assert len(build_rubric_draft(raw).items) == 4
+
+
+async def test_mock_provider_handles_auto_counts_too() -> None:
+    """Кнопка на пустом бланке шлёт `stages_count=None` — заглушка обязана
+    пройти и этот путь, не только явное число."""
+    raw = await MockLlmProvider().complete_json(
+        system="", messages=[], model="mock", max_tokens=100, temperature=0.0,
+        schema=build_draft_schema(stages_count=None, rubric_count=None),
+    )
+
+    draft = build_scenario_draft(raw)
+
+    assert len(draft.stages) > 1
+    assert len(draft.rubric) > 1

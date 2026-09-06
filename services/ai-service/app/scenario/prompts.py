@@ -12,7 +12,8 @@
 может нарушить, не нарушив схему.
 """
 
-from ath_contracts import Persona, ScenarioSlot, Stage
+from ath_contracts import Persona, RubricItem, ScenarioSlot, Stage
+from ath_contracts.api import ScenarioDraftResponse
 
 _PERSONA_BLOCK = """\
 Персонаж: {name} ({role}). Манера: {character}. Сложность {difficulty} из 5.
@@ -131,11 +132,112 @@ def build_draft_system() -> str:
     )
 
 
-def build_draft_message(brief: str, stages_count: int, rubric_count: int) -> str:
+def _filled(text: str) -> bool:
+    return bool(text.strip())
+
+
+def _current_persona_lines(persona: Persona) -> list[str]:
+    parts = []
+    if _filled(persona.name):
+        parts.append(f"имя {persona.name}")
+    if _filled(persona.role):
+        parts.append(f"роль {persona.role}")
+    if _filled(persona.character):
+        parts.append(f"манера {persona.character}")
+    return [f"Персонаж: {', '.join(parts)}."] if parts else []
+
+
+def _current_stage_lines(stages: list[Stage]) -> list[str]:
+    lines = []
+    for index, stage in enumerate(stages, start=1):
+        pieces = []
+        if _filled(stage.goal):
+            pieces.append(f"цель «{stage.goal}»")
+        if _filled(stage.agent_opening):
+            pieces.append(f"открывает так: «{stage.agent_opening}»")
+        if _filled(stage.completion_criteria):
+            pieces.append(f"зачтено, когда: {stage.completion_criteria}")
+        if pieces:
+            lines.append(f"{index}. {'; '.join(pieces)}")
+    return lines
+
+
+def _current_rubric_lines(rubric: list[RubricItem]) -> list[str]:
+    lines = []
+    for index, item in enumerate(rubric, start=1):
+        pieces = []
+        if _filled(item.name):
+            pieces.append(f"«{item.name}»")
+        if _filled(item.description):
+            pieces.append(item.description)
+        if pieces:
+            lines.append(f"{index}. {' — '.join(pieces)}")
+    return lines
+
+
+def _current_block(current: ScenarioDraftResponse | None) -> str:
+    """Что методист уже заполнил — только непустое, ничего не выдумываем за него.
+
+    Пустая заготовка (пустой `emptyStage()`/`emptyRubricItem()` из формы) в блок не
+    попадает: иначе на пустом бланке модель получила бы «этап 1: (ничего)» и решила
+    бы, что это и есть требование.
+    """
+    if current is None:
+        return ""
+
+    sections: list[str] = []
+    if _filled(current.title):
+        sections.append(f"Название: «{current.title}».")
+    sections.extend(_current_persona_lines(current.persona))
+
+    stage_lines = _current_stage_lines(current.stages)
+    if stage_lines:
+        sections.append("Этапы:\n" + "\n".join(stage_lines))
+
+    rubric_lines = _current_rubric_lines(current.rubric)
+    if rubric_lines:
+        sections.append("Критерии:\n" + "\n".join(rubric_lines))
+
+    if _filled(current.briefing):
+        sections.append(f"Бриф: {current.briefing}")
+
+    if not sections:
+        return ""
+
     return (
-        f"Описание тренировки от методиста:\n{brief}\n\n"
-        f"Сделай {stages_count} этап(ов) и {rubric_count} критери(ев) оценки."
+        "Методист уже заполнил в форме:\n"
+        + "\n".join(sections)
+        + "\n\nСохрани это по смыслу и не противоречь этому — дострой остальное "
+        "вокруг того, что уже есть, а не начинай с нуля."
     )
+
+
+def _count_instruction(stages_count: int | None, rubric_count: int | None) -> str:
+    auto = (
+        f"от {_AUTO_MIN} до {_AUTO_MAX} — сколько реально нужно этому разговору, "
+        "а не круглое число"
+    )
+    stages_part = f"{stages_count} этап(ов)" if stages_count is not None else auto + " этапов"
+    rubric_part = (
+        f"{rubric_count} критери(ев) оценки" if rubric_count is not None else auto + " критериев"
+    )
+    return f"Сделай {stages_part} и {rubric_part}."
+
+
+def build_draft_message(
+    brief: str,
+    stages_count: int | None,
+    rubric_count: int | None,
+    current: ScenarioDraftResponse | None = None,
+) -> str:
+    parts = [
+        f"Описание тренировки от методиста:\n{brief}",
+        _count_instruction(stages_count, rubric_count),
+    ]
+    current_text = _current_block(current)
+    if current_text:
+        parts.append(current_text)
+    return "\n\n".join(parts)
 
 
 def build_rubric_system() -> str:
@@ -151,12 +253,24 @@ def build_rubric_message(title: str, persona: Persona, stages: list[Stage], coun
     )
 
 
-def _rubric_items_schema(count: int) -> dict:
-    """`minItems == maxItems == count` — методист просил конкретное число."""
+_AUTO_MIN = 3
+_AUTO_MAX = 6
+"""Границы, когда методист не задал число сам — Claude.md §5: разговор проходит
+столько шагов, сколько реально нужно, а не круглое число."""
+
+
+def _bounds(count: int | None) -> tuple[int, int]:
+    """`count is None` значит «реши сам» — модель получает диапазон, а не жёсткое число."""
+    return (count, count) if count is not None else (_AUTO_MIN, _AUTO_MAX)
+
+
+def _rubric_items_schema(count: int | None) -> dict:
+    """`minItems == maxItems == count`, когда методист просил конкретное число."""
+    min_items, max_items = _bounds(count)
     return {
         "type": "array",
-        "minItems": count,
-        "maxItems": count,
+        "minItems": min_items,
+        "maxItems": max_items,
         "items": {
             "type": "object",
             "properties": {
@@ -172,11 +286,12 @@ def _rubric_items_schema(count: int) -> dict:
     }
 
 
-def _stages_schema(count: int) -> dict:
+def _stages_schema(count: int | None) -> dict:
+    min_items, max_items = _bounds(count)
     return {
         "type": "array",
-        "minItems": count,
-        "maxItems": count,
+        "minItems": min_items,
+        "maxItems": max_items,
         "items": {
             "type": "object",
             "properties": {
@@ -265,7 +380,7 @@ def build_details_schema(slots: list[ScenarioSlot]) -> dict:
     }
 
 
-def build_draft_schema(stages_count: int, rubric_count: int) -> dict:
+def build_draft_schema(stages_count: int | None, rubric_count: int | None) -> dict:
     return {
         "type": "object",
         "properties": {
