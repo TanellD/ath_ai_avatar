@@ -398,6 +398,7 @@ interface NonHumanoidRuntime {
   poseTarget: { props: Record<string, TimedPoseTransform> };
   poseDelta: { props: Record<string, { x: number; y: number; z: number }> };
   updatePoseDelta: () => void;
+  setPoseFromTemplate: (template: unknown, ms?: number) => void;
 }
 
 interface EmbeddedIdleController {
@@ -434,6 +435,21 @@ function stabilizeNonHumanoidPose(head: unknown): void {
 
   const proceduralPose = runtime.animQueue.find((item) => item.template?.name === 'pose');
   if (proceduralPose) proceduralPose.ts[0] = Infinity;
+
+  // Обезвредить очередь мало: TalkingHead ставит новые анимации позы по ходу
+  // работы. В цикле анимации есть ветка case 'pose', которая выбирает
+  // очередной шаблон и применяет его через setPoseFromTemplate; строка выше
+  // гасит только тот элемент очереди, что существовал на момент загрузки.
+  //
+  // Симптом на не-человекоподобной модели: спустя время персонаж «подрастает»
+  // и дёргается вбок. Шаблоны задают абсолютные величины —
+  // 'Hips.position' y = 1 при собственном тазе Vincent на 0.8806 даёт +12 см
+  // роста, а 'Hips.rotation' и повороты бёдер до 3 рад уводят фигуру вбок.
+  // Ярче всего проявляется после сворачивания вкладки: пока она скрыта,
+  // requestAnimationFrame не идёт, и на возврате накопившееся срабатывает разом.
+  //
+  // Поэтому глушим сам метод: модель остаётся в собственной rest-позе.
+  runtime.setPoseFromTemplate = () => {};
 
   const updatePoseDelta = runtime.updatePoseDelta.bind(runtime);
   runtime.updatePoseDelta = () => {
