@@ -27,6 +27,7 @@ from ath_contracts import (
     CancelEvent,
     Classification,
     Emotion,
+    ErrorEvent,
     OpeningKind,
     ReportEvent,
     ServerEvent,
@@ -262,7 +263,23 @@ class TurnPipeline:
             log.info("pipeline.turn_cancelled", gen_id=gen_id)
             raise
         except Exception:
+            # Тот же класс дефекта, что чинили в _run_silence_followup: сбой
+            # (обрыв TTS-стрима, недоступный LLM) раньше просто логировался —
+            # клиент не получал ни token, ни action, ни audio_chunk и
+            # оставался в 'thinking'/'speaking' навсегда, а таймер молчания,
+            # ни разу не получив resume() после beginUserTurn(), замолкал до
+            # конца сессии. `raise` ниже не убрать: `_start_pipeline` не ждёт
+            # эту задачу, и без него след ошибки виден только в логах.
             log.exception("pipeline.turn_failed", gen_id=gen_id)
+            await self._send(
+                gen_id,
+                ErrorEvent(
+                    gen_id=gen_id,
+                    code="turn_failed",
+                    message="Персонаж не смог ответить — повторите вопрос.",
+                    spoken=False,
+                ),
+            )
             raise
 
     async def _run_opening(self, gen_id: int, opening_kind: OpeningKind) -> None:
@@ -309,7 +326,24 @@ class TurnPipeline:
             log.info("pipeline.silence_followup_cancelled", gen_id=gen_id)
             raise
         except Exception:
+            # Раньше сбой (чаще всего обрыв TTS-стрима до первого чанка, см.
+            # ConnectionClosedError из speech_client.stream_tts_reply) просто
+            # логировался — клиент не получал ни токена, ни аудио, ни ошибки
+            # и оставался в 'thinking'/'speaking' навсегда: у этой реплики нет
+            # ни ActionEvent (в отличие от обычного хода), ни единого чанка,
+            # который довёл бы AudioQueue до onIdle. Хуже того — таймер
+            # молчания, ни разу не получив resume(), молчал до конца сессии.
+            # Явная ошибка — единственный способ клиенту об этом узнать.
             log.exception("pipeline.silence_followup_failed", gen_id=gen_id)
+            await self._send(
+                gen_id,
+                ErrorEvent(
+                    gen_id=gen_id,
+                    code="silence_followup_failed",
+                    message="Персонаж не смог договорить — попробуйте написать сами.",
+                    spoken=False,
+                ),
+            )
 
     async def _finish(self) -> None:
         """Завершить сессию. Общее тело для обоих триггеров, идемпотентное.
@@ -599,7 +633,21 @@ class TurnPipeline:
         except asyncio.CancelledError:
             raise
         except Exception:
+            # Последний рубеж: если даже запасной путь без LLM не смог
+            # озвучиться (тот же TTS может упасть на той же транзиентной
+            # ошибке), персонаж не произносит ни слова с самого начала
+            # тренировки — а до этой правки клиент об этом не узнавал вовсе
+            # и молча висел на "Персонаж думает" с первой секунды.
             log.exception("pipeline.opening_fallback_failed", gen_id=gen_id)
+            await self._send(
+                gen_id,
+                ErrorEvent(
+                    gen_id=gen_id,
+                    code="opening_failed",
+                    message="Не удалось начать тренировку — попробуйте обновить страницу.",
+                    spoken=False,
+                ),
+            )
             return
 
         await self._record_agent_turn(gen_id, text)
