@@ -64,8 +64,83 @@ class MockLlmProvider(LlmProvider):
             log.debug("llm.mock.complete_json", kind="report")
             return _mock_report(properties, messages)
 
+        if "stages" in properties:
+            log.debug("llm.mock.complete_json", kind="scenario_draft")
+            return _mock_scenario_draft(properties)
+
+        if "items" in properties:
+            log.debug("llm.mock.complete_json", kind="rubric_draft")
+            return {"items": _mock_rubric(properties["items"])}
+
+        if "values" in properties:
+            log.debug("llm.mock.complete_json", kind="scenario_details")
+            return _mock_details(properties["values"])
+
         log.debug("llm.mock.complete_json", kind="classification")
         return json.loads('{"classification": "incomplete", "reason": "mock provider"}')
+
+
+def _count(array_schema: dict[str, Any]) -> int:
+    """Сколько элементов просили: `build_*_schema` кладёт это в minItems."""
+    return int(array_schema.get("minItems", 1))
+
+
+def _mock_rubric(schema: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": f"criterion_{index}",
+            "name": f"Критерий {index} (заглушка)",
+            "description": "Провайдер LLM не настроен — критерий не сформулирован.",
+            "scale": 5,
+            "weight": 1.0,
+        }
+        for index in range(1, _count(schema) + 1)
+    ]
+
+
+def _mock_details(values_schema: dict[str, Any]) -> dict[str, Any]:
+    """Ключи берутся из схемы: build_details_schema кладёт туда объявленные
+    методистом слоты, и подстановка не должна остаться с дыркой."""
+    return {"values": dict.fromkeys(values_schema.get("properties", {}), "заглушка")}
+
+
+def _mock_scenario_draft(properties: dict[str, Any]) -> dict[str, Any]:
+    """Черновик-заглушка правильной формы.
+
+    Содержание бессмысленное намеренно: на mock'е проверяется, что черновик
+    доезжает до формы редактора и проходит контракт, а не качество методики.
+    """
+    return {
+        "title": "Черновик заглушки",
+        "persona": {
+            "name": "Заглушка",
+            "role": "провайдер LLM не настроен",
+            "character": "отвечает одинаково",
+            "mood": "neutral",
+            "difficulty": 1,
+        },
+        "stages": [
+            {
+                "id": f"stage_{index}",
+                "goal": f"Этап {index} (заглушка)",
+                "agent_opening": "Провайдер LLM не настроен.",
+                "completion_criteria": "Заглушка: критерий не сформулирован.",
+                "max_turns": 4,
+            }
+            for index in range(1, _count(properties["stages"]) + 1)
+        ],
+        "rubric": _mock_rubric(properties["rubric"]),
+        "tags": ["заглушка"],
+        "briefing": "Провайдер LLM не настроен. Компания: {company}.",
+        "slots": [
+            {
+                "id": "company",
+                "label": "Компания",
+                "hint": "название компании",
+                "example": "Заглушка",
+            }
+        ],
+    }
 
 
 def _mock_report(properties: dict[str, Any], messages: list[dict[str, str]]) -> dict[str, Any]:

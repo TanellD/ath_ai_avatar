@@ -20,6 +20,7 @@ from ath_contracts import (
     Scenario,
     Stage,
     Turn,
+    slot_defaults,
 )
 from ath_contracts.api import (
     CharacterReplyMeta,
@@ -28,8 +29,11 @@ from ath_contracts.api import (
     ClassifyResponse,
     EvaluateRequest,
     EvaluateResponse,
+    ScenarioDetailsRequest,
+    ScenarioDetailsResponse,
 )
 from httpx_sse import aconnect_sse
+from pydantic import ValidationError
 
 from app.core.logging import get_logger
 
@@ -104,6 +108,45 @@ class AiClient:
         response = await self._client.post("/classify", json=payload.model_dump(mode="json"))
         response.raise_for_status()
         return ClassifyResponse.model_validate(response.json()).classification
+
+    async def fill_scenario_details(self, scenario: Scenario) -> dict[str, str]:
+        """Детали слотов под этот прогон (§7): имена, компании, продукты, цифры.
+
+        Никогда не бросает. Значения `example` из самого сценария — полноценный
+        запасной путь: бриф останется читаемым, персонаж — согласованным с ним,
+        и потеряется ровно одно — разнообразие между прогонами. Уронить из-за
+        этого старт тренировки было бы несоразмерно.
+
+        Тайм-аут короткий по той же причине: вызов стоит в задержке старта, и
+        лучше отдать сотруднику сценарий с примерами, чем держать его перед
+        пустым экраном.
+        """
+        if not scenario.slots:
+            return {}
+
+        payload = ScenarioDetailsRequest(
+            title=scenario.title,
+            persona_role=scenario.persona.role,
+            briefing=scenario.briefing,
+            slots=scenario.slots,
+        )
+        try:
+            response = await self._client.post(
+                "/scenario/details", json=payload.model_dump(mode="json"), timeout=15.0
+            )
+            response.raise_for_status()
+            return ScenarioDetailsResponse.model_validate(response.json()).values
+        except (httpx.HTTPError, ValidationError) as exc:
+            # Тип обязателен: у httpx.ReadTimeout — самого частого здесь исхода —
+            # str(exc) пустой, и в логе оставалось бы `error=` без единого слова
+            # о том, что вообще произошло.
+            log.warning(
+                "ai.scenario_details_failed",
+                scenario_id=scenario.id,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            return slot_defaults(scenario)
 
     async def evaluate(
         self,

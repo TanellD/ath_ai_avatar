@@ -16,6 +16,12 @@
  * действием была стрелка «Пройти», и узнать заранее, что за тренировка,
  * было нельзя (docs/bugs_front.md №8). Поиск и теги (№10) — клиентские:
  * сценариев в проекте единицы, серверная фильтрация не нужна.
+ *
+ * Кнопки правки живут внутри карточки, поэтому сама карточка перестала быть
+ * ссылкой: <button> внутри <a> — невалидная разметка, и клик по кнопке всё
+ * равно уводил бы на страницу кейса. Вместо этого ссылка растянута на карточку
+ * псевдоэлементом (`.product__link::after`), а кнопки подняты над ней
+ * z-index'ом. Внешне ничего не изменилось, кликается по-прежнему всё.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -68,6 +74,11 @@ export function MethodistScenarios() {
         <span className="eyebrow">Библиотека</span>
         <h1>Сценарии</h1>
         <p className="lead">Выберите тренировку и пройдите её в диалоге с персонажем.</p>
+        <div className="scenario-preview__actions">
+          <Link to="/scenarios/new" className="btn btn-primary">
+            Создать сценарий
+          </Link>
+        </div>
       </section>
 
       <section className="scenario-filters">
@@ -101,23 +112,27 @@ export function MethodistScenarios() {
 
       <section className="scenario-grid">
         {filtered.map((item) => (
-          <Link
-            key={item.id}
-            className="product"
-            to={`/scenarios/${item.id}`}
-            aria-label={`Подробнее о «${item.title}»`}
-          >
+          <article key={item.id} className="product">
             <div className="product-ic">
               <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m12 3.6 8.4 4.4-8.4 4.4-8.4-4.4Z" />
                 <path d="m3.6 12.4 8.4 4.4 8.4-4.4" />
               </svg>
             </div>
-            <h3>{item.title}</h3>
+            <h3>
+              <Link
+                className="product__link"
+                to={`/scenarios/${item.id}`}
+                aria-label={`Подробнее о «${item.title}»`}
+              >
+                {item.title}
+              </Link>
+            </h3>
             <p>
               Персонаж: {item.persona_name} · этапов: {item.stages_count} · критериев в
               рубрике: {item.rubric_count}
             </p>
+            {item.is_template && <span className="tag-chip">шаблон</span>}
             {item.tags.length > 0 && (
               <div className="product-tags">
                 {item.tags.map((tag) => (
@@ -128,7 +143,18 @@ export function MethodistScenarios() {
               </div>
             )}
             <div className="product-foot">
-              <span>{item.stages_count} этапа(ов)</span>
+              {/* Шаблон правится только копией: иначе первый же прогон испортит
+                  эталон для всей команды. */}
+              <div className="product__actions">
+                {!item.is_template && (
+                  <Link className="product__action" to={`/scenarios/${item.id}/edit`}>
+                    Править
+                  </Link>
+                )}
+                <Link className="product__action" to={`/scenarios/new?from=${item.id}`}>
+                  Копировать
+                </Link>
+              </div>
               <span className="arrow-btn" aria-hidden="true">
                 <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M4.5 12h14" />
@@ -136,12 +162,9 @@ export function MethodistScenarios() {
                 </svg>
               </span>
             </div>
-          </Link>
+          </article>
         ))}
       </section>
-
-      {/* TODO: редактор сценария (§7) — правка полей персонажа, этапов и рубрики,
-          плюс копирование шаблона перед правкой. */}
     </main>
   );
 }

@@ -4,8 +4,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import character, classify, evaluation, health
+from app.api import character, classify, evaluation, health, scenario
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.llm.factory import create_llm_provider
@@ -41,10 +42,22 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Кнопки «развернуть черновик» и «заполнить критерии» в редакторе сценария
+    # жмутся из браузера, и обращается он сюда напрямую, минуя gateway: как и у
+    # scenario-service, оркестратору нечего добавить к разовому вызову модели.
+    # Ключей это не открывает — они остаются в сервисе.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(health.router)
     app.include_router(character.router)
     app.include_router(classify.router)
     app.include_router(evaluation.router)
+    app.include_router(scenario.router)
 
     return app
 

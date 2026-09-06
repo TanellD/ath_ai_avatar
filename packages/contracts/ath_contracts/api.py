@@ -19,7 +19,7 @@ from ath_contracts.enums import (
     SessionStatus,
 )
 from ath_contracts.report import Report
-from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
+from ath_contracts.scenario import Persona, RubricItem, Scenario, ScenarioSlot, Stage
 from ath_contracts.session import Turn
 
 # --------------------------------------------------------------- ai-service
@@ -234,6 +234,10 @@ class ScenarioSummary(BaseModel):
     stages_count: int
     rubric_count: int
     tags: list[str] = Field(default_factory=list)
+    is_template: bool = Field(
+        default=False,
+        description="Встроенный шаблон: редактор предлагает копировать его, а не править",
+    )
 
 
 class ScenarioListResponse(BaseModel):
@@ -251,6 +255,11 @@ class CreateSessionResponse(BaseModel):
     session_id: str
     scenario_id: str
     ws_url: str
+    scenario: Scenario = Field(
+        description="Сценарий ЭТОГО прогона: детали слотов уже подставлены. "
+        "Клиент берёт его отсюда, а не из scenario-service, иначе шапка и "
+        "бриф покажут неподставленный текст"
+    )
 
 
 class SessionSummaryItem(BaseModel):
@@ -285,7 +294,63 @@ class ReadyResponse(BaseModel):
     )
 
 
+# ------------------------------------- генерация черновиков методисту (§7)
+#
+# Сценарий создаётся «из шаблона, из сгенерированного черновика или с нуля».
+# Первый и третий пути закрывает CRUD scenario-service, второй — эти ручки.
+#
+# Ответ здесь всегда ЧЕРНОВИК, а не готовый к сохранению сценарий: он едет в
+# форму редактора, методист смотрит и правит. Поэтому `id` сценария в ответе
+# нет — его задаёт человек, и он же адрес страницы.
+
+
+class ScenarioDraftRequest(BaseModel):
+    """POST /scenario/draft — «развернуть черновик» из пары строк."""
+
+    brief: str = Field(min_length=1, description="Что тренируем, своими словами")
+    stages_count: int = Field(default=4, ge=1, le=8)
+    rubric_count: int = Field(default=4, ge=1, le=8)
+
+
+class ScenarioDraftResponse(BaseModel):
+    """Всё, кроме `id`: остальные поля формы редактора."""
+
+    title: str
+    persona: Persona
+    stages: list[Stage] = Field(min_length=1)
+    rubric: list[RubricItem] = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
+    briefing: str = ""
+    slots: list[ScenarioSlot] = Field(default_factory=list)
+
+
+class RubricDraftRequest(BaseModel):
+    """POST /scenario/rubric — «заполнить критерии» по описанному сценарию."""
+
+    title: str
+    persona: Persona
+    stages: list[Stage] = Field(min_length=1)
+    count: int = Field(default=4, ge=1, le=8)
+
+
 class RubricDraft(BaseModel):
     """Черновик рубрики — заготовка под генерацию сценария методисту (§7)."""
 
     items: list[RubricItem]
+
+
+class ScenarioDetailsRequest(BaseModel):
+    """POST /scenario/details — детали под один прогон сценария.
+
+    В отличие от двух ручек выше, эта зовётся не методистом, а gateway при
+    создании сессии, и ответ уходит не в форму, а в подстановку по сценарию.
+    """
+
+    title: str
+    persona_role: str = Field(description="Кем работает персонаж — задаёт правдоподобие деталей")
+    briefing: str = Field(description="Скелет с подстановками: показывает, куда попадут значения")
+    slots: list[ScenarioSlot] = Field(min_length=1)
+
+
+class ScenarioDetailsResponse(BaseModel):
+    values: dict[str, str] = Field(description="id слота → подобранное значение")

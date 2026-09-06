@@ -9,7 +9,7 @@ in-memory реализацию, не поднимая базу.
 from datetime import UTC, datetime
 from typing import Protocol
 
-from ath_contracts import Report, SessionState, SessionStatus, Turn
+from ath_contracts import Report, Scenario, SessionState, SessionStatus, Turn
 from ath_contracts.api import SessionSummaryItem
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -19,8 +19,11 @@ from app.db.models import ReportRow, SessionRow, TurnRow, VoiceTurnCommitRow
 
 
 class SessionRepository(Protocol):
-    async def create(self, state: SessionState, user_id: str) -> None: ...
+    async def create(
+        self, state: SessionState, user_id: str, scenario: Scenario | None = None
+    ) -> None: ...
     async def get(self, session_id: str) -> SessionState | None: ...
+    async def get_scenario(self, session_id: str) -> Scenario | None: ...
     async def save_snapshot(self, state: SessionState) -> None: ...
     async def mark_finished(self, session_id: str) -> None: ...
     async def list_summaries(self, limit: int = 100) -> list[SessionSummaryItem]: ...
@@ -39,7 +42,9 @@ class SqlSessionRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._db = session
 
-    async def create(self, state: SessionState, user_id: str) -> None:
+    async def create(
+        self, state: SessionState, user_id: str, scenario: Scenario | None = None
+    ) -> None:
         self._db.add(
             SessionRow(
                 id=state.session_id,
@@ -49,9 +54,21 @@ class SqlSessionRepository:
                 current_gen=state.current_gen,
                 status=state.status.value,
                 stage_history=[entry.model_dump(mode="json") for entry in state.stage_history],
+                scenario_payload=scenario.model_dump(mode="json") if scenario else None,
             )
         )
         await self._db.commit()
+
+    async def get_scenario(self, session_id: str) -> Scenario | None:
+        """Сценарий, который сотрудник реально проходил.
+
+        None у сессий, созданных до появления колонки, — вызывающий берёт
+        текущую версию из scenario-service, как было раньше.
+        """
+        row = await self._db.get(SessionRow, session_id)
+        if row is None or not row.scenario_payload:
+            return None
+        return Scenario.model_validate(row.scenario_payload)
 
     async def get(self, session_id: str) -> SessionState | None:
         row = await self._db.get(SessionRow, session_id)

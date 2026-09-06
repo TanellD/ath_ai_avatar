@@ -117,6 +117,10 @@ export function TraineeSession() {
   // Только для шапки (заголовок, прогресс по этапам) — не участвует ни в
   // одном инварианте отмены/поколений, поэтому обычный useState, не ref.
   const [scenario, setScenario] = useState<Scenario | null>(null);
+  /** Сессия создаётся, детали прогона подбираются — оверлей ждёт. */
+  const [opening, setOpening] = useState(false);
+  /** Сессия готова, сотрудник читает обстановку и ещё не вошёл в разговор. */
+  const [briefingShown, setBriefingShown] = useState(false);
   const [currentStageId, setCurrentStageId] = useState<string | null>(null);
 
   /**
@@ -200,6 +204,11 @@ export function TraineeSession() {
 
   // Персонаж и этапы — только для отображения в шапке. Ошибку здесь не
   // считаем фатальной (сессия и без неё работает), поэтому молча пропускаем.
+  //
+  // Это версия сценария БЕЗ подставленных деталей: она нужна, пока сессии ещё
+  // нет (оверлей старта). Как только сессия создана, её заменяет сценарий
+  // прогона из ответа createSession — иначе шапка и подсказка по этапу
+  // показывали бы «{company}» вместо компании.
   useEffect(() => {
     let cancelled = false;
     scenarioApi
@@ -492,14 +501,23 @@ export function TraineeSession() {
     genRef.current = 1;
     audio.queue.startGeneration(genRef.current);
     setPlayback('thinking');
+    setOpening(true);
 
     gatewayApi
       .createSession(scenarioId)
       .then((response) => {
         setSessionId(response.session_id);
-        // Сокет открывается по появлению sessionId вместе со started — до
-        // этого момента открывать нечего.
-        setStarted(true);
+        // Сценарий ЭТОГО прогона: детали слотов уже подставлены сервером.
+        // С этого момента шапка, подсказка по этапу и бриф говорят то же
+        // самое, что знает персонаж.
+        setScenario(response.scenario);
+
+        // Бриф читается ДО первого звука: персонаж заговаривает сам, и,
+        // начнись разговор сразу, читать обстановку пришлось бы под его
+        // реплику. Сценарий без брифа входит в разговор как раньше, без
+        // лишнего экрана.
+        if (response.scenario.briefing.trim()) setBriefingShown(true);
+        else setStarted(true);
       })
       .catch((cause: Error) => {
         setPlayback('disconnected');
@@ -508,7 +526,8 @@ export function TraineeSession() {
           message: 'Не удалось начать сессию',
           details: cause.message,
         });
-      });
+      })
+      .finally(() => setOpening(false));
   }, [audio, scenarioId]);
 
   useEffect(() => {
@@ -803,7 +822,16 @@ export function TraineeSession() {
 
       {/* Аватар грузится (13 МБ GLB) под оверлеем, поэтому он смонтирован
           всегда, а закрывает его этот слой — а не условный рендер сессии. */}
-      {!started && <SessionStartOverlay ready={audio !== null} onStart={handleStart} />}
+      {!started && (
+        <SessionStartOverlay
+          ready={audio !== null}
+          opening={opening}
+          onStart={handleStart}
+          briefing={briefingShown ? (scenario?.briefing ?? '') : ''}
+          onEnter={() => setStarted(true)}
+          title={scenario?.title}
+        />
+      )}
       {finished && <SessionEndOverlay />}
     </main>
   );

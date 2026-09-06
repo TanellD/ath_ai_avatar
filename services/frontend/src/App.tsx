@@ -5,6 +5,7 @@ import { EmotionLab } from '@/pages/EmotionLab';
 import { MethodistReport } from '@/pages/MethodistReport';
 import { MethodistScenarios } from '@/pages/MethodistScenarios';
 import { MethodistSessions } from '@/pages/MethodistSessions';
+import { ScenarioEditor } from '@/pages/ScenarioEditor';
 import { ScenarioPreview } from '@/pages/ScenarioPreview';
 import { TraineeSession } from '@/pages/TraineeSession';
 
@@ -80,6 +81,10 @@ export function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/scenarios" replace />} />
             <Route path="/scenarios" element={<MethodistScenarios />} />
+            {/* Статический сегмент объявлен до динамического: иначе «new»
+                читается глазами как идентификатор сценария. */}
+            <Route path="/scenarios/new" element={<ScenarioEditor />} />
+            <Route path="/scenarios/:scenarioId/edit" element={<ScenarioEditor />} />
             <Route path="/scenarios/:scenarioId" element={<ScenarioPreview />} />
             <Route path="/sessions" element={<MethodistSessions />} />
             <Route path="/session/:scenarioId" element={<TraineeSession />} />

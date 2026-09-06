@@ -1,5 +1,5 @@
 /**
- * HTTP-клиенты gateway и scenario-service.
+ * HTTP-клиенты gateway, scenario-service и ai-service.
  *
  * Адреса приходят из VITE_*, подставляются на этапе сборки. Хардкода хостов в
  * коде нет — в референсном проекте он есть (`http://83.151.2.86:7533/...`
@@ -15,15 +15,20 @@ import type {
   Span,
 } from '@/contracts/admin';
 import type {
+  Persona,
   Report,
+  RubricItem,
   Scenario,
+  ScenarioSlot,
   ScenarioSummary,
   SessionSummaryItem,
+  Stage,
 } from '@/contracts/events';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000';
 const SCENARIO_URL = import.meta.env.VITE_SCENARIO_API_URL ?? 'http://localhost:8050';
+const AI_URL = import.meta.env.VITE_AI_API_URL ?? 'http://localhost:8030';
 
 /**
  * Ошибка с кодом ответа.
@@ -60,6 +65,12 @@ export interface CreateSessionResponse {
   session_id: string;
   scenario_id: string;
   ws_url: string;
+  /**
+   * Сценарий ЭТОГО прогона: детали слотов уже подставлены сервером. Клиент
+   * берёт его отсюда, а не из scenario-service, иначе бриф и шапка показали
+   * бы неподставленный текст — а персонаж знал бы подставленный.
+   */
+  scenario: Scenario;
 }
 
 /** Ровно то, что нужно клиенту после переподключения. */
@@ -149,5 +160,53 @@ export const scenarioApi = {
       `${SCENARIO_URL}/scenarios/${scenarioId}/copy?new_id=${encodeURIComponent(newId)}`,
       { method: 'POST' },
     );
+  },
+
+  remove(scenarioId: string): Promise<void> {
+    return request(`${SCENARIO_URL}/scenarios/${scenarioId}`, { method: 'DELETE' });
+  },
+};
+
+/** Черновик, а не готовый сценарий: `id` задаёт методист, он же адрес страницы. */
+export interface ScenarioDraft {
+  title: string;
+  persona: Persona;
+  stages: Stage[];
+  rubric: RubricItem[];
+  tags: string[];
+  briefing: string;
+  slots: ScenarioSlot[];
+}
+
+/**
+ * Генерация черновиков в редакторе сценария.
+ *
+ * Браузер обращается к ai-service напрямую, минуя gateway, — как и к
+ * scenario-service за CRUD: оркестратору нечего добавить к разовому вызову
+ * модели, а ключи остаются в сервисе.
+ */
+export const aiApi = {
+  draftScenario(brief: string, stagesCount: number, rubricCount: number): Promise<ScenarioDraft> {
+    return request(`${AI_URL}/scenario/draft`, {
+      method: 'POST',
+      body: JSON.stringify({
+        brief,
+        stages_count: stagesCount,
+        rubric_count: rubricCount,
+      }),
+    });
+  },
+
+  async draftRubric(
+    title: string,
+    persona: Persona,
+    stages: Stage[],
+    count: number,
+  ): Promise<RubricItem[]> {
+    const data = await request<{ items: RubricItem[] }>(`${AI_URL}/scenario/rubric`, {
+      method: 'POST',
+      body: JSON.stringify({ title, persona, stages, count }),
+    });
+    return data.items;
   },
 };

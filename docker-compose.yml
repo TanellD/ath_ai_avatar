@@ -185,6 +185,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
         VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
         VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-http://localhost:8050}
+        VITE_AI_API_URL: ${VITE_AI_API_URL:-http://localhost:8030}
         VITE_SPEECH_WS_URL: ${VITE_SPEECH_WS_URL:-ws://localhost:8010}
     restart: unless-stopped
     ports:
