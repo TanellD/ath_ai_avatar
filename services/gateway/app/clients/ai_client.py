@@ -48,6 +48,28 @@ class EvaluationUnavailable(Exception):
     """
 
 
+class EvaluationRejected(Exception):
+    """Отчёт собран, но не прошёл проверку в ai-service (422).
+
+    Отделено от EvaluationUnavailable намеренно: это РАЗНЫЕ новости для
+    методиста. «Не ответили» лечится повтором, «отчёт не прошёл проверку» —
+    нет, потому что причина в самом разговоре. Живой случай: сотрудник открыл
+    тренировку и закрыл, не сказав ни слова; модель честно ответила «реплики
+    сотрудника отсутствуют», report_builder так же честно отбраковал отчёт (под
+    каждым баллом обязана стоять дословная цитата, §7) — а методист видел
+    «попробуйте ещё раз» и жал кнопку до посинения.
+    """
+
+
+def _detail(response: httpx.Response) -> str:
+    """Текст причины из ответа FastAPI; тело может быть и не JSON."""
+    try:
+        detail = response.json().get("detail")
+    except ValueError:
+        detail = None
+    return str(detail) if detail else response.text[:300]
+
+
 class AiClient:
     def __init__(self, base_url: str, timeout: float) -> None:
         self._client = httpx.AsyncClient(base_url=base_url, timeout=timeout)
@@ -170,6 +192,11 @@ class AiClient:
             response = await self._client.post(
                 "/evaluate", json=payload.model_dump(mode="json"), timeout=120.0
             )
+            # 422 — это InvalidReportError из report_builder, то есть
+            # окончательный отказ, а не заминка связи. Повтор здесь не поможет
+            # никогда, и говорить про «попробуйте ещё раз» нельзя.
+            if response.status_code == httpx.codes.UNPROCESSABLE_ENTITY:
+                raise EvaluationRejected(_detail(response))
             response.raise_for_status()
         except httpx.HTTPError as exc:
             # Оценка длинного разговора сильной моделью — самый долгий вызов в

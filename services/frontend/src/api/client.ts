@@ -47,6 +47,27 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Человекочитаемая причина отказа.
+ *
+ * FastAPI кладёт её в `detail`, и там уже готовый текст для пользователя
+ * («сотрудник не сказал ни одной реплики — оценивать нечего»). Раньше в
+ * сообщение уходило сырое тело целиком, и методист видел на экране
+ * `409 Conflict: {"detail":"…"}` — фигурные скобки и кавычки поверх осмысленной
+ * фразы. Код ответа остаётся в `ApiError.status`, его и проверяют вызывающие.
+ */
+async function errorMessage(response: Response): Promise<string> {
+  const fallback = `${response.status} ${response.statusText}`;
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === 'string' && body.detail) return body.detail;
+    return fallback;
+  } catch {
+    // Не JSON — например HTML от прокси, когда сервис не поднялся.
+    return fallback;
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -54,8 +75,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const body = await response.text();
-    throw new ApiError(response.status, `${response.status} ${response.statusText}: ${body}`);
+    throw new ApiError(response.status, await errorMessage(response));
   }
 
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
