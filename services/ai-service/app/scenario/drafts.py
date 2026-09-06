@@ -13,6 +13,8 @@
   сохраняет — и получает либо отказ валидации (`^[a-z0-9_-]{1,128}$` в
   scenario/validate.ts), либо кириллицу в адресе страницы. Приводим к слагу
   здесь, а не показываем методисту ошибку в поле, которое заполнил не он.
+  Ту же обработку проходит и `suggested_id` сценария целиком — с бэкапом на
+  заголовок, если модель всё же ответила кириллицей (`_scenario_id`).
 
 - **id повторяются.** Схема этого не запрещает, а последствия молчаливые:
   дубликат `stage.id` схлопывает словарь `StageMachine` и ломает переходы по
@@ -90,6 +92,21 @@ def _unique_ids(raw_items: list[dict], prefix: str) -> list[str]:
         ids.append(unique)
 
     return ids
+
+
+def _scenario_id(raw: dict) -> str:
+    """`suggested_id` не гарантирован форматом — схема лишь описывает, не
+    гарантирует (см. докстринг файла). Слаг может выйти пустым, если модель
+    всё же ответила кириллицей вопреки просьбе перевести смысл; тогда пробуем
+    заголовок, и только если и он не даёт латиницы — общую заглушку.
+
+    Дедупликации против уже занятых id здесь нет: ai-service не видит список
+    существующих сценариев (он в scenario-service). Коллизию, если она
+    случится, ловит `validate.ts` на фронте — тот же путь, что у любого
+    id, вписанного руками.
+    """
+    candidate = _slug(str(raw.get("suggested_id", "")), "")
+    return candidate or _slug(str(raw.get("title", "")), "scenario")
 
 
 def _rubric_items(raw_items: list[dict]) -> list[RubricItem]:
@@ -178,6 +195,7 @@ def build_scenario_draft(raw: dict) -> ScenarioDraftResponse:
 
     draft = ScenarioDraftResponse(
         title=repair(raw.get("title", "")),
+        suggested_id=_scenario_id(raw),
         persona=Persona.model_validate(
             _fix(raw.get("persona", {}), _TEXT_FIELDS["persona"], repair)
         ),

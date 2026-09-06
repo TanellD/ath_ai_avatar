@@ -59,6 +59,14 @@ _ID_RULES = """\
 `company`). Внутри списка они не повторяются.
 """
 
+_SUGGESTED_ID_RULES = """\
+`suggested_id` — предложение адреса страницы для сценария целиком (не этапа и
+не критерия, у них свои `id` выше): латиница в нижнем регистре, цифры и
+подчёркивание, коротко. Переведи смысл названия, а не транслитерируй русские
+слова как слышатся: «Отработка возражения дорого» → `price_objection`, а не
+`otrabotka_vozrazheniya_dorogo`.
+"""
+
 _BRIEFING_RULES = """\
 Правила для брифа (`briefing` и `slots`) — это то, что сотрудник читает перед
 разговором:
@@ -86,6 +94,7 @@ _DRAFT_SYSTEM = """\
 {rubric_rules}
 {briefing_rules}
 {id_rules}
+{suggested_id_rules}
 Черновик пойдёт человеку на правку, поэтому лучше конкретно и коротко, чем
 обтекаемо и длинно. Пиши по-русски.
 """
@@ -129,6 +138,7 @@ def build_draft_system() -> str:
         rubric_rules=_RUBRIC_RULES,
         briefing_rules=_BRIEFING_RULES,
         id_rules=_ID_RULES,
+        suggested_id_rules=_SUGGESTED_ID_RULES,
     )
 
 
@@ -414,6 +424,7 @@ def build_draft_schema(stages_count: int | None, rubric_count: int | None) -> di
         "type": "object",
         "properties": {
             "title": {"type": "string", "minLength": 1},
+            "suggested_id": {"type": "string", "pattern": _ID_PATTERN},
             "persona": {
                 "type": "object",
                 "properties": {
@@ -449,6 +460,15 @@ def build_draft_schema(stages_count: int | None, rubric_count: int | None) -> di
                 },
             },
         },
-        "required": ["title", "persona", "stages", "rubric", "tags", "briefing", "slots"],
+        "required": [
+            "title",
+            "suggested_id",
+            "persona",
+            "stages",
+            "rubric",
+            "tags",
+            "briefing",
+            "slots",
+        ],
         "additionalProperties": False,
     }

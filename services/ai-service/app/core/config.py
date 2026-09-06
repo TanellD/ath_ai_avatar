@@ -43,6 +43,39 @@ class Settings(BaseSettings):
     openai_compatible_base_url: str = "https://api.vsellm.ru/v1"
     openai_compatible_api_key: str = ""
 
+    scenario_llm_provider: str = Field(
+        default="",
+        description="Пусто — берёт LLM_PROVIDER. Свой провайдер для кнопок "
+        "«Заполнить/Пересобрать сценарий по описанию» и «Заполнить критерии» "
+        "в редакторе сценария, независимо от провайдера реплик персонажа и оценки",
+    )
+    """Ключи провайдеров (anthropic_api_key/openai_compatible_api_key выше) —
+    общие: методист держит в `.env` сразу несколько, эта переменная лишь
+    выбирает, каким из уже настроенных провайдеров пользуется генерация
+    сценария. Заводить под неё отдельные ANTHROPIC_API_KEY/... не нужно —
+    учётные данные уже не привязаны к сценарию использования."""
+
+    scenario_llm_model: str = ""
+    """Пусто — берёт LLM_STRONG_MODEL. Одна модель на все три ручки
+    (`/scenario/draft`, `/scenario/rubric`, `/scenario/details`) — в отличие
+    от реплик персонажа и оценки, здесь нет причины разделять быструю и
+    сильную: кнопки жмутся редко, вручную, и не в бюджете задержки диалога.
+
+    Обязательна, если SCENARIO_LLM_PROVIDER отличается от LLM_PROVIDER: у
+    openai_compatible и anthropic разный словарь имён моделей, и унаследованное
+    имя модели основного провайдера может быть невалидным для провайдера
+    сценария.
+    """
+
+    scenario_llm_endpoint: str = ""
+    """Пусто — использует общий эндпоинт провайдера (ANTHROPIC_BASE_URL или
+    OPENAI_COMPATIBLE_BASE_URL, смотря какой провайдер выбран для сценария).
+
+    Задаётся отдельно, когда генерация сценария должна идти на другой хост
+    того же провайдера — например, свой прокси для тяжёлых редких вызовов,
+    отдельный от того, что держит реплики персонажа под нагрузкой диалога.
+    """
+
     # Реплика персонажа короткая по сути жанра: он спрашивает и дожимает,
     # а не читает лекцию. Ограничение заодно бережёт бюджет латентности.
     character_max_tokens: int = 300
@@ -51,6 +84,20 @@ class Settings(BaseSettings):
     # Оценка — детерминированная задача, разброс здесь только вредит.
     evaluation_max_tokens: int = 4000
     evaluation_temperature: float = 0.0
+
+    @property
+    def effective_scenario_provider(self) -> str:
+        return self.scenario_llm_provider or self.llm_provider
+
+    @property
+    def effective_scenario_model(self) -> str:
+        return self.scenario_llm_model or self.llm_strong_model
+
+    @property
+    def effective_scenario_endpoint(self) -> str:
+        """Пусто значит «эндпоинт провайдера по умолчанию» — вызывающий код
+        (`llm/factory.py`) сам решает, в какое поле settings это разворачивать."""
+        return self.scenario_llm_endpoint
 
 
 @lru_cache

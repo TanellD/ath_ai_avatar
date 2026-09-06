@@ -93,6 +93,23 @@ def test_schema_pins_mood_to_the_contract_enum() -> None:
     assert set(mood["enum"]) == {m.value for m in Mood}
 
 
+def test_schema_requires_a_suggested_id_shaped_like_an_identifier() -> None:
+    """Без pattern модель охотно вернёт «Отработка возражения дорого» — такое
+    не годится в адрес страницы (см. drafts.py::_scenario_id)."""
+    suggested_id = build_draft_schema(1, 1)["properties"]["suggested_id"]
+
+    assert suggested_id["pattern"] == "^[a-z0-9_]+$"
+
+
+def test_draft_system_asks_to_translate_not_transliterate_the_id() -> None:
+    """«otrabotka_vozrazheniya» технически латиница, но не «на английском» —
+    и не то, что просил методист."""
+    system = build_draft_system().lower()
+
+    assert "suggested_id" in system
+    assert "переведи" in system
+
+
 def test_unset_counts_give_the_model_a_range_instead_of_one() -> None:
     """`stages_count=None` значит «методист не задавал число» — на пустом
     бланке форма даёт 1 (длина emptyStage()), и без диапазона черновик
@@ -266,6 +283,49 @@ def test_stage_ids_are_deduplicated_too() -> None:
     assert [s.id for s in draft.stages] == ["opening", "opening_2"]
 
 
+def _minimal_raw(**overrides: object) -> dict:
+    stage = {
+        "goal": "Ц",
+        "agent_opening": "Р",
+        "completion_criteria": "К",
+        "max_turns": 4,
+        "id": "opening",
+    }
+    return {
+        "title": "Т",
+        "persona": PERSONA.model_dump(mode="json"),
+        "stages": [stage],
+        "rubric": [{"id": "a", "name": "Н", "description": "О", "scale": 5, "weight": 1.0}],
+        "tags": [],
+        **overrides,
+    }
+
+
+def test_suggested_id_is_slugged_like_any_other_identifier() -> None:
+    draft = build_scenario_draft(_minimal_raw(suggested_id="Price Objection!!"))
+
+    assert draft.suggested_id == "price_objection"
+
+
+def test_suggested_id_falls_back_to_the_title_when_missing() -> None:
+    """Не каждый провайдер уважает `required` в схеме (докстринг файла) —
+    методист не должен получить пустое поле «Идентификатор» из-за этого."""
+    draft = build_scenario_draft(_minimal_raw(title="Price Objection", suggested_id=""))
+
+    assert draft.suggested_id == "price_objection"
+
+
+def test_suggested_id_falls_back_to_a_placeholder_when_nothing_is_latin() -> None:
+    """И suggested_id, и title — кириллица вопреки просьбе перевести смысл:
+    методист получает пустое поле, только если и заглушка бы не сработала —
+    а не пустое поле вообще."""
+    draft = build_scenario_draft(
+        _minimal_raw(title="Возражение по цене", suggested_id="возражение_по_цене")
+    )
+
+    assert draft.suggested_id == "scenario"
+
+
 # ---------------------------------------------------- устойчивый разбор
 #
 # Тот же принцип, что в evaluation/report_builder.py (PR #32): complete_json()
@@ -314,6 +374,7 @@ async def test_mock_provider_produces_a_valid_scenario_draft() -> None:
     assert isinstance(draft, ScenarioDraftResponse)
     assert len(draft.stages) == 2
     assert len(draft.rubric) == 3
+    assert draft.suggested_id  # непустой, форма должна получить что подставить
 
 
 async def test_mock_provider_produces_a_valid_rubric_draft() -> None:

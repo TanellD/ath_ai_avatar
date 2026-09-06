@@ -1,7 +1,8 @@
 /**
- * Проверяется то, что легко сломать незаметно: `applyDraft` должен оставить
- * `id` и `brief` в покое, а `draftContext`/`isBlank` — не спутать заготовку
- * пустой формы с реальным содержимым (см. шапку draft.ts).
+ * Проверяется то, что легко сломать незаметно: `applyDraft` не должен трогать
+ * уже заполненный `id` (и никогда не трогает `brief`), но обязан подставить
+ * предложенный id, пока поле пустое; `draftContext`/`isBlank` не должны
+ * путать заготовку пустой формы с реальным содержимым (см. шапку draft.ts).
  */
 
 import { describe, expect, test } from 'vitest';
@@ -64,9 +65,10 @@ function blankScenario(): Scenario {
   });
 }
 
-function draft(): ScenarioDraft {
+function draft(patch: Partial<ScenarioDraft> = {}): ScenarioDraft {
   return {
     title: 'Другой сценарий',
+    suggested_id: 'crm_pitch',
     persona: {
       name: 'Пётр',
       role: 'начальник отдела закупок',
@@ -93,6 +95,7 @@ function draft(): ScenarioDraft {
       { id: 'product', label: 'Продукт', hint: 'что продаём', example: 'CRM' },
       { id: 'company', label: 'Компания', hint: 'кто покупает', example: 'Северный Ветер' },
     ],
+    ...patch,
   };
 }
 
@@ -109,10 +112,22 @@ describe('applyDraft', () => {
     expect(applied.slots).toEqual(draft().slots);
   });
 
-  test('не трогает id — его задаёт человек, он же адрес страницы', () => {
+  test('не трогает уже заполненный id — его задаёт человек, он же адрес страницы', () => {
     const applied = applyDraft(scenario({ id: 'my_scenario' }), draft());
 
     expect(applied.id).toBe('my_scenario');
+  });
+
+  test('подставляет предложенный id, пока поле пустое', () => {
+    const applied = applyDraft(scenario({ id: '' }), draft({ suggested_id: 'price_objection' }));
+
+    expect(applied.id).toBe('price_objection');
+  });
+
+  test('пустой id остаётся пустым, если предложить нечего', () => {
+    const applied = applyDraft(scenario({ id: '' }), draft({ suggested_id: undefined }));
+
+    expect(applied.id).toBe('');
   });
 
   test('не трогает brief — это вход генерации, а не её результат', () => {
@@ -158,10 +173,11 @@ describe('draftContext', () => {
     expect(context?.persona).toEqual(scenario().persona);
   });
 
-  test('id и brief в контекст не попадают — их у ScenarioDraft нет вообще', () => {
+  test('id, brief и suggested_id в контекст не попадают', () => {
     const context = draftContext(scenario());
 
     expect(context).not.toHaveProperty('id');
     expect(context).not.toHaveProperty('brief');
+    expect(context).not.toHaveProperty('suggested_id');
   });
 });

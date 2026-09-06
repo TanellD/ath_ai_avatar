@@ -13,8 +13,11 @@ import type { Scenario } from '@/contracts/events';
  * Черновик заменяет всё, что видно и правится в форме, но не то, что форма не
  * показывает как поле генерации:
  *
- * - `id` — его задаёт человек, он же адрес страницы редактора и ключ в БД;
- *   ai-service его и не возвращает (`ScenarioDraftResponse` без `id`).
+ * - `id` — его задаёт человек, он же адрес страницы редактора и ключ в БД.
+ *   Генерация лишь ПРЕДЛАГАЕТ id (`draft.suggested_id`) и только пока поле
+ *   пустое — на чистом бланке или если методист сам его стёр. Если id уже
+ *   заполнен (правка, копия, вторая генерация после того, как методист его
+ *   вписал), трогать его нельзя — иначе слетит адрес существующего сценария.
  * - `brief` — это вход генерации, а не её результат. Затереть его тем же
  *   вызовом, который его же читает, значит потерять историю «из чего вырос
  *   этот сценарий» после первой правки.
@@ -22,6 +25,7 @@ import type { Scenario } from '@/contracts/events';
 export function applyDraft(current: Scenario, draft: ScenarioDraft): Scenario {
   return {
     ...current,
+    id: current.id.trim() ? current.id : draft.suggested_id ?? current.id,
     title: draft.title,
     persona: draft.persona,
     stages: draft.stages,

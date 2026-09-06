@@ -7,10 +7,15 @@
 смотрит и правит перед сохранением. Ответственность за методику остаётся у
 человека — модель ускоряет заполнение, но не решает, чему учить.
 
-Модель разная и не по недосмотру. Развернуть пару строк в связный сценарий —
-задача на понимание, вызов редкий и не в бюджете диалога, поэтому сильная.
-Рубрика к уже описанным этапам — работа поверх готового текста, там хватает
-быстрой.
+Одна модель на все три ручки, не быстрая/сильная пара, как у реплик персонажа
+и оценки: кнопки жмутся редко и вручную, вызов не в бюджете задержки диалога,
+делить их по скорости незачем. Провайдер, модель и (опционально) хост — свои
+(`SCENARIO_LLM_PROVIDER`/`SCENARIO_LLM_MODEL`/`SCENARIO_LLM_ENDPOINT`),
+отдельные от `LLM_PROVIDER`/реплик персонажа и оценки; пусто — наследуют его.
+У методиста в `.env` могут стоять ключи сразу нескольких провайдеров, и эти
+переменные лишь выбирают, каким из уже настроенных пользуется генерация
+сценария — заводить под них отдельный набор ключей не нужно
+(`app/core/config.py`).
 
 Повтора при ошибке нет — как и во всём сервисе (см. TODO в evaluation.py).
 Черновик, в отличие от отчёта, ничем не рискует: методист просто нажимает
@@ -66,7 +71,7 @@ _DETAILS_MAX_TOKENS = 500
 @router.post("/draft", response_model=ScenarioDraftResponse)
 async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> ScenarioDraftResponse:
     settings = get_settings()
-    provider = request.app.state.llm
+    provider = request.app.state.scenario_llm
 
     raw = await provider.complete_json(
         system=build_draft_system(),
@@ -78,7 +83,7 @@ async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> Sce
                 ),
             }
         ],
-        model=settings.llm_strong_model,
+        model=settings.effective_scenario_model,
         max_tokens=_DRAFT_MAX_TOKENS,
         temperature=settings.character_temperature,
         schema=build_draft_schema(payload.stages_count, payload.rubric_count),
@@ -92,7 +97,7 @@ async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> Sce
 @router.post("/rubric", response_model=RubricDraft)
 async def draft_rubric(payload: RubricDraftRequest, request: Request) -> RubricDraft:
     settings = get_settings()
-    provider = request.app.state.llm
+    provider = request.app.state.scenario_llm
 
     raw = await provider.complete_json(
         system=build_rubric_system(),
@@ -104,7 +109,7 @@ async def draft_rubric(payload: RubricDraftRequest, request: Request) -> RubricD
                 ),
             }
         ],
-        model=settings.llm_fast_model,
+        model=settings.effective_scenario_model,
         max_tokens=_RUBRIC_MAX_TOKENS,
         temperature=settings.character_temperature,
         schema=build_rubric_schema(payload.count),
@@ -130,7 +135,7 @@ async def scenario_details(
     не дать тренировке начаться.
     """
     settings = get_settings()
-    provider = request.app.state.llm
+    provider = request.app.state.scenario_llm
 
     raw = await provider.complete_json(
         system=build_details_system(),
@@ -142,7 +147,7 @@ async def scenario_details(
                 ),
             }
         ],
-        model=settings.llm_fast_model,
+        model=settings.effective_scenario_model,
         max_tokens=_DETAILS_MAX_TOKENS,
         # Смысл ручки — в разнообразии между прогонами: одни и те же детали на
         # пятом прогоне работают против §7.
