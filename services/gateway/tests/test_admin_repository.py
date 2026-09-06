@@ -3,6 +3,7 @@ SpanRow напрямую, читаем через админ-чтения. In-me
 """
 
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta
 
 import pytest
 from ath_contracts import Report, SessionState, StageExit, StageHistoryEntry, Turn, TurnRole
@@ -300,6 +301,42 @@ async def test_get_load_stats_aggregates_by_operation(db_session: AsyncSession) 
     assert stats.sessions_by_status == {"active": 1}
     assert sum(b.count for b in stats.sessions_timeline) == 1
     assert sum(b.count for b in stats.activity_timeline) == 3
+
+
+async def test_get_load_stats_operations_excludes_spans_outside_window(
+    db_session: AsyncSession,
+) -> None:
+    """Регресс: `operations` (avg/p95 латентность, call_count) раньше
+    считалась по ВСЕЙ истории спанов без ограничения по `minutes`, хотя
+    докстринг и сигнатура обещают окно «последние N минут» — тот же фильтр,
+    что уже применялся к таймлайнам. Старый спан-выброс (например, холодный
+    старт модели в 41 с из ручного теста) навсегда тянул среднее вверх и не
+    совпадал с тем, что видно на живой нагрузке."""
+    repo = SqlSessionRepository(db_session)
+    state = SessionState(session_id="s6", scenario_id="objection_price", current_stage="opening")
+    await repo.create(state, user_id=DEFAULT_EMPLOYEE_ID)
+
+    stale = datetime.utcnow() - timedelta(hours=2)
+    db_session.add_all(
+        [
+            SpanRow(
+                session_id="s6", gen_id=1, seq=0, operation="character_reply", label="old",
+                start_ms=0, end_ms=41_000, status="ok", error=None, created_at=stale,
+            ),
+            SpanRow(
+                session_id="s6", gen_id=2, seq=0, operation="character_reply", label="fresh",
+                start_ms=0, end_ms=500, status="ok", error=None,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    admin = AdminRepository(db_session)
+    stats = await admin.get_load_stats(minutes=30)
+
+    by_op = {o.operation: o for o in stats.operations}
+    assert by_op["character_reply"].call_count == 1
+    assert by_op["character_reply"].avg_duration_ms == 500.0
 
 
 async def test_get_load_stats_buckets_errors_by_service(db_session: AsyncSession) -> None:

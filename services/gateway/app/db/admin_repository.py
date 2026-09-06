@@ -301,13 +301,25 @@ class AdminRepository:
 
         Таймлайны — за последние `minutes` минут, бакетами по
         `bucket_seconds`: дневная гранулярность здесь бессмысленна, тестовые
-        сессии идут пачками за минуты, а не размазаны по дням."""
+        сессии идут пачками за минуты, а не размазаны по дням.
+
+        Тем же окном ограничена и таблица `operations` (avg/p95 латентность,
+        число вызовов/ошибок) — раньше фильтр `since` применялся только к
+        таймлайнам, а сама эта таблица считалась по ВСЕЙ истории спанов без
+        ограничения по времени: то, что называлось «средняя латентность за
+        последние 30 минут», на деле было средним с первого теста, когда-либо
+        прогнанного на этом окружении. Числа росли вместе с базой и переставали
+        отражать текущую нагрузку — расхождение с тем, что видно вживую,
+        накапливалось молча."""
+        until = datetime.utcnow()
+        since = until - timedelta(minutes=minutes)
+
         span_rows = (
             await self._db.execute(
                 select(
                     SpanRow.operation, SpanRow.start_ms, SpanRow.end_ms, SpanRow.status,
                     SpanRow.created_at,
-                )
+                ).where(SpanRow.created_at >= since)
             )
         ).all()
 
@@ -340,9 +352,6 @@ class AdminRepository:
             )
         ).all()
         sessions_by_status = dict(status_rows)
-
-        until = datetime.utcnow()
-        since = until - timedelta(minutes=minutes)
 
         session_times = (
             await self._db.scalars(
