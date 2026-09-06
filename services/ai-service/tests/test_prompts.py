@@ -42,6 +42,23 @@ def test_character_is_told_not_to_write_stage_directions() -> None:
     assert "ремарок в скобках" in prompt
 
 
+def test_holds_initiative_true_tells_character_to_lead() -> None:
+    """Дефолт (продажи, возражения) — персонаж ведёт разговор, § 1."""
+    prompt = build_character_system(PERSONA, STAGE)
+    assert "Инициативу держишь ты" in prompt
+    assert "держит СОБЕСЕДНИК" not in prompt
+
+
+def test_holds_initiative_false_tells_character_to_follow() -> None:
+    """Живой баг: кандидат на собеседовании (holds_initiative=False) сам
+    спрашивал интервьюера «какие навыки мне стоит подчеркнуть?» — системный
+    промпт одинаково учил держать инициативу любого персонажа."""
+    candidate = PERSONA.model_copy(update={"holds_initiative": False})
+    prompt = build_character_system(candidate, STAGE)
+    assert "держит СОБЕСЕДНИК" in prompt
+    assert "Инициативу держишь ты" not in prompt
+
+
 def test_ordinary_reply_has_no_opening_block() -> None:
     prompt = build_character_system(PERSONA, STAGE)
     assert STAGE.agent_opening not in prompt

@@ -20,6 +20,7 @@ function scenario(patch: Partial<Scenario> = {}): Scenario {
       mood: 'neutral',
       difficulty: 3,
       voice_id: null,
+      holds_initiative: true,
     },
     stages: [
       {

@@ -70,6 +70,11 @@ function emptyScenario(): Scenario {
       mood: 'neutral',
       difficulty: 3,
       voice_id: null,
+      // Дефолт совпадает с ath_contracts.Persona: инициативу обычно держит
+      // персонаж (§1). Сценарии вида «сотрудник ведёт разговор»
+      // (собеседование) выключают это вручную в JSON шаблона — в редакторе
+      // отдельного поля для этого переключателя пока нет.
+      holds_initiative: true,
     },
     stages: [emptyStage(0)],
     rubric: [emptyRubricItem(0)],

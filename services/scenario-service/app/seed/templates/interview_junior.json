@@ -11,7 +11,8 @@
     "character": "волнуется, отвечает коротко, склонен приукрашивать опыт",
     "mood": "neutral",
     "difficulty": 2,
-    "voice_id": null
+    "voice_id": "Noah",
+    "holds_initiative": false
   },
   "stages": [
     {
