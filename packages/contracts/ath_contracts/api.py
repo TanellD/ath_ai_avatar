@@ -92,6 +92,22 @@ class EvaluateResponse(BaseModel):
     report: Report
 
 
+class SummarizeRequest(BaseModel):
+    """POST /summarize — сжать вытесненные из окна контекста ходы (§5).
+
+    Инкрементальный вызов: только НОВЫЕ вытесненные ходы + прежняя выжимка,
+    а не вся история заново — иначе экономия окна съедается стоимостью
+    самой суммаризации (см. gateway/app/orchestrator/context_window.py).
+    """
+
+    previous_summary: str = ""
+    evicted: list[Turn]
+
+
+class SummarizeResponse(BaseModel):
+    summary: str
+
+
 # ----------------------------------------------------------- speech-service
 
 

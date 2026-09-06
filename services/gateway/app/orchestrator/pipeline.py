@@ -45,7 +45,7 @@ from app.core.logging import get_logger
 from app.db.engine import session_factory
 from app.db.repositories import SqlReportRepository, SqlSessionRepository
 from app.orchestrator.avatar_voice import DEFAULT_AVATAR_ID, voice_for
-from app.orchestrator.context_window import build_context
+from app.orchestrator.context_window import build_context, evicted_since
 from app.orchestrator.fsm import Transition
 from app.orchestrator.sentence_splitter import SentenceSplitter
 from app.orchestrator.session_manager import LiveSession
@@ -241,6 +241,7 @@ class TurnPipeline:
         recorder = SpanRecorder(self._session.session_id, gen_id)
         self._last_recorder = recorder
         try:
+            await self._maybe_summarize(recorder)
             await self._speak(gen_id, user_text, avatar_id, recorder)
             transition = await self._advance_stage(gen_id, user_text, recorder)
 
@@ -457,6 +458,26 @@ class TurnPipeline:
                 )
         except Exception:
             log.exception("pipeline.persist_turn_failed", gen_id=gen_id)
+
+    async def _maybe_summarize(self, recorder: SpanRecorder) -> None:
+        """Свернуть новые вытесненные из окна ходы в session.summary (§5).
+
+        `evicted_since` почти всегда отдаёт пустой список — окно наполняется
+        не на каждом ходу, а раз в `max_context_turns` ходов, поэтому и вызов
+        ai-service такой же редкий, не на каждую реплику. Без этого
+        `build_context` просто отрезал вытесненные ходы без следа: то, что
+        сотрудник сказал в начале длинного разговора, переставало
+        существовать для модели, а не сжималось — отсюда «теряется контекст,
+        когда сообщений становится больше».
+        """
+        evicted = evicted_since(
+            self._session.turns, self._max_context_turns, self._session.summarized_through
+        )
+        if not evicted:
+            return
+        async with recorder.span("summarize", f"{len(evicted)} ход(ов) в выжимку"):
+            self._session.summary = await self._ai.summarize(self._session.summary, evicted)
+        self._session.summarized_through += len(evicted)
 
     async def _speak(
         self,
