@@ -1,0 +1,3 @@
+I need a new page for a methodist to create new scnarios. Look at the cyrrent structure, I want to use the page in the similar theme as the rest of pages and I want to add a button to fill the criteria, and enhanced definition of the scenario.
+
+Then in each part when the user (not a methodist) opens a scenario the details were generated as a little story with the name of the avatar, the details about the situation that is good to operate and etc.

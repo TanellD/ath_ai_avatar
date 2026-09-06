@@ -276,4 +276,5 @@ export interface ScenarioSummary {
   stages_count: number;
   rubric_count: number;
   tags: string[];
+  is_template: boolean;
 }

@@ -36,6 +36,7 @@ class SqlScenarioRepository:
                 stages_count=row.stages_count,
                 rubric_count=row.rubric_count,
                 tags=row.tags,
+                is_template=row.is_template,
             )
             for row in rows
         ]

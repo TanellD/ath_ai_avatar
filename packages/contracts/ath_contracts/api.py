@@ -234,6 +234,10 @@ class ScenarioSummary(BaseModel):
     stages_count: int
     rubric_count: int
     tags: list[str] = Field(default_factory=list)
+    is_template: bool = Field(
+        default=False,
+        description="Встроенный шаблон: редактор предлагает копировать его, а не править",
+    )
 
 
 class ScenarioListResponse(BaseModel):
