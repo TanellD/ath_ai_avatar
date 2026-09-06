@@ -355,11 +355,18 @@ export function TraineeSession() {
             setVoiceActive(false);
             setVoiceBuffered(false);
           }
-          if (event.code === 'silence_followup_failed') {
-            // Для этой реплики сервер больше не пришлёт ни token, ни action,
-            // ни audio_chunk — эта ошибка единственный сигнал, что ход мёртв.
-            // Без явного возврата в idle индикатор завис бы навсегда, а таймер
-            // молчания, не получив resume(), замолчал бы до конца сессии.
+          if (
+            event.code === 'silence_followup_failed'
+            || event.code === 'turn_failed'
+            || event.code === 'opening_failed'
+          ) {
+            // Все три реплики персонажа без предшествующего audio_chunk не
+            // дают клиенту ни одной другой точки восстановления: ActionEvent
+            // для них не шлётся, а AudioQueue.onIdle не сработает без единого
+            // сыгранного чанка. Эта ошибка — единственный сигнал, что ход
+            // мёртв. Без явного возврата в idle индикатор завис бы навсегда,
+            // а таймер молчания, не получив resume(), замолчал бы до конца
+            // сессии — даже если сотрудник ведёт себя как обычно.
             setPlayback('idle');
             silenceFollowupRef.current?.resume();
           }

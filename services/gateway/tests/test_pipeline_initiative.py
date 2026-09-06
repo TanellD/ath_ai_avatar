@@ -92,6 +92,61 @@ async def test_silence_followup_tts_failure_reaches_client(
     assert errors[0].gen_id == 1
 
 
+async def test_turn_tts_failure_reaches_client(
+    built,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Тот же дефект, что чинили для реплики по молчанию, — но на самом частом
+    пути, обычном ответе на реплику сотрудника. Раньше `_run_turn` логировал
+    исключение и просто перевыбрасывал его в незадействованную задачу
+    (`_start_pipeline` её не ждёт) — клиент не получал ни следа."""
+    pipeline, session, _ai, speech, sent = built
+
+    async def broken_stream(*_args, **_kwargs):
+        raise ConnectionError("tts stream closed: 1011 internal error")
+        yield  # pragma: no cover — делает функцию асинхронным генератором
+
+    monkeypatch.setattr(speech, "stream_tts_reply", broken_stream)
+
+    await pipeline.handle_user_message("Здравствуйте, я Пётр.", interrupts=None)
+    await drain(session)
+
+    errors = [event for event in sent if isinstance(event, ErrorEvent)]
+    assert len(errors) == 1
+    assert errors[0].code == "turn_failed"
+    assert errors[0].spoken is False
+
+
+async def test_opening_fallback_failure_reaches_client(
+    built,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Худший случай: и обычная открывающая реплика (LLM), и запасной путь без
+    LLM (тот же TTS) падают на первой секунде тренировки. Раньше это давало
+    полную тишину без единого сигнала клиенту — сотрудник видел бы "Персонаж
+    думает" с самого начала и без единой подсказки, что пошло не так."""
+    pipeline, session, ai, speech, sent = built
+
+    async def broken_reply(**_kwargs):
+        raise RuntimeError("llm unavailable")
+        yield  # pragma: no cover — делает функцию асинхронным генератором
+
+    async def broken_tts(**_kwargs):
+        raise ConnectionError("tts stream closed: 1011 internal error")
+        yield  # pragma: no cover — делает функцию асинхронным генератором
+
+    monkeypatch.setattr(ai, "stream_character_reply", broken_reply)
+    monkeypatch.setattr(speech, "stream_tts", broken_tts)
+
+    await pipeline.open_session()
+    await drain(session)
+
+    errors = [event for event in sent if isinstance(event, ErrorEvent)]
+    assert len(errors) == 1
+    assert errors[0].code == "opening_failed"
+    assert errors[0].spoken is False
+
+
 async def test_off_topic_streak_grows_and_reaches_the_next_reply(built) -> None:  # noqa: ANN001
     pipeline, session, ai, _speech, _sent = built
     ai.classification = Classification.OFF_TOPIC
