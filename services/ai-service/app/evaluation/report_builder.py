@@ -18,6 +18,7 @@
 import re
 
 from ath_contracts import CriterionScore, Report, Scenario, Turn, TurnRole
+from pydantic import ValidationError
 
 from app.core.logging import get_logger
 
@@ -48,23 +49,42 @@ def build_report(
 
     `model` — чем посчитано; попадает в отчёт, чтобы оценку заглушкой можно
     было отличить от настоящей, не вчитываясь в вердикт.
+
+    Здесь же, а не только у вызывающих (`/evaluate`, `/classify`), проверяется
+    сама форма `raw`: `complete_json()` типизирован как `dict`, но это
+    контракт, а не гарантия — модель может ответить JSON-массивом, скаляром
+    или объектом без ожидаемых полей. Любое из этого — тот же класс отказа,
+    что и непройденная проверка цитаты, поэтому заворачиваем всё в
+    `InvalidReportError`: вызывающему не нужно различать TypeError/KeyError/
+    ValidationError, только один тип, который он уже умеет обрабатывать
+    (`/evaluate` — повтором, см. api/evaluation.py).
     """
+    if not isinstance(raw, dict):
+        raise InvalidReportError(f"ответ модели не JSON-объект: {type(raw).__name__}")
+
     user_texts = [_normalize(t.text) for t in transcript if t.role is TurnRole.USER]
     weights = {item.id: item.weight for item in scenario.rubric}
 
     scores: list[CriterionScore] = []
     for entry in raw.get("scores", []):
-        score = CriterionScore.model_validate(entry)
+        try:
+            score = CriterionScore.model_validate(entry)
+        except ValidationError as exc:
+            raise InvalidReportError(f"критерий не разобран: {exc}") from exc
         _verify_evidence(score, user_texts)
         scores.append(score)
 
     _verify_coverage(scores, scenario)
 
+    verdict = raw.get("verdict")
+    if not isinstance(verdict, str) or not verdict.strip():
+        raise InvalidReportError("отсутствует или пустой verdict")
+
     return Report(
         session_id=session_id,
         scenario_id=scenario.id,
         model=model,
-        verdict=raw["verdict"],
+        verdict=verdict,
         total_score=_weighted_total(scores, weights),
         scores=scores,
         transcript=transcript,

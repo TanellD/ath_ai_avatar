@@ -37,8 +37,18 @@ async def classify(payload: ClassifyRequest, request: Request) -> ClassifyRespon
     )
 
     try:
+        # `result` типизирован как dict по контракту LlmProvider.complete_json,
+        # но контракт — не гарантия: json.loads на выход модели может дать
+        # list/str/число, если модель ответила JSON-массивом или скаляром
+        # вместо объекта — тогда и `result["classification"]`, и `.get(...)`
+        # ниже кидают не (KeyError, ValueError), а TypeError/AttributeError.
+        # Явная проверка типа переводит любой такой случай в один и тот же
+        # путь деградации, а не оставляет часть форм ответа непойманными.
+        if not isinstance(result, dict):
+            raise TypeError(f"complete_json вернул {type(result).__name__}, ожидался object")
         classification = Classification(result["classification"])
-    except (KeyError, ValueError):
+        reason = result.get("reason", "")
+    except (KeyError, ValueError, TypeError):
         # Модель вернула JSON без ожидаемого поля/значения (наблюдалось на
         # локальных Qwen через Ollama при недостаточно строгом response_format —
         # см. openai_compatible.py). gateway (pipeline._advance_stage) и так
@@ -49,7 +59,8 @@ async def classify(payload: ClassifyRequest, request: Request) -> ClassifyRespon
         # диагностику: сырой ответ модели остаётся в логе.
         log.warning("classify.malformed_response", stage_id=payload.stage.id, raw=result)
         classification = Classification.INCOMPLETE
+        reason = ""
 
     log.info("classify.done", stage_id=payload.stage.id, classification=classification.value)
 
-    return ClassifyResponse(classification=classification, reason=result.get("reason", ""))
+    return ClassifyResponse(classification=classification, reason=reason)
