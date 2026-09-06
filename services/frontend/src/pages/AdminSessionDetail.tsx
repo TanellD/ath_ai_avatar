@@ -59,7 +59,10 @@ export function AdminSessionDetail() {
           отчёт методиста
         </Link>
       </p>
-      <h1>Сессия {path.session.session_id}</h1>
+      {/* UUID — 36 символов без единого пробела, а h1 в ките
+          clamp(38px, 4.3vw, 62px): неразрывной строкой он один распирал
+          страницу шире экрана на любой мобильной ширине. */}
+      <h1 className="admin-detail__title">Сессия {path.session.session_id}</h1>
       <p className="admin__hint">
         Пользователь: {path.session.user_display_name} · сценарий: {path.session.scenario_id} ·
         статус: {path.session.status} · этап{' '}

@@ -2,7 +2,11 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover включает env(safe-area-inset-*): без него на
+         телефонах с вырезом липкая карточка композера уезжает под
+         системную полосу. user-scalable намеренно не трогаем —
+         запрещать пинч-зум значит ломать доступность. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Тренажёр корпоративных тренировок</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

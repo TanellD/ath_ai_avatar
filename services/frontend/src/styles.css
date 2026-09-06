@@ -29,7 +29,12 @@ body {
 .app {
   display: flex;
   flex-direction: column;
+  /* dvh, а не vh: на мобильных 100vh считается по РАЗВЁРНУТОЙ панели адреса,
+     поэтому низ экрана — а это композер — оказывается под браузерной обвязкой
+     и остаётся там, пока панель не скроется. dvh следует за фактической
+     высотой. vh рядом как запасной для браузеров без dvh. */
   height: 100vh;
+  height: 100dvh;
 }
 
 /* --------------------------------------------------------------- шапка */
@@ -1094,6 +1099,11 @@ button.tag-chip--active:hover {
   overflow-wrap: anywhere;
 }
 
+/* Тот же приём для заголовка с UUID: рвать длинный токен, а не страницу. */
+.admin-detail__title {
+  overflow-wrap: anywhere;
+}
+
 /* Голый .card без собственного модификатора padding не получает (см.
    clarity-ui.css .card) — эти два раздела отчёта его не задавали, и
    контент упирался прямо в скруглённый край карточки. */
@@ -1787,4 +1797,131 @@ a.report-chip--ready:hover {
 }
 .emotion-lab__error {
   color: var(--danger);
+}
+
+/* ====================================================== телефон (≤480px)
+
+   Отдельный порог к уже существующим 1080px (стакает колонки сессии) и 720px
+   (схлопывает формы и сетки). Здесь — только то, что на планшете ещё уместно,
+   а на телефоне уже нет.
+
+   Кит clarity-ui.css не трогаем: его шапка запрещает локальные правки. */
+
+@media (max-width: 480px) {
+  /* Safari зумит страницу на фокусе в любое поле мельче 16px, и вернуть
+     масштаб пользователь потом не может — только вручную. Кит это уже делает
+     для .demo-form; здесь два поля, до которых он не дотягивается. */
+  .composer__input,
+  .scenario-filters__search {
+    font-size: 16px;
+  }
+
+  .page {
+    padding: 14px;
+  }
+
+  .hero-card {
+    padding: 22px 18px;
+  }
+
+  .report__section,
+  .scenario-form__row {
+    padding: 18px 16px;
+  }
+
+  /* Пол в 280px больше ширины экрана: на 320px сетка переполняла страницу. */
+  .scenario-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app__nav {
+    margin: 10px 12px 0;
+    padding: 12px 14px;
+    gap: 10px 16px;
+  }
+
+  /* --------------------------------------------------------- сессия */
+
+  .session {
+    padding: 12px 12px 0;
+    gap: 12px;
+  }
+
+  .session__header {
+    padding: 12px 14px;
+    gap: 10px 14px;
+  }
+
+  /* Аватар на телефоне делит экран с историей и композером — при прежнем поле
+     в 160px на диалог не оставалось ничего. */
+  .avatar {
+    min-height: 120px;
+  }
+
+  .session__avatar-panel {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .session__history {
+    max-height: 200px;
+    padding: 16px 16px 4px;
+  }
+
+  .subtitles {
+    font-size: 16px;
+  }
+
+  /* Композер липкий с 1080px; на телефоне ему нужен ещё и отступ под
+     системную полосу жестов, иначе кнопка отправки оказывается под ней.
+     env() без viewport-fit=cover в index.html вернул бы ноль. */
+  .session__composer-card {
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    margin-bottom: 0;
+    gap: 8px;
+  }
+
+  /* Кнопка записи — круглая: подпись уходит в aria-label, остаётся значок.
+     44px берём не «на глаз», это размер .arrow-btn из кита и минимальная
+     рекомендованная цель нажатия пальцем. */
+  .ptt__button {
+    min-width: 44px;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+
+  .ptt__button-label {
+    /* Не display:none — текст должен остаться доступным скринридеру, если
+       он читает содержимое кнопки, а не только aria-label. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* ---------------------------------------------- прочие экраны */
+
+  /* Жёсткий пол 716px: две колонки minmax(320px…) на телефоне не помещались
+     никак, и лаборатория переполняла страницу. */
+  .emotion-lab {
+    grid-template-columns: 1fr;
+    height: auto;
+    padding: 14px;
+    gap: 18px;
+  }
+
+  /* Крупнее цель нажатия там, где раньше был только мелкий текст. */
+  .tag-chip {
+    padding: 9px 15px;
+  }
+
+  .product__action,
+  .scenario-form__remove {
+    padding: 8px 4px;
+  }
 }
