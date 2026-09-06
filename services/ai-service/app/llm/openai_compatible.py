@@ -23,6 +23,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.core.logging import get_logger
@@ -46,6 +47,11 @@ _DISABLE_REASONING: dict[str, Any] = {"reasoning_effort": "none"}
 class OpenAiCompatibleProvider(LlmProvider):
     def __init__(self, api_key: str, base_url: str) -> None:
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        # Корень сервера без "/v1" — для нативного эндпоинта Ollama ниже
+        # (keep_warm). У OpenAI-совместимого /v1/chat/completions параметр
+        # keep_alive молча игнорируется (проверено вручную), у Ollama он есть
+        # только в её собственном /api/generate.
+        self._ollama_root = base_url[: -len("/v1")] if base_url.endswith("/v1") else base_url
 
     @property
     def name(self) -> str:
@@ -53,6 +59,33 @@ class OpenAiCompatibleProvider(LlmProvider):
 
     async def aclose(self) -> None:
         await self._client.close()
+
+    async def keep_warm(self, models: list[str], keep_alive: str = "10m") -> None:
+        """Держит модели резидентными в VRAM Ollama дольше её дефолтных 5 минут.
+
+        Не часть контракта LlmProvider — это не про генерацию ответа, а про
+        конкретную особенность Ollama на общем сервере: без этого модель
+        выгружается из памяти в простое между сообщениями сотрудника, и
+        следующий ответ персонажа платит десятки секунд холодной загрузки
+        (см. обсуждение в чате 2026-09-05 — 41с у 35B-модели против TTFT
+        обычно <1с). Правка на самом сервере требует root, которого нет —
+        поэтому держим тепло пингами отсюда, раз в несколько минут
+        (см. main.py, keep_warm_loop).
+
+        На не-Ollama OpenAI-совместимых прокси (VseLLM и т.п.) эндпоинта
+        /api/generate нет — ошибка тихо логируется и не мешает основной
+        работе провайдера.
+        """
+        async with httpx.AsyncClient(base_url=self._ollama_root, timeout=15.0) as client:
+            for model in dict.fromkeys(models):  # dict.fromkeys — дедуп с сохранением порядка
+                try:
+                    response = await client.post(
+                        "/api/generate",
+                        json={"model": model, "prompt": "", "keep_alive": keep_alive},
+                    )
+                    response.raise_for_status()
+                except httpx.HTTPError as exc:
+                    log.warning("llm.keep_warm_failed", model=model, error=str(exc))
 
     async def stream(
         self,

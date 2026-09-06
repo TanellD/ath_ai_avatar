@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     evaluation_max_tokens: int = 4000
     evaluation_temperature: float = 0.0
 
+    # Ollama выгружает модель из VRAM по умолчанию через 5 минут простоя —
+    # на общем сервере с несколькими моделями следующий ответ после паузы
+    # платит холодную загрузку (десятки секунд для крупных моделей). Правка
+    # на сервере (systemctl edit ollama) требует root — вместо этого держим
+    # тепло пингами отсюда (см. OpenAiCompatibleProvider.keep_warm,
+    # main.py). Не действует на mock/anthropic — там нет такого понятия.
+    llm_keep_warm_enabled: bool = True
+    llm_keep_warm_interval_sec: int = 180
+    llm_keep_warm_ttl: str = "10m"
+
 
 @lru_cache
 def get_settings() -> Settings:
