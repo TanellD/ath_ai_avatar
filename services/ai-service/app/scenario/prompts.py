@@ -12,7 +12,7 @@
 может нарушить, не нарушив схему.
 """
 
-from ath_contracts import Persona, Stage
+from ath_contracts import Persona, ScenarioSlot, Stage
 
 _PERSONA_BLOCK = """\
 Персонаж: {name} ({role}). Манера: {character}. Сложность {difficulty} из 5.
@@ -53,17 +53,37 @@ _RUBRIC_RULES = """\
 """
 
 _ID_RULES = """\
-Идентификаторы (`id` этапов и критериев): латиница в нижнем регистре, цифры и
-подчёркивание, коротко и по смыслу (`opening`, `objection_handling`). Внутри
-списка они не повторяются.
+Идентификаторы (`id` этапов, критериев и слотов): латиница в нижнем регистре,
+цифры и подчёркивание, коротко и по смыслу (`opening`, `objection_handling`,
+`company`). Внутри списка они не повторяются.
+"""
+
+_BRIEFING_RULES = """\
+Правила для брифа (`briefing` и `slots`) — это то, что сотрудник читает перед
+разговором:
+
+- `briefing` — три-пять предложений от второго лица: где сотрудник, кто перед
+  ним, чего этот человек хочет и чего хочет добиться сам сотрудник. Обстановка,
+  а не инструкция: приёмов и правильных фраз в нём быть не должно.
+- Конкретные детали — имена, названия компаний, продукты, цифры — не пиши в
+  текст напрямую, а поставь на их место подстановку `{имя_слота}` и объяви
+  слот. Эти детали подбираются заново на каждый прогон, чтобы одна и та же
+  тренировка не была одинаковой на пятый раз.
+- В `hint` слота напиши, что именно нужно придумать («название компании-
+  закупщика, средний бизнес»), а в `example` — правдоподобный пример.
+- Слотов немного: три-пять. Имя самого персонажа слотом делать не нужно —
+  оно задано в `persona`.
+- Каждая подстановка в тексте обязана иметь объявленный слот, и наоборот.
 """
 
 _DRAFT_SYSTEM = """\
 Ты — методист корпоративного обучения. По короткому описанию собери черновик
-сценария речевой тренировки: персонажа, этапы разговора и рубрику оценки.
+сценария речевой тренировки: персонажа, этапы разговора, рубрику оценки и
+бриф, который сотрудник читает перед разговором.
 
 {methodology}
 {rubric_rules}
+{briefing_rules}
 {id_rules}
 Черновик пойдёт человеку на правку, поэтому лучше конкретно и коротко, чем
 обтекаемо и длинно. Пиши по-русски.
@@ -104,7 +124,10 @@ def _stages_block(stages: list[Stage]) -> str:
 
 def build_draft_system() -> str:
     return _DRAFT_SYSTEM.format(
-        methodology=_METHODOLOGY, rubric_rules=_RUBRIC_RULES, id_rules=_ID_RULES
+        methodology=_METHODOLOGY,
+        rubric_rules=_RUBRIC_RULES,
+        briefing_rules=_BRIEFING_RULES,
+        id_rules=_ID_RULES,
     )
 
 
@@ -186,6 +209,62 @@ def build_rubric_schema(count: int) -> dict:
     }
 
 
+_DETAILS_SYSTEM = """\
+Ты придумываешь детали для тренировочного разговора: имена, названия компаний,
+продукты, цифры.
+
+Правила:
+
+- Каждое значение — короткое, как в жизни: «Северный Ветер», «CRM для
+  логистики», «двадцать процентов». Не предложение и не пояснение.
+- Значения должны сочетаться между собой и с ролью персонажа: компания,
+  продукт и цифры — из одного правдоподобного мира.
+- Не бери названия реальных компаний и имена реальных людей.
+- Значение подставляется прямо в текст вместо {id_слота}, поэтому пиши его в
+  той форме, в какой оно должно там стоять. Кавычек вокруг не добавляй.
+
+Пиши по-русски.
+"""
+
+
+def build_details_system() -> str:
+    return _DETAILS_SYSTEM
+
+
+def build_details_message(title: str, persona_role: str, briefing: str) -> str:
+    """Скелет брифа даётся целиком: из него видно, куда попадёт каждое
+    значение и в каком падеже оно должно там стоять."""
+    return (
+        f"Тренировка: «{title}». Собеседник — {persona_role}.\n\n"
+        f"Текст, в который подставятся значения:\n{briefing}"
+    )
+
+
+def build_details_schema(slots: list[ScenarioSlot]) -> dict:
+    """Ключи фиксированы объявленными слотами.
+
+    Тот же приём, что с enum'ом id рубрики в build_report_schema: лишнего ключа
+    модель не придумает, а `required` не даст пропустить нужный — подстановка
+    останется без дырок.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "values": {
+                "type": "object",
+                "properties": {
+                    slot.id: {"type": "string", "minLength": 1, "description": slot.hint}
+                    for slot in slots
+                },
+                "required": [slot.id for slot in slots],
+                "additionalProperties": False,
+            }
+        },
+        "required": ["values"],
+        "additionalProperties": False,
+    }
+
+
 def build_draft_schema(stages_count: int, rubric_count: int) -> dict:
     return {
         "type": "object",
@@ -208,7 +287,24 @@ def build_draft_schema(stages_count: int, rubric_count: int) -> dict:
             "stages": _stages_schema(stages_count),
             "rubric": _rubric_items_schema(rubric_count),
             "tags": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "briefing": {"type": "string", "minLength": 1},
+            "slots": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 6,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "pattern": _ID_PATTERN},
+                        "label": {"type": "string", "minLength": 1},
+                        "hint": {"type": "string", "minLength": 1},
+                        "example": {"type": "string", "minLength": 1},
+                    },
+                    "required": ["id", "label", "hint", "example"],
+                    "additionalProperties": False,
+                },
+            },
         },
-        "required": ["title", "persona", "stages", "rubric", "tags"],
+        "required": ["title", "persona", "stages", "rubric", "tags", "briefing", "slots"],
         "additionalProperties": False,
     }

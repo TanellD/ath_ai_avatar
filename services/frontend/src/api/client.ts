@@ -19,6 +19,7 @@ import type {
   Report,
   RubricItem,
   Scenario,
+  ScenarioSlot,
   ScenarioSummary,
   SessionSummaryItem,
   Stage,
@@ -64,6 +65,12 @@ export interface CreateSessionResponse {
   session_id: string;
   scenario_id: string;
   ws_url: string;
+  /**
+   * Сценарий ЭТОГО прогона: детали слотов уже подставлены сервером. Клиент
+   * берёт его отсюда, а не из scenario-service, иначе бриф и шапка показали
+   * бы неподставленный текст — а персонаж знал бы подставленный.
+   */
+  scenario: Scenario;
 }
 
 /** Ровно то, что нужно клиенту после переподключения. */
@@ -167,6 +174,8 @@ export interface ScenarioDraft {
   stages: Stage[];
   rubric: RubricItem[];
   tags: string[];
+  briefing: string;
+  slots: ScenarioSlot[];
 }
 
 /**

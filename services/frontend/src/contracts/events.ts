@@ -260,6 +260,16 @@ export interface RubricItem {
   weight: number;
 }
 
+/** Деталь, которую модель подбирает заново под каждый прогон. */
+export interface ScenarioSlot {
+  /** Ключ подстановки: {company} */
+  id: string;
+  label: string;
+  hint: string;
+  /** Значение по умолчанию: показывается на превью и подставляется при сбое. */
+  example: string;
+}
+
 export interface Scenario {
   id: string;
   title: string;
@@ -267,6 +277,9 @@ export interface Scenario {
   stages: Stage[];
   rubric: RubricItem[];
   tags: string[];
+  /** Что сотрудник читает перед разговором. Может содержать {slot_id}. */
+  briefing: string;
+  slots: ScenarioSlot[];
 }
 
 export interface ScenarioSummary {

@@ -170,18 +170,25 @@ async def _restore_session(websocket: WebSocket, session_id: str):
     заново после каждого разрыва связи посреди сценария.
     """
     async with session_factory()() as db:
-        state = await SqlSessionRepository(db).get(session_id)
+        repository = SqlSessionRepository(db)
+        state = await repository.get(session_id)
+        # Сценарий прогона — с уже подставленными деталями слотов (§7).
+        # Он же ушёл клиенту при создании сессии: персонаж обязан знать ту же
+        # компанию и тот же продукт, о которых сотрудник прочитал в брифе.
+        scenario = await repository.get_scenario(session_id)
 
     if state is None:
         await websocket.close(code=4404, reason="session not found")
         log.warning("ws.session_not_found")
         return None
 
-    try:
-        scenario = await websocket.app.state.scenario.get(state.scenario_id)
-    except ScenarioNotFound:
-        await websocket.close(code=4404, reason="scenario not found")
-        return None
+    if scenario is None:
+        # Сессия создана до появления колонки — берём текущую версию, как раньше.
+        try:
+            scenario = await websocket.app.state.scenario.get(state.scenario_id)
+        except ScenarioNotFound:
+            await websocket.close(code=4404, reason="scenario not found")
+            return None
 
     session = websocket.app.state.sessions.create(session_id, scenario)
     session.adopt(state)

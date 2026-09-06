@@ -6,7 +6,7 @@
 
 import uuid
 
-from ath_contracts import Report, SessionState
+from ath_contracts import Report, Scenario, SessionState, render_scenario
 from ath_contracts.api import (
     CreateSessionRequest,
     CreateSessionResponse,
@@ -36,11 +36,22 @@ async def create_session(
 
     Сценарий подтягивается сразу, чтобы несуществующий scenario_id падал здесь
     с понятной 404, а не внутри уже открытого сокета.
+
+    Здесь же он становится сценарием ЭТОГО прогона: детали слотов подбираются
+    один раз и подставляются по всему тексту (§7). Один раз, а не при каждом
+    чтении, — иначе бриф, промпт персонажа и рубрика в отчёте разъехались бы
+    между собой, и сотрудник читал бы про одну компанию, а персонаж знал бы
+    другую.
     """
     try:
         scenario = await request.app.state.scenario.get(payload.scenario_id)
     except ScenarioNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    # Не бросает: при сбое возвращает значения `example` из самого сценария.
+    # Косметическая деталь не имеет права не дать тренировке начаться.
+    values = await request.app.state.ai.fill_scenario_details(scenario)
+    scenario = render_scenario(scenario, values)
 
     session_id = str(uuid.uuid4())
     state = SessionState(
@@ -51,13 +62,14 @@ async def create_session(
     # Единственный сотрудник, пока авторизации нет (Claude.md §4) — см.
     # app/db/seed.py. Когда появятся реальные аккаунты, здесь будет
     # request.state.user_id вместо константы.
-    await SqlSessionRepository(db).create(state, user_id=DEFAULT_EMPLOYEE_ID)
+    await SqlSessionRepository(db).create(state, user_id=DEFAULT_EMPLOYEE_ID, scenario=scenario)
 
     log.info("session.created", session_id=session_id, scenario_id=scenario.id)
     return CreateSessionResponse(
         session_id=session_id,
         scenario_id=scenario.id,
         ws_url=f"/ws/session/{session_id}",
+        scenario=scenario,
     )
 
 
@@ -115,10 +127,7 @@ async def rebuild_report(
             status.HTTP_409_CONFLICT, "session has no turns to evaluate"
         )
 
-    try:
-        scenario = await request.app.state.scenario.get(state.scenario_id)
-    except ScenarioNotFound as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+    scenario = await _session_scenario(request, db, session_id, state.scenario_id)
 
     try:
         report = await request.app.state.ai.evaluate(
@@ -143,6 +152,29 @@ async def rebuild_report(
 
     log.info("session.report_rebuilt", session_id=session_id, total_score=report.total_score)
     return report
+
+
+async def _session_scenario(
+    request: Request, db: AsyncSession, session_id: str, scenario_id: str
+) -> Scenario:
+    """Сценарий, который сотрудник реально проходил.
+
+    Сохранённый payload важнее свежего: методист правит сценарии между
+    прогонами, и пересчёт оценки обязан идти по ТОЙ рубрике, по которой шёл
+    разговор. Раньше отчёт пересобирался по текущей версии — правка рубрики
+    после тренировки меняла бы оценку задним числом, а при удалении критерия
+    отчёт и вовсе не собирался.
+
+    Откат к scenario-service — для сессий, созданных до появления колонки.
+    """
+    stored = await SqlSessionRepository(db).get_scenario(session_id)
+    if stored is not None:
+        return stored
+
+    try:
+        return await request.app.state.scenario.get(scenario_id)
+    except ScenarioNotFound as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
 
 
 def _duration_sec(state: SessionState) -> int:

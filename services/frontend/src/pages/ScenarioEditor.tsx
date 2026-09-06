@@ -27,7 +27,14 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { aiApi, scenarioApi } from '@/api/client';
-import type { Mood, Persona, RubricItem, Scenario, Stage } from '@/contracts/events';
+import type {
+  Mood,
+  Persona,
+  RubricItem,
+  Scenario,
+  ScenarioSlot,
+  Stage,
+} from '@/contracts/events';
 import { hasIssues, validateScenario } from '@/scenario/validate';
 import type { ScenarioIssues } from '@/scenario/validate';
 
@@ -67,6 +74,8 @@ function emptyScenario(): Scenario {
     stages: [emptyStage(0)],
     rubric: [emptyRubricItem(0)],
     tags: [],
+    briefing: '',
+    slots: [],
   };
 }
 
@@ -164,6 +173,15 @@ export function ScenarioEditor() {
     && scenario.stages.every((stage) => stage.goal.trim() && stage.completion_criteria.trim());
   const rubricFilled = scenario.rubric.some((item) => item.name.trim() || item.description.trim());
 
+  // Подстановка без слота доедет до сотрудника фигурными скобками прямо в
+  // тексте: подставить её будет нечем. Показываем сразу, не дожидаясь
+  // сохранения, — это опечатка, а не ошибка формы.
+  const unknownPlaceholders = useMemo(() => {
+    const declared = new Set(scenario.slots.map((slot) => slot.id.trim()));
+    const used = [...scenario.briefing.matchAll(/\{(\w+)\}/g)].map((match) => match[1]);
+    return [...new Set(used.filter((name) => !declared.has(name)))];
+  }, [scenario.briefing, scenario.slots]);
+
   const patch = useCallback((update: Partial<Scenario>) => {
     setScenario((current) => ({ ...current, ...update }));
   }, []);
@@ -176,6 +194,13 @@ export function ScenarioEditor() {
     setScenario((current) => ({
       ...current,
       stages: current.stages.map((stage, i) => (i === index ? { ...stage, ...update } : stage)),
+    }));
+  }, []);
+
+  const patchSlot = useCallback((index: number, update: Partial<ScenarioSlot>) => {
+    setScenario((current) => ({
+      ...current,
+      slots: current.slots.map((slot, i) => (i === index ? { ...slot, ...update } : slot)),
     }));
   }, []);
 
@@ -451,6 +476,115 @@ export function ScenarioEditor() {
               )}
             </Field>
           </div>
+        </section>
+
+        <section className="card report__section">
+          <span className="eyebrow">Обстановка</span>
+          <h2>Что сотрудник читает перед разговором</h2>
+          <p className="admin__hint">
+            Три-пять предложений от второго лица: где сотрудник, кто перед ним и чего тот
+            хочет. Конкретные детали — имена, компании, продукты, цифры — не пишите
+            прямо в текст: поставьте на их место {'{подстановку}'} и объявите слот ниже.
+            Эти детали подбираются заново на каждый прогон, чтобы одна и та же тренировка
+            не была одинаковой на пятый раз.
+          </p>
+          <div className="demo-form">
+            <Field label="Бриф" full>
+              {(id) => (
+                <textarea
+                  id={id}
+                  rows={5}
+                  value={scenario.briefing}
+                  placeholder="Вы менеджер по продажам. Через десять минут у вас звонок с закупщиком компании «{company}» — они {company_business}. Вы хотите продать им {product}."
+                  onChange={(event) => patch({ briefing: event.target.value })}
+                />
+              )}
+            </Field>
+          </div>
+
+          {scenario.slots.map((slot, index) => (
+            <div key={index} className="scenario-form__row">
+              <div className="scenario-form__row-head">
+                <span className="bento-pill">{`{${slot.id || '…'}}`}</span>
+                <button
+                  type="button"
+                  className="scenario-form__remove"
+                  onClick={() => patch({ slots: scenario.slots.filter((_, i) => i !== index) })}
+                  aria-label={`Удалить слот ${index + 1}`}
+                >
+                  Удалить
+                </button>
+              </div>
+              <div className="demo-form">
+                <Field label="Ключ подстановки" required>
+                  {(id) => (
+                    <input
+                      id={id}
+                      type="text"
+                      value={slot.id}
+                      placeholder="company"
+                      onChange={(event) => patchSlot(index, { id: event.target.value })}
+                    />
+                  )}
+                </Field>
+                <Field label="Подпись">
+                  {(id) => (
+                    <input
+                      id={id}
+                      type="text"
+                      value={slot.label}
+                      placeholder="Компания клиента"
+                      onChange={(event) => patchSlot(index, { label: event.target.value })}
+                    />
+                  )}
+                </Field>
+                <Field label="Что придумать" hint="Инструкция модели">
+                  {(id) => (
+                    <input
+                      id={id}
+                      type="text"
+                      value={slot.hint}
+                      placeholder="название компании-закупщика, средний бизнес"
+                      onChange={(event) => patchSlot(index, { hint: event.target.value })}
+                    />
+                  )}
+                </Field>
+                <Field label="Пример" hint="Видно на превью и подставится, если модель не ответит">
+                  {(id) => (
+                    <input
+                      id={id}
+                      type="text"
+                      value={slot.example}
+                      placeholder="Северный Ветер"
+                      onChange={(event) => patchSlot(index, { example: event.target.value })}
+                    />
+                  )}
+                </Field>
+              </div>
+            </div>
+          ))}
+
+          {unknownPlaceholders.length > 0 && (
+            <p className="scenario-form__error">
+              В тексте есть подстановки без слота: {unknownPlaceholders.join(', ')}. Сотрудник
+              увидит их фигурными скобками как есть.
+            </p>
+          )}
+
+          <button
+            type="button"
+            className="scenario-form__add"
+            onClick={() =>
+              patch({
+                slots: [
+                  ...scenario.slots,
+                  { id: '', label: '', hint: '', example: '' },
+                ],
+              })
+            }
+          >
+            Добавить слот
+          </button>
         </section>
 
         <section className="card report__section">

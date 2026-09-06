@@ -18,7 +18,9 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { scenarioApi } from '@/api/client';
+import { ScenarioBriefing } from '@/components/ScenarioBriefing';
 import type { Scenario } from '@/contracts/events';
+import { renderBriefing, slotDefaults } from '@/scenario/briefing';
 
 export function ScenarioPreview() {
   const { scenarioId = '' } = useParams();
@@ -44,6 +46,25 @@ export function ScenarioPreview() {
           {scenario.persona.name} — {scenario.persona.role}. {scenario.persona.character}.
         </p>
       </section>
+
+      {/* Бриф с примерами методиста, без запроса к модели: «что это за кейс» —
+          не повод ждать и платить. Детали конкретного прогона подставятся при
+          старте тренировки, и там же сотрудник их и прочитает. */}
+      {scenario.briefing && (
+        <section className="card report__section">
+          <span className="eyebrow">Обстановка</span>
+          <h2>С чем вы придёте в разговор</h2>
+          <ScenarioBriefing
+            text={renderBriefing(scenario.briefing, slotDefaults(scenario.slots))}
+          />
+          {scenario.slots.length > 0 && (
+            <p className="admin__hint">
+              Имена, названия и цифры в тренировке будут другими — они подбираются заново
+              на каждый прогон.
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="card report__section">
         <span className="eyebrow">Этапы</span>

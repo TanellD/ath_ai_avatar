@@ -318,6 +318,30 @@ button.tag-chip--active:hover {
   gap: 12px;
 }
 
+/* -------------------------------------------------- обстановка (бриф)
+
+   Показывается и на превью кейса (в карточке), и в оверлее старта (на тёмном
+   фоне) — цвет наследуется, поэтому отдельного варианта под оверлей не нужно. */
+
+.briefing {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.briefing__paragraph {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: inherit;
+}
+
+.card .briefing__paragraph {
+  color: var(--ink-2);
+}
+
 /* ---------------------------------------------- редактор сценария
 
    Поля, подписи и фокус-кольца берутся из кита (.demo-form / .field /

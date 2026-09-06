@@ -22,10 +22,23 @@
 
 import re
 
-from ath_contracts import Persona, RubricItem, Stage
+from ath_contracts import Persona, RubricItem, ScenarioSlot, Stage
 from ath_contracts.api import RubricDraft, ScenarioDraftResponse
 
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
+
+_PLACEHOLDER = re.compile(r"\{(\w+)\}")
+"""Тот же шаблон, что у `ath_contracts.render_text`: только такие подстановки
+gateway и подставит."""
+
+_REPAIRABLE = re.compile(r"\{([\w\- ]+)\}")
+"""Шире предыдущего — намеренно.
+
+Модель пишет в текст `{Company-Name}` под стать своему же id слота. Дефис не
+подходит ни в идентификатор, ни под `_PLACEHOLDER`, поэтому такую подстановку
+надо не просто пропустить, а починить вместе с id — иначе после приведения
+слота к слагу текст и слот разъедутся, и сотрудник прочитает фигурные скобки.
+"""
 
 
 def _slug(raw: str, fallback: str) -> str:
@@ -65,9 +78,61 @@ def build_rubric_draft(raw: dict) -> RubricDraft:
     return RubricDraft(items=_rubric_items(raw.get("items", [])))
 
 
+def build_details(raw: dict, slots: list[ScenarioSlot]) -> dict[str, str]:
+    """Значения слотов, где на каждый объявленный слот что-то есть.
+
+    Пропущенный или пустой ключ закрывается `example` самого слота: дырка в
+    подстановке оставила бы сотруднику «{company}» прямо в тексте брифа, а
+    персонажу — в промпте. Своих ключей, которых методист не объявлял, здесь
+    быть не может: подставлять их всё равно некуда.
+    """
+    values = raw.get("values") or {}
+    return {
+        slot.id: str(values.get(slot.id) or slot.example).strip() or slot.example
+        for slot in slots
+    }
+
+
+def _briefing_and_slots(raw: dict) -> tuple[str, list[ScenarioSlot]]:
+    """Бриф и слоты, согласованные между собой.
+
+    Два расхождения, которые схема допускает, а сотрудник увидит глазами:
+
+    - id слота приходится приводить к слагу, как и остальные, — но он ещё и
+      стоит в тексте как `{id}`. Переименовываем слот и подстановку вместе,
+      иначе значение просто не подставится;
+    - подстановка без объявленного слота остаётся в тексте как есть, и
+      сотрудник читает «Вы продаёте {product}». Объявляем такой слот заготовкой:
+      методист увидит в форме недописанную строку и допишет её — это лучше, чем
+      фигурные скобки в тексте у сотрудника.
+    """
+    raw_slots = raw.get("slots", [])
+    ids = _unique_ids(raw_slots, "slot")
+    renames = {str(slot.get("id", "")): new for slot, new in zip(raw_slots, ids, strict=True)}
+
+    def repair(match: re.Match[str]) -> str:
+        name = match.group(1)
+        return "{" + (renames.get(name) or _slug(name, name)) + "}"
+
+    briefing = _REPAIRABLE.sub(repair, raw.get("briefing", ""))
+
+    slots = [
+        ScenarioSlot.model_validate({**slot, "id": slot_id})
+        for slot, slot_id in zip(raw_slots, ids, strict=True)
+    ]
+
+    declared = {slot.id for slot in slots}
+    for name in dict.fromkeys(_PLACEHOLDER.findall(briefing)):
+        if name not in declared:
+            slots.append(ScenarioSlot(id=name, label=name, hint=name, example=name))
+
+    return briefing, slots
+
+
 def build_scenario_draft(raw: dict) -> ScenarioDraftResponse:
     raw_stages = raw.get("stages", [])
     stage_ids = _unique_ids(raw_stages, "stage")
+    briefing, slots = _briefing_and_slots(raw)
 
     return ScenarioDraftResponse(
         title=raw.get("title", ""),
@@ -78,4 +143,6 @@ def build_scenario_draft(raw: dict) -> ScenarioDraftResponse:
         ],
         rubric=_rubric_items(raw.get("rubric", [])),
         tags=raw.get("tags", []),
+        briefing=briefing,
+        slots=slots,
     )

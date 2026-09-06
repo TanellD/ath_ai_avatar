@@ -59,6 +59,17 @@ class SessionRow(Base):
     stage_history: Mapped[list] = mapped_column(JSON, default=list)
     summary: Mapped[str] = mapped_column(Text, default="")
 
+    scenario_payload: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+        doc="Сценарий ЭТОГО прогона: детали слотов подставлены при создании "
+        "сессии (§7). Здесь, а не ссылкой в scenario-service, по двум причинам: "
+        "подстановка своя у каждого прогона, и правка сценария методистом после "
+        "тренировки не должна менять того, что проходил сотрудник — пересчёт "
+        "оценки обязан идти по той же рубрике. NULL у сессий, созданных до "
+        "появления колонки: там берётся текущая версия сценария, как раньше",
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

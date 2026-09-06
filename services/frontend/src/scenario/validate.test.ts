@@ -40,6 +40,8 @@ function scenario(patch: Partial<Scenario> = {}): Scenario {
       },
     ],
     tags: ['продажи'],
+    briefing: '',
+    slots: [],
     ...patch,
   };
 }

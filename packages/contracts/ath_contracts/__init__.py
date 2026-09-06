@@ -48,7 +48,16 @@ from ath_contracts.events import (
     parse_client_event,
 )
 from ath_contracts.report import AudioRef, CriterionScore, Report
-from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
+from ath_contracts.scenario import (
+    Persona,
+    RubricItem,
+    Scenario,
+    ScenarioSlot,
+    Stage,
+    render_scenario,
+    render_text,
+    slot_defaults,
+)
 from ath_contracts.session import SessionState, StageHistoryEntry, Turn
 
 __all__ = [
@@ -74,6 +83,7 @@ __all__ = [
     "ReportEvent",
     "RubricItem",
     "Scenario",
+    "ScenarioSlot",
     "ServerEvent",
     "SilenceTimeout",
     "SessionState",
@@ -93,4 +103,7 @@ __all__ = [
     "TurnRole",
     "UserMessage",
     "parse_client_event",
+    "render_scenario",
+    "render_text",
+    "slot_defaults",
 ]

@@ -19,7 +19,7 @@ from ath_contracts.enums import (
     SessionStatus,
 )
 from ath_contracts.report import Report
-from ath_contracts.scenario import Persona, RubricItem, Scenario, Stage
+from ath_contracts.scenario import Persona, RubricItem, Scenario, ScenarioSlot, Stage
 from ath_contracts.session import Turn
 
 # --------------------------------------------------------------- ai-service
@@ -255,6 +255,11 @@ class CreateSessionResponse(BaseModel):
     session_id: str
     scenario_id: str
     ws_url: str
+    scenario: Scenario = Field(
+        description="Сценарий ЭТОГО прогона: детали слотов уже подставлены. "
+        "Клиент берёт его отсюда, а не из scenario-service, иначе шапка и "
+        "бриф покажут неподставленный текст"
+    )
 
 
 class SessionSummaryItem(BaseModel):
@@ -315,6 +320,8 @@ class ScenarioDraftResponse(BaseModel):
     stages: list[Stage] = Field(min_length=1)
     rubric: list[RubricItem] = Field(min_length=1)
     tags: list[str] = Field(default_factory=list)
+    briefing: str = ""
+    slots: list[ScenarioSlot] = Field(default_factory=list)
 
 
 class RubricDraftRequest(BaseModel):
@@ -330,3 +337,20 @@ class RubricDraft(BaseModel):
     """Черновик рубрики — заготовка под генерацию сценария методисту (§7)."""
 
     items: list[RubricItem]
+
+
+class ScenarioDetailsRequest(BaseModel):
+    """POST /scenario/details — детали под один прогон сценария.
+
+    В отличие от двух ручек выше, эта зовётся не методистом, а gateway при
+    создании сессии, и ответ уходит не в форму, а в подстановку по сценарию.
+    """
+
+    title: str
+    persona_role: str = Field(description="Кем работает персонаж — задаёт правдоподобие деталей")
+    briefing: str = Field(description="Скелет с подстановками: показывает, куда попадут значения")
+    slots: list[ScenarioSlot] = Field(min_length=1)
+
+
+class ScenarioDetailsResponse(BaseModel):
+    values: dict[str, str] = Field(description="id слота → подобранное значение")

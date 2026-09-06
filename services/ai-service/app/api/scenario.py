@@ -22,6 +22,8 @@ from collections.abc import Callable
 from ath_contracts.api import (
     RubricDraft,
     RubricDraftRequest,
+    ScenarioDetailsRequest,
+    ScenarioDetailsResponse,
     ScenarioDraftRequest,
     ScenarioDraftResponse,
 )
@@ -30,8 +32,11 @@ from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.scenario.drafts import build_rubric_draft, build_scenario_draft
+from app.scenario.drafts import build_details, build_rubric_draft, build_scenario_draft
 from app.scenario.prompts import (
+    build_details_message,
+    build_details_schema,
+    build_details_system,
     build_draft_message,
     build_draft_schema,
     build_draft_system,
@@ -47,6 +52,9 @@ _DRAFT_MAX_TOKENS = 4000
 """Сценарий на 4 этапа и 4 критерия — того же порядка текст, что и отчёт."""
 
 _RUBRIC_MAX_TOKENS = 2000
+
+_DETAILS_MAX_TOKENS = 500
+"""Полсотни коротких значений, а не текст."""
 
 
 @router.post("/draft", response_model=ScenarioDraftResponse)
@@ -99,6 +107,46 @@ async def draft_rubric(payload: RubricDraftRequest, request: Request) -> RubricD
     draft = _build(build_rubric_draft, raw, "rubric")
     log.info("scenario.rubric.done", count=len(draft.items))
     return draft
+
+
+@router.post("/details", response_model=ScenarioDetailsResponse)
+async def scenario_details(
+    payload: ScenarioDetailsRequest, request: Request
+) -> ScenarioDetailsResponse:
+    """Детали под один прогон: имена, компании, продукты, цифры.
+
+    Зовётся не методистом, а gateway при создании сессии, поэтому попадает в
+    задержку старта тренировки — отсюда быстрая модель и небольшой лимит: это
+    полсотни коротких значений, а не текст.
+
+    Ошибку наружу отдаём как есть: у вызывающего (gateway) есть запасной путь —
+    значения `example` из самого сценария. Косметическая деталь не имеет права
+    не дать тренировке начаться.
+    """
+    settings = get_settings()
+    provider = request.app.state.llm
+
+    raw = await provider.complete_json(
+        system=build_details_system(),
+        messages=[
+            {
+                "role": "user",
+                "content": build_details_message(
+                    payload.title, payload.persona_role, payload.briefing
+                ),
+            }
+        ],
+        model=settings.llm_fast_model,
+        max_tokens=_DETAILS_MAX_TOKENS,
+        # Смысл ручки — в разнообразии между прогонами: одни и те же детали на
+        # пятом прогоне работают против §7.
+        temperature=1.0,
+        schema=build_details_schema(payload.slots),
+    )
+
+    values = build_details(raw, payload.slots)
+    log.info("scenario.details.done", slots=len(values))
+    return ScenarioDetailsResponse(values=values)
 
 
 def _build[T: (ScenarioDraftResponse, RubricDraft)](

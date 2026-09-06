@@ -72,6 +72,10 @@ class MockLlmProvider(LlmProvider):
             log.debug("llm.mock.complete_json", kind="rubric_draft")
             return {"items": _mock_rubric(properties["items"])}
 
+        if "values" in properties:
+            log.debug("llm.mock.complete_json", kind="scenario_details")
+            return _mock_details(properties["values"])
+
         log.debug("llm.mock.complete_json", kind="classification")
         return json.loads('{"classification": "incomplete", "reason": "mock provider"}')
 
@@ -92,6 +96,12 @@ def _mock_rubric(schema: dict[str, Any]) -> list[dict[str, Any]]:
         }
         for index in range(1, _count(schema) + 1)
     ]
+
+
+def _mock_details(values_schema: dict[str, Any]) -> dict[str, Any]:
+    """Ключи берутся из схемы: build_details_schema кладёт туда объявленные
+    методистом слоты, и подстановка не должна остаться с дыркой."""
+    return {"values": dict.fromkeys(values_schema.get("properties", {}), "заглушка")}
 
 
 def _mock_scenario_draft(properties: dict[str, Any]) -> dict[str, Any]:
@@ -121,6 +131,15 @@ def _mock_scenario_draft(properties: dict[str, Any]) -> dict[str, Any]:
         ],
         "rubric": _mock_rubric(properties["rubric"]),
         "tags": ["заглушка"],
+        "briefing": "Провайдер LLM не настроен. Компания: {company}.",
+        "slots": [
+            {
+                "id": "company",
+                "label": "Компания",
+                "hint": "название компании",
+                "example": "Заглушка",
+            }
+        ],
     }
 
 
