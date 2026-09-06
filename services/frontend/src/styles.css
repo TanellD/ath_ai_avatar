@@ -406,6 +406,20 @@ button.tag-chip--active:hover {
   color: var(--blue);
 }
 
+/* Кнопка генерации и пояснение к ней: что она сделает и чего будет стоить. */
+.scenario-form__generate {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.scenario-form__generate .modal-hint {
+  margin: 0;
+  flex: 1 1 220px;
+}
+
 .scenario-form__error {
   margin: 0;
   padding-left: 6px;

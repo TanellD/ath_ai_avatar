@@ -289,6 +289,43 @@ class ReadyResponse(BaseModel):
     )
 
 
+# ------------------------------------- генерация черновиков методисту (§7)
+#
+# Сценарий создаётся «из шаблона, из сгенерированного черновика или с нуля».
+# Первый и третий пути закрывает CRUD scenario-service, второй — эти ручки.
+#
+# Ответ здесь всегда ЧЕРНОВИК, а не готовый к сохранению сценарий: он едет в
+# форму редактора, методист смотрит и правит. Поэтому `id` сценария в ответе
+# нет — его задаёт человек, и он же адрес страницы.
+
+
+class ScenarioDraftRequest(BaseModel):
+    """POST /scenario/draft — «развернуть черновик» из пары строк."""
+
+    brief: str = Field(min_length=1, description="Что тренируем, своими словами")
+    stages_count: int = Field(default=4, ge=1, le=8)
+    rubric_count: int = Field(default=4, ge=1, le=8)
+
+
+class ScenarioDraftResponse(BaseModel):
+    """Всё, кроме `id`: остальные поля формы редактора."""
+
+    title: str
+    persona: Persona
+    stages: list[Stage] = Field(min_length=1)
+    rubric: list[RubricItem] = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
+
+
+class RubricDraftRequest(BaseModel):
+    """POST /scenario/rubric — «заполнить критерии» по описанному сценарию."""
+
+    title: str
+    persona: Persona
+    stages: list[Stage] = Field(min_length=1)
+    count: int = Field(default=4, ge=1, le=8)
+
+
 class RubricDraft(BaseModel):
     """Черновик рубрики — заготовка под генерацию сценария методисту (§7)."""
 

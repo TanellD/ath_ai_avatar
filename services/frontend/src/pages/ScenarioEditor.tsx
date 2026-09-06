@@ -26,7 +26,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { scenarioApi } from '@/api/client';
+import { aiApi, scenarioApi } from '@/api/client';
 import type { Mood, Persona, RubricItem, Scenario, Stage } from '@/contracts/events';
 import { hasIssues, validateScenario } from '@/scenario/validate';
 import type { ScenarioIssues } from '@/scenario/validate';
@@ -121,6 +121,10 @@ export function ScenarioEditor() {
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
+  const [brief, setBrief] = useState('');
+  const [generating, setGenerating] = useState<'draft' | 'rubric' | null>(null);
+  const [genError, setGenError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!source) return;
     setLoading(true);
@@ -152,6 +156,14 @@ export function ScenarioEditor() {
   // после открытия — значит встретить методиста красным экраном.
   const shown: ScenarioIssues = submitted ? issues : {};
 
+  // Критерии выводятся из персонажа и этапов: по пустой форме модель
+  // придумает рубрику к несуществующему разговору.
+  const canDraftRubric =
+    Boolean(scenario.title.trim())
+    && Boolean(scenario.persona.name.trim())
+    && scenario.stages.every((stage) => stage.goal.trim() && stage.completion_criteria.trim());
+  const rubricFilled = scenario.rubric.some((item) => item.name.trim() || item.description.trim());
+
   const patch = useCallback((update: Partial<Scenario>) => {
     setScenario((current) => ({ ...current, ...update }));
   }, []);
@@ -173,6 +185,38 @@ export function ScenarioEditor() {
       rubric: current.rubric.map((item, i) => (i === index ? { ...item, ...update } : item)),
     }));
   }, []);
+
+  /**
+   * Черновик уезжает в форму, а не в базу: методист смотрит и правит перед
+   * сохранением. Ответственность за методику остаётся у человека — модель
+   * ускоряет заполнение, но не решает, чему учить.
+   */
+  const handleDraft = () => {
+    setGenerating('draft');
+    setGenError(null);
+    aiApi
+      .draftScenario(brief, scenario.stages.length, scenario.rubric.length)
+      .then((draft) => {
+        // id не трогаем: его задаёт человек, и он же адрес страницы.
+        setScenario((current) => ({ ...current, ...draft }));
+        setSubmitted(false);
+      })
+      .catch((cause: Error) => setGenError(cause.message))
+      .finally(() => setGenerating(null));
+  };
+
+  const handleRubric = () => {
+    setGenerating('rubric');
+    setGenError(null);
+    aiApi
+      .draftRubric(scenario.title, scenario.persona, scenario.stages, scenario.rubric.length)
+      .then((items) => {
+        patch({ rubric: items });
+        setSubmitted(false);
+      })
+      .catch((cause: Error) => setGenError(cause.message))
+      .finally(() => setGenerating(null));
+  };
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -213,6 +257,46 @@ export function ScenarioEditor() {
       </section>
 
       <form className="scenario-form" onSubmit={handleSubmit} noValidate>
+        {/* Только на пустом бланке. У копии содержание уже есть, и кнопка
+            «заменить всё» рядом с ним — ловушка, а не помощь. */}
+        {!isEdit && !copyFrom && (
+          <section className="card report__section">
+            <span className="eyebrow">Черновик</span>
+            <h2>Начать с описания</h2>
+            <p className="admin__hint">
+              Опишите тренировку парой фраз — персонаж, этапы и рубрика заполнятся сами.
+              Это черновик: он попадёт в форму, а не в библиотеку, и правится как обычно.
+            </p>
+            <div className="demo-form">
+              <Field label="Что тренируем" full>
+                {(id) => (
+                  <textarea
+                    id={id}
+                    value={brief}
+                    rows={3}
+                    placeholder="Менеджер продаёт CRM для логистики начальнику отдела закупок. Тот говорит, что у них уже всё работает и бюджета нет."
+                    onChange={(event) => setBrief(event.target.value)}
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="scenario-form__generate">
+              <button
+                type="button"
+                className="btn btn-gray"
+                onClick={handleDraft}
+                disabled={generating !== null || !brief.trim()}
+              >
+                {generating === 'draft' ? 'Собираем черновик…' : 'Развернуть черновик'}
+              </button>
+              <span className="modal-hint">
+                Займёт до минуты: сценарий целиком собирает сильная модель.
+                Этапов и критериев будет столько же, сколько сейчас в форме.
+              </span>
+            </div>
+          </section>
+        )}
+
         <section className="card report__section">
           <span className="eyebrow">Основное</span>
           <h2>Что это за тренировка</h2>
@@ -502,6 +586,23 @@ export function ScenarioEditor() {
             без неё оценку нельзя проверить быстро. Чем длиннее рубрика, тем выше шанс, что
             модель пропустит критерий и отчёт будет отбракован целиком.
           </p>
+          <div className="scenario-form__generate">
+            <button
+              type="button"
+              className="btn btn-gray"
+              onClick={handleRubric}
+              disabled={generating !== null || !canDraftRubric}
+            >
+              {generating === 'rubric' ? 'Подбираем критерии…' : 'Заполнить критерии'}
+            </button>
+            <span className="modal-hint">
+              {canDraftRubric
+                ? rubricFilled
+                  ? 'Заменит все критерии ниже — заполненное сейчас пропадёт'
+                  : 'По названию, персонажу и этапам выше'
+                : 'Сначала заполните название, персонажа и этапы'}
+            </span>
+          </div>
           {shown.rubric && <p className="scenario-form__error">{shown.rubric}</p>}
 
           {scenario.rubric.map((item, index) => (
@@ -610,6 +711,11 @@ export function ScenarioEditor() {
           </button>
         </section>
 
+        {genError && (
+          <p className="scenario-form__error" role="alert">
+            Не удалось собрать черновик: {genError}. Форма не изменилась — попробуйте ещё раз.
+          </p>
+        )}
         {error && (
           <p className="scenario-form__error" role="alert">
             Не удалось сохранить: {error}
