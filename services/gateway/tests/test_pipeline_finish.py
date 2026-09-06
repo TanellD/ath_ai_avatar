@@ -13,6 +13,7 @@ import pytest
 from ath_contracts import Action, Classification, Scenario, SessionStatus, TurnRole
 
 from app.orchestrator.session_manager import LiveSession
+from app.tracing import SpanRecorder
 from tests.conftest import build_pipeline, drain, drain_background, noop
 
 
@@ -113,6 +114,37 @@ async def test_fresh_generation_still_persists_turn(built) -> None:  # noqa: ANN
     await pipeline._record_agent_turn(1, "нормальная реплика")
 
     assert [t.text for t in session.turns] == ["нормальная реплика"]
+
+
+async def test_evaluate_span_lands_after_the_turn_not_at_its_start(
+    finishing,  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Финальная оценка рисуется в ганте того поколения, после которого
+    случилась. Со своим SpanRecorder она получала seq=0 и start_ms=0 —
+    и вставала в начало графика поверх character_reply (bugs_front_2 №6)."""
+    pipeline, session, ai, _speech, _sent = finishing
+    ai.classification = Classification.COMPLETE
+
+    spans: list[tuple[int, str, int]] = []
+
+    async def capture(self, seq, operation, label, start_ms, end_ms, status, error):  # noqa: ANN001
+        spans.append((seq, operation, start_ms))
+
+    monkeypatch.setattr(SpanRecorder, "_persist", capture)
+
+    await pipeline.handle_user_message("Спасибо, договорились.", interrupts=None)
+    await drain(session)
+    await drain_background(pipeline)
+
+    evaluate = [s for s in spans if s[1] == "evaluate"]
+    assert len(evaluate) == 1, "оценка должна дать ровно один спан"
+
+    seq, _operation, start_ms = evaluate[0]
+    assert seq > 0, "оценка идёт после операций хода, а не первой"
+    assert start_ms >= max(s[2] for s in spans if s[1] != "evaluate"), (
+        "оценка не может начинаться раньше последней операции хода"
+    )
 
 
 async def test_classify_failure_still_advances_on_max_turns(

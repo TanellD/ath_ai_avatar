@@ -5,7 +5,7 @@ SpanRow напрямую, читаем через админ-чтения. In-me
 from collections.abc import AsyncIterator
 
 import pytest
-from ath_contracts import Report, SessionState, Turn, TurnRole
+from ath_contracts import Report, SessionState, StageExit, StageHistoryEntry, Turn, TurnRole
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -48,6 +48,29 @@ async def test_list_sessions_reports_turn_count(db_session: AsyncSession) -> Non
     assert len(sessions) == 1
     assert sessions[0].session_id == "s1"
     assert sessions[0].turn_count == 2
+
+
+async def test_list_sessions_reports_stages_completed_from_history(
+    db_session: AsyncSession,
+) -> None:
+    """docs/bugs_front.md №5: номер этапа в админке — честная колонка БД
+    (stage_history), не что-то домысленное поверх current_stage."""
+    repo = SqlSessionRepository(db_session)
+    state = SessionState(
+        session_id="s-stages", scenario_id="objection_price", current_stage="objection"
+    )
+    await repo.create(state, user_id=DEFAULT_EMPLOYEE_ID)
+
+    state.stage_history = [
+        StageHistoryEntry(stage_id="opening", turns_spent=3, exit=StageExit.COMPLETE),
+        StageHistoryEntry(stage_id="discovery", turns_spent=4, exit=StageExit.COMPLETE),
+    ]
+    await repo.save_snapshot(state)
+
+    admin = AdminRepository(db_session)
+    row = (await admin.list_sessions())[0]
+
+    assert row.stages_completed == 2
 
 
 async def test_get_session_path_returns_turns_in_order(db_session: AsyncSession) -> None:
@@ -276,3 +299,56 @@ async def test_get_load_stats_aggregates_by_operation(db_session: AsyncSession) 
     assert stats.sessions_by_status == {"active": 1}
     assert sum(b.count for b in stats.sessions_timeline) == 1
     assert sum(b.count for b in stats.activity_timeline) == 3
+
+
+async def test_get_load_stats_buckets_errors_by_service(db_session: AsyncSession) -> None:
+    """docs/bugs_front.md №6: ошибки по времени, отдельным списком бакетов на
+    каждый сервис — сгруппированы по той же _OPERATION_SERVICE, что и
+    OperationLoad.service, без новой агрегации в БД."""
+    repo = SqlSessionRepository(db_session)
+    await repo.create(
+        SessionState(session_id="s-err", scenario_id="objection_price", current_stage="opening"),
+        user_id=DEFAULT_EMPLOYEE_ID,
+    )
+    db_session.add_all(
+        [
+            SpanRow(
+                session_id="s-err", gen_id=1, seq=0, operation="character_reply", label="a",
+                start_ms=0, end_ms=100, status="error", error="boom",
+            ),
+            SpanRow(
+                session_id="s-err", gen_id=1, seq=1, operation="tts_synthesize", label="b",
+                start_ms=0, end_ms=100, status="error", error="boom",
+            ),
+            SpanRow(
+                session_id="s-err", gen_id=1, seq=2, operation="classify", label="c",
+                start_ms=0, end_ms=100, status="ok", error=None,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    stats = await AdminRepository(db_session).get_load_stats()
+
+    assert set(stats.error_timeline) == {"ai-service", "speech-service"}
+    assert sum(b.count for b in stats.error_timeline["ai-service"]) == 1
+    assert sum(b.count for b in stats.error_timeline["speech-service"]) == 1
+
+
+async def test_get_load_stats_sums_freed_hours_from_all_reports(db_session: AsyncSession) -> None:
+    """Claude.md §11, п.6: счётчик освобождённых часов — агрегат по ВСЕМ
+    сессиям, а не одна сессия (баг: та же цифра на /report выглядела как
+    «0.02 ч» и дублировала длительность соседней плиткой)."""
+    repo = SqlSessionRepository(db_session)
+    for session_id in ("s6", "s7"):
+        state = SessionState(
+            session_id=session_id, scenario_id="objection_price", current_stage="opening"
+        )
+        await repo.create(state, user_id=DEFAULT_EMPLOYEE_ID)
+    reports = SqlReportRepository(db_session)
+    await reports.save(await _report("s6", duration_sec=3600))
+    await reports.save(await _report("s7", duration_sec=1800))
+
+    stats = await AdminRepository(db_session).get_load_stats()
+
+    assert stats.freed_hours == 1.5

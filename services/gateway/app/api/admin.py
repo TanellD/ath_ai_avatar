@@ -7,11 +7,12 @@
 app/db/admin_repository.py).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.admin_repository import AdminRepository
+from app.clients.scenario_client import ScenarioClient, ScenarioNotFound
+from app.db.admin_repository import AdminRepository, SessionSummary
 from app.db.engine import get_session
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -24,8 +25,46 @@ class SessionSummaryResponse(BaseModel):
     user_display_name: str
     status: str
     current_stage: str
+    stages_completed: int
+    stages_total: int | None
+    """None — сценарий с тех пор удалён из scenario-service; номер этапа
+    показать нечем, но остальная строка сессии всё ещё осмысленна."""
     turn_count: int
     created_at: str
+
+
+async def _stages_total_by_scenario(
+    client: ScenarioClient, scenario_ids: set[str]
+) -> dict[str, int | None]:
+    """По одному запросу на КАЖДЫЙ scenario_id, не на каждую сессию —
+    сессий может быть сотня, сценариев из них — единицы (docs/bugs_front.md
+    №5)."""
+    result: dict[str, int | None] = {}
+    for scenario_id in scenario_ids:
+        try:
+            scenario = await client.get(scenario_id)
+        except ScenarioNotFound:
+            result[scenario_id] = None
+        else:
+            result[scenario_id] = len(scenario.stages)
+    return result
+
+
+def _session_summary_response(
+    row: SessionSummary, stages_total: dict[str, int | None]
+) -> SessionSummaryResponse:
+    return SessionSummaryResponse(
+        session_id=row.session_id,
+        scenario_id=row.scenario_id,
+        user_id=row.user_id,
+        user_display_name=row.user_display_name,
+        status=row.status,
+        current_stage=row.current_stage,
+        stages_completed=row.stages_completed,
+        stages_total=stages_total.get(row.scenario_id),
+        turn_count=row.turn_count,
+        created_at=row.created_at,
+    )
 
 
 class SessionListResponse(BaseModel):
@@ -92,32 +131,25 @@ class LoadResponse(BaseModel):
     sessions_by_status: dict[str, int]
     sessions_timeline: list[TimeBucketResponse]
     activity_timeline: list[TimeBucketResponse]
+    error_timeline: dict[str, list[TimeBucketResponse]]
+    freed_hours: float
 
 
 @router.get("/sessions", response_model=SessionListResponse)
-async def list_sessions(db: AsyncSession = Depends(get_session)) -> SessionListResponse:
+async def list_sessions(
+    request: Request, db: AsyncSession = Depends(get_session)
+) -> SessionListResponse:
     """Дашборд: все сессии, новые сверху."""
     rows = await AdminRepository(db).list_sessions()
-    return SessionListResponse(
-        items=[
-            SessionSummaryResponse(
-                session_id=r.session_id,
-                scenario_id=r.scenario_id,
-                user_id=r.user_id,
-                user_display_name=r.user_display_name,
-                status=r.status,
-                current_stage=r.current_stage,
-                turn_count=r.turn_count,
-                created_at=r.created_at,
-            )
-            for r in rows
-        ]
+    stages_total = await _stages_total_by_scenario(
+        request.app.state.scenario, {r.scenario_id for r in rows}
     )
+    return SessionListResponse(items=[_session_summary_response(r, stages_total) for r in rows])
 
 
 @router.get("/sessions/{session_id}/path", response_model=SessionPathResponse)
 async def get_session_path(
-    session_id: str, db: AsyncSession = Depends(get_session)
+    request: Request, session_id: str, db: AsyncSession = Depends(get_session)
 ) -> SessionPathResponse:
     """«Путь сессии» — все ходы по порядку, с gen_id и этапом каждого."""
     result = await AdminRepository(db).get_session_path(session_id)
@@ -125,17 +157,11 @@ async def get_session_path(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
 
     summary, turns = result
+    stages_total = await _stages_total_by_scenario(
+        request.app.state.scenario, {summary.scenario_id}
+    )
     return SessionPathResponse(
-        session=SessionSummaryResponse(
-            session_id=summary.session_id,
-            scenario_id=summary.scenario_id,
-            user_id=summary.user_id,
-            user_display_name=summary.user_display_name,
-            status=summary.status,
-            current_stage=summary.current_stage,
-            turn_count=summary.turn_count,
-            created_at=summary.created_at,
-        ),
+        session=_session_summary_response(summary, stages_total),
         turns=[
             TurnResponse(
                 index=t.index, gen_id=t.gen_id, role=t.role, text=t.text,
@@ -199,4 +225,9 @@ async def get_load(db: AsyncSession = Depends(get_session)) -> LoadResponse:
         activity_timeline=[
             TimeBucketResponse(label=b.label, count=b.count) for b in stats.activity_timeline
         ],
+        error_timeline={
+            service: [TimeBucketResponse(label=b.label, count=b.count) for b in buckets]
+            for service, buckets in stats.error_timeline.items()
+        },
+        freed_hours=stats.freed_hours,
     )

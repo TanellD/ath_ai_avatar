@@ -13,12 +13,17 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import SessionRow, SpanRow, TurnRow, UserRow
+from app.db.models import ReportRow, SessionRow, SpanRow, TurnRow, UserRow
 
 
 @dataclass
 class SessionSummary:
-    """Строка списка сессий на дашборде."""
+    """Строка списка сессий на дашборде.
+
+    `stages_completed` — из `stage_history`, честная колонка БД. `stages_total`
+    здесь нет: число этапов сценария репозиторий не знает, оно живёт в
+    scenario-service, а не в БД gateway — API-слой (`app/api/admin.py`)
+    донабирает его через уже существующий `ScenarioClient`."""
 
     session_id: str
     scenario_id: str
@@ -26,6 +31,7 @@ class SessionSummary:
     user_display_name: str
     status: str
     current_stage: str
+    stages_completed: int
     turn_count: int
     created_at: str
 
@@ -103,11 +109,21 @@ class LoadStats:
     activity_timeline: list[TimeBucket]
     """Операции конвейера (spans), по тем же бакетам — «сколько всего
     происходило» независимо от того, к какой сессии относится."""
+    error_timeline: dict[str, list[TimeBucket]]
+    """Ошибки по времени, один список бакетов на сервис (ключ —
+    `_OPERATION_SERVICE`-значение) — тот же бакетинг, что у sessions_timeline,
+    чтобы графики можно было положить на одну общую шкалу."""
+    freed_hours: float
+    """Счётчик освобождённых часов методиста — Claude.md §11, п.6. Сумма
+    duration_sec по ВСЕМ завершённым сессиям, а не одна сессия: на шкале
+    одной ~8-минутной тренировки цифра вроде «0.1 ч» ничего не говорит,
+    агрегат по дашборду — говорит."""
 
 
 _OPERATION_SERVICE = {
     "character_reply": "ai-service",
     "classify": "ai-service",
+    "evaluate": "ai-service",
     "tts_synthesize": "speech-service",
 }
 
@@ -175,6 +191,7 @@ class AdminRepository:
                 user_display_name=row.display_name or row.SessionRow.user_id,
                 status=row.SessionRow.status,
                 current_stage=row.SessionRow.current_stage,
+                stages_completed=len(row.SessionRow.stage_history),
                 turn_count=row.n or 0,
                 created_at=row.SessionRow.created_at.isoformat(),
             )
@@ -203,6 +220,7 @@ class AdminRepository:
             user_display_name=user.display_name if user else row.user_id,
             status=row.status,
             current_stage=row.current_stage,
+            stages_completed=len(row.stage_history),
             turn_count=len(turn_rows),
             created_at=row.created_at.isoformat(),
         )
@@ -330,10 +348,33 @@ class AdminRepository:
         ).all()
         span_times = [created_at for *_rest, created_at in span_rows if created_at >= since]
 
+        # Тот же span_rows, без новой выборки: ошибки по сервисам во времени —
+        # группировка уже прочитанных строк по _OPERATION_SERVICE, а не новый
+        # агрегат в БД (см. докстринг LoadStats.error_timeline).
+        error_times_by_service: dict[str, list[datetime]] = {}
+        for operation, _start_ms, _end_ms, status, created_at in span_rows:
+            if status != "error" or created_at < since:
+                continue
+            service = _OPERATION_SERVICE.get(operation, "unknown")
+            error_times_by_service.setdefault(service, []).append(created_at)
+
+        error_timeline = {
+            service: _timeline(times, since, until, bucket_seconds)
+            for service, times in error_times_by_service.items()
+        }
+
+        # payload — Report целиком (§7); duration_sec нигде не денормализован
+        # отдельной колонкой, а сумма по всем отчётам — операция, для которой
+        # заводить её ради этого не стоило (см. докстрайн get_load_stats).
+        report_payloads = (await self._db.scalars(select(ReportRow.payload))).all()
+        freed_hours = sum(p.get("duration_sec", 0) for p in report_payloads) / 3600
+
         return LoadStats(
             operations=operations,
             sessions_total=sessions_total,
             sessions_by_status=sessions_by_status,
             sessions_timeline=_timeline(list(session_times), since, until, bucket_seconds),
             activity_timeline=_timeline(span_times, since, until, bucket_seconds),
+            error_timeline=error_timeline,
+            freed_hours=round(freed_hours, 1),
         )
