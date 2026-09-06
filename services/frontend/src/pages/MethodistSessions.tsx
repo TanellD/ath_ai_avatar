@@ -93,53 +93,55 @@ export function MethodistSessions() {
       )}
 
       {sessions.length > 0 && (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Сценарий</th>
-              <th>Дата</th>
-              <th>Статус</th>
-              <th>Реплик</th>
-              <th>Отчёт</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sessions.map((session) => (
-              <tr key={session.session_id}>
-                <td>{titleById.get(session.scenario_id) ?? session.scenario_id}</td>
-                <td>{new Date(session.created_at).toLocaleString('ru-RU')}</td>
-                <td>
-                  <span className={`admin-status admin-status--${session.status}`}>
-                    {STATUS_LABEL[session.status] ?? session.status}
-                  </span>
-                </td>
-                <td>{session.turn_count}</td>
-                <td>
-                  {session.has_report ? (
-                    <Link
-                      className="report-chip report-chip--ready"
-                      to={`/report/${session.session_id}`}
-                    >
-                      Отчёт
-                    </Link>
-                  ) : isPending(session) && !gaveUp ? (
-                    <span className="report-chip report-chip--pending skeleton-shimmer">
-                      Считается…
-                    </span>
-                  ) : isPending(session) ? (
-                    // Ждали дольше разумного: оценка, скорее всего, упала —
-                    // на странице отчёта есть кнопка пересчёта.
-                    <Link className="report-chip report-chip--none" to={`/report/${session.session_id}`}>
-                      не сформирован
-                    </Link>
-                  ) : (
-                    <span className="report-chip report-chip--none">нет</span>
-                  )}
-                </td>
+        <div className="table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Сценарий</th>
+                <th>Дата</th>
+                <th>Статус</th>
+                <th>Реплик</th>
+                <th>Отчёт</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sessions.map((session) => (
+                <tr key={session.session_id}>
+                  <td>{titleById.get(session.scenario_id) ?? session.scenario_id}</td>
+                  <td>{new Date(session.created_at).toLocaleString('ru-RU')}</td>
+                  <td>
+                    <span className={`admin-status admin-status--${session.status}`}>
+                      {STATUS_LABEL[session.status] ?? session.status}
+                    </span>
+                  </td>
+                  <td>{session.turn_count}</td>
+                  <td>
+                    {session.has_report ? (
+                      <Link
+                        className="report-chip report-chip--ready"
+                        to={`/report/${session.session_id}`}
+                      >
+                        Отчёт
+                      </Link>
+                    ) : isPending(session) && !gaveUp ? (
+                      <span className="report-chip report-chip--pending skeleton-shimmer">
+                        Считается…
+                      </span>
+                    ) : isPending(session) ? (
+                      // Ждали дольше разумного: оценка, скорее всего, упала —
+                      // на странице отчёта есть кнопка пересчёта.
+                      <Link className="report-chip report-chip--none" to={`/report/${session.session_id}`}>
+                        не сформирован
+                      </Link>
+                    ) : (
+                      <span className="report-chip report-chip--none">нет</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );

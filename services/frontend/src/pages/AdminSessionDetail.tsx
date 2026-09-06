@@ -71,39 +71,41 @@ export function AdminSessionDetail() {
 
       <section className="admin-section">
         <h2>Путь сессии</h2>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>gen_id</th>
-              <th>Роль</th>
-              <th>Этап</th>
-              <th>Текст</th>
-            </tr>
-          </thead>
-          <tbody>
-            {path.turns.map((turn) => (
-              <tr
-                key={turn.index}
-                className={turn.gen_id === selectedGen ? 'admin-table__row--selected' : ''}
-              >
-                <td>{turn.index}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="admin-link"
-                    onClick={() => setSelectedGen(turn.gen_id)}
-                  >
-                    {turn.gen_id}
-                  </button>
-                </td>
-                <td>{turn.role === 'user' ? 'сотрудник' : 'персонаж'}</td>
-                <td>{turn.stage_id}</td>
-                <td>{turn.text}</td>
+        <div className="table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>gen_id</th>
+                <th>Роль</th>
+                <th>Этап</th>
+                <th>Текст</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {path.turns.map((turn) => (
+                <tr
+                  key={turn.index}
+                  className={turn.gen_id === selectedGen ? 'admin-table__row--selected' : ''}
+                >
+                  <td>{turn.index}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="admin-link"
+                      onClick={() => setSelectedGen(turn.gen_id)}
+                    >
+                      {turn.gen_id}
+                    </button>
+                  </td>
+                  <td>{turn.role === 'user' ? 'сотрудник' : 'персонаж'}</td>
+                  <td>{turn.stage_id}</td>
+                  <td>{turn.text}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="admin-section">

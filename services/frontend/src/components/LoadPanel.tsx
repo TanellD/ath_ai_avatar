@@ -145,32 +145,34 @@ export function LoadPanel({ stats }: { stats: LoadStats }) {
         ))}
       </div>
 
-      <table className="admin-table">
-        <thead>
-          <tr>
-            <th>Операция</th>
-            <th>Сервис</th>
-            <th>Вызовов</th>
-            <th>Средняя, мс</th>
-            <th>p95, мс</th>
-            <th>Ошибок</th>
-            <th>Отменено</th>
-          </tr>
-        </thead>
-        <tbody>
-          {stats.operations.map((op) => (
-            <tr key={op.operation}>
-              <td>{op.operation}</td>
-              <td>{SERVICE_LABEL[op.service] ?? op.service}</td>
-              <td>{op.call_count}</td>
-              <td>{op.avg_duration_ms}</td>
-              <td>{op.p95_duration_ms}</td>
-              <td className={op.error_count > 0 ? 'load-cell--warn' : ''}>{op.error_count}</td>
-              <td>{op.cancelled_count}</td>
+      <div className="table-scroll">
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Операция</th>
+              <th>Сервис</th>
+              <th>Вызовов</th>
+              <th>Средняя, мс</th>
+              <th>p95, мс</th>
+              <th>Ошибок</th>
+              <th>Отменено</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {stats.operations.map((op) => (
+              <tr key={op.operation}>
+                <td>{op.operation}</td>
+                <td>{SERVICE_LABEL[op.service] ?? op.service}</td>
+                <td>{op.call_count}</td>
+                <td>{op.avg_duration_ms}</td>
+                <td>{op.p95_duration_ms}</td>
+                <td className={op.error_count > 0 ? 'load-cell--warn' : ''}>{op.error_count}</td>
+                <td>{op.cancelled_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div className="load-timelines">
         <Timeline title="Сессии, создано" buckets={stats.sessions_timeline} />

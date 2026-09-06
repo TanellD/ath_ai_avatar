@@ -6,7 +6,7 @@
 
 import uuid
 
-from ath_contracts import Report, Scenario, SessionState, render_scenario
+from ath_contracts import Report, Scenario, SessionState, TurnRole, render_scenario
 from ath_contracts.api import (
     CreateSessionRequest,
     CreateSessionResponse,
@@ -15,7 +15,7 @@ from ath_contracts.api import (
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.ai_client import EvaluationUnavailable
+from app.clients.ai_client import EvaluationRejected, EvaluationUnavailable
 from app.clients.scenario_client import ScenarioNotFound
 from app.core.logging import get_logger
 from app.db.engine import get_session
@@ -122,9 +122,18 @@ async def rebuild_report(
     state = await SqlSessionRepository(db).get(session_id)
     if state is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "session not found")
-    if not state.turns:
+    # Реплики СОТРУДНИКА, а не любые. Персонаж заговаривает первым (§1), и
+    # сессия, которую открыли и сразу закрыли, содержит один его ход — прежняя
+    # проверка «есть хоть что-то» её пропускала. Дальше оценка неизбежно
+    # разваливалась в ai-service: под каждым баллом обязана стоять дословная
+    # цитата сотрудника (§7), а цитировать нечего. Модель честно отвечала
+    # «[реплики сотрудника отсутствуют]», report_builder так же честно
+    # отбраковывал отчёт, а методист получал 504 «попробуйте ещё раз» и мог
+    # жать кнопку сколько угодно.
+    if not any(turn.role is TurnRole.USER for turn in state.turns):
         raise HTTPException(
-            status.HTTP_409_CONFLICT, "session has no turns to evaluate"
+            status.HTTP_409_CONFLICT,
+            "сотрудник не сказал ни одной реплики — оценивать нечего",
         )
 
     scenario = await _session_scenario(request, db, session_id, state.scenario_id)
@@ -138,6 +147,13 @@ async def rebuild_report(
             stages_completed=len(state.stage_history),
             stages_total=len(scenario.stages),
         )
+    except EvaluationRejected as exc:
+        # Отчёт собрался, но не прошёл проверку — повтор не поможет никогда,
+        # и предлагать его нельзя. Причина идёт наружу как есть: она про
+        # конкретный разговор («цитата отсутствует в репликах сотрудника»), и
+        # методисту она понятнее любого общего текста.
+        log.warning("session.report_rejected", session_id=session_id, error=str(exc))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except EvaluationUnavailable as exc:
         # Провайдер не ответил — на длинных транскриптах это реальный исход
         # (сторонний шлюз отдавал 524 на 40 репликах). Прежний отчёт при этом

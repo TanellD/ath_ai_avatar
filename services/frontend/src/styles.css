@@ -34,14 +34,20 @@ body {
 
 /* --------------------------------------------------------------- шапка */
 
+/* flex-wrap обязателен, а не «на всякий случай»: логотип и четыре пункта
+   требуют ~690px, и без переноса последние ссылки уезжали вправо за край. В
+   любом другом приложении их было бы видно по горизонтальной прокрутке, но
+   здесь body { overflow: hidden } — их просто не существовало на узком
+   окне, без единого признака, что что-то пропало. */
 .app__nav {
   flex: none;
   margin: 16px 24px 0;
   padding: 14px 22px;
   border-radius: var(--r-lg);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 28px;
+  gap: 12px 28px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
@@ -81,6 +87,7 @@ body {
 
 .app__nav-links {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-left: auto;
@@ -358,9 +365,31 @@ button.tag-chip--active:hover {
 
 /* Кит рисует форму в две колонки на любой ширине: длинные поля этапа на
    узком экране сжимались до нечитаемого. */
+/* 720px — единственный брейкпоинт, который уже используют оба файла (здесь и
+   clarity-ui.css). Новых не заводим: в приложении и так три несогласованных
+   значения (1080 у сессии, 720 тут, 640 у графиков). */
 @media (max-width: 720px) {
   .demo-form {
     grid-template-columns: 1fr;
+  }
+
+  /* Вердикт и статистика рядом требуют ~394px даже сжатыми до предела. */
+  .report__top {
+    grid-template-columns: 1fr;
+  }
+
+  /* Отступы страницы и карточек съедали 156px из 375-и: на «сотрудник
+     представился и задал вопрос» оставалось 219px. */
+  .page {
+    padding: 16px;
+  }
+
+  .hero-card {
+    padding: 26px 22px;
+  }
+
+  .report__section {
+    padding: 22px 20px;
   }
 }
 
@@ -461,6 +490,14 @@ button.tag-chip--active:hover {
 
 /* --------------------------------------------------------------- сессия */
 
+/* overflow-y: auto, а не hidden. Раньше здесь стоял hidden, и вместе с
+   body { overflow: hidden } это значило: если контенту не хватило высоты, он
+   не прокручивается, а молча срезается. Срезается снизу, то есть первым
+   уходит композер — микрофон и поле ввода, без которых экран бесполезен, и
+   добраться до них было нельзя никак.
+
+   По горизонтали оставляем hidden осознанно: прокрутке вбок тут взяться
+   неоткуда, а auto по обеим осям дал бы лишнюю полосу внизу. */
 .session {
   max-width: 1320px;
   margin: 0 auto;
@@ -469,7 +506,8 @@ button.tag-chip--active:hover {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .session__header {
@@ -589,11 +627,16 @@ button.tag-chip--active:hover {
   gap: 18px;
 }
 
+/* min-width: 0 — элемент грид-трека в 320px, а у грид- и флекс-элементов
+   минимум по умолчанию равен min-content: без обнуления карточка не сжимается
+   уже своего содержимого и распирает раскладку. Длинная реплика без пробелов
+   в истории — достаточный повод. Та же идиома уже стоит на .session__stage. */
 .session__history {
   border-radius: var(--r-lg);
   padding: 22px 22px 8px;
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -645,9 +688,14 @@ button.tag-chip--active:hover {
    модели визуально налезал на неё. Теперь обычная строка в потоке — первый
    flex-элемент панели, прижатый вправо, .avatar получает flex:1 под то,
    что осталось, наложения больше нет ни при каком размере модели. */
+/* Обе плашки — .bento-pill с white-space: nowrap, а имя персонажа приходит
+   из сценария и длину его никто не ограничивает. Без переноса пара уезжает за
+   край панели и обрезается её overflow: hidden. */
 .session__persona-badge {
   align-self: flex-end;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -980,6 +1028,13 @@ button.tag-chip--active:hover {
   align-items: stretch;
 }
 
+/* fr сам по себе не даёт колонке сжаться: минимум грид-элемента по умолчанию
+   равен min-content, и вердикт со статистикой вместе держали ~394px там, где
+   было 327. */
+.report__top > * {
+  min-width: 0;
+}
+
 .report__verdict-card {
   border-radius: var(--r-lg);
   padding: 30px 32px;
@@ -1136,9 +1191,18 @@ button.tag-chip--active:hover {
   background: var(--surface-2);
 }
 
+/* Боковой сдвиг — та же идиома, что у живого диалога в сессии
+   (.chatpanel__line--user/--agent): реплики разных сторон читаются как
+   разговор, а не как один список. Раньше правило было только у --user, и
+   персонаж визуально не отличался от заготовки. */
 .transcript-line--user {
+  margin-left: 18px;
   background: #fff;
   box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.transcript-line--agent {
+  margin-right: 18px;
 }
 
 .transcript-line__who {
@@ -1179,10 +1243,26 @@ button.tag-chip--active:hover {
   margin-top: 28px;
 }
 
+/* Таблиц у нас четыре, и в самой широкой восемь колонок. `width: 100%` для
+   таблицы — лишь пожелание: при table-layout: auto настоящий пол равен сумме
+   min-content колонок, и на узком окне она распирала страницу. Прокрутка
+   должна жить внутри таблицы, а не уводить вбок весь экран, поэтому колонкам
+   тут же запрещаем переносить заголовки — иначе они схлопнутся в столбик по
+   букве вместо того, чтобы дать таблице честную ширину. */
+.table-scroll {
+  overflow-x: auto;
+  /* Отменяет обрезку тени/фокуса по вертикали, которую включил бы overflow. */
+  padding-bottom: 2px;
+}
+
 .admin-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+
+.table-scroll .admin-table th {
+  white-space: nowrap;
 }
 
 .admin-table th,
@@ -1334,9 +1414,12 @@ a.report-chip--ready:hover {
 
 /* ------------------------------------------------------------- нагрузка */
 
+/* Пять элементов (два постоянных плюс по одному на статус сессии) требуют
+   ~550px в строку. */
 .load-summary {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 16px 24px;
   margin: 16px 0 18px;
 }
 
@@ -1488,7 +1571,7 @@ a.report-chip--ready:hover {
   font: inherit;
   font-weight: 700;
   cursor: pointer;
-  transition: background var(--dur-2) var(--ease);
+  transition: background var(--dur-fast) var(--ease);
 }
 .session-overlay__button:hover:not(:disabled) {
   background: var(--blue-deep);
@@ -1501,8 +1584,12 @@ a.report-chip--ready:hover {
 
 /* ------------------------------------- органы управления в шапке сессии */
 
+/* .btn в ките — white-space: nowrap, а подписи здесь длинные («Переключить
+   на avatar-aith», «Завершить тренировку»). Без переноса пара кнопок уезжает
+   за край шапки; медиазапрос на 1080px спасал только ниже него. */
 .session__controls {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
 }
@@ -1565,7 +1652,7 @@ a.report-chip--ready:hover {
   font: inherit;
   font-size: var(--fs-ui);
   cursor: pointer;
-  transition: border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
 .report__rebuild:hover:not(:disabled) {
   border-color: var(--blue);

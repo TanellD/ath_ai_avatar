@@ -211,7 +211,10 @@ export function MethodistReport() {
         </ul>
       </section>
 
-      <section className="card">
+      {/* card БЕЗ report__section не получает padding (см. clarity-ui.css
+          .card) — транскрипт упирался прямо в край карточки. Третий случай
+          той же ошибки на этой странице, два предыдущих уже исправлены. */}
+      <section className="card report__section">
         <div className="report__transcript-head">
           <div>
             <span className="eyebrow">Транскрипт</span>
