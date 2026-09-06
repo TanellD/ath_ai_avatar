@@ -47,48 +47,50 @@ export function AdminSessions() {
 
         {items.length === 0 && <p>Сессий пока нет.</p>}
 
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Сессия</th>
-              <th>Сценарий</th>
-              <th>Пользователь</th>
-              <th>Статус</th>
-              <th>Этап</th>
-              <th>Ходов</th>
-              <th>Создана</th>
-              <th>Отчёт</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.session_id}>
-                <td>
-                  <Link className="admin-link" to={`/admin/sessions/${item.session_id}`}>
-                    {item.session_id.slice(0, 8)}…
-                  </Link>
-                </td>
-                <td>{item.scenario_id}</td>
-                <td>{item.user_display_name}</td>
-                <td>
-                  <span className={`admin-status admin-status--${item.status}`}>
-                    {item.status}
-                  </span>
-                </td>
-                <td title={item.current_stage}>{stageLabel(item)}</td>
-                <td>{item.turn_count}</td>
-                <td>{new Date(item.created_at).toLocaleString('ru-RU')}</td>
-                <td>
-                  {/* Ссылка безусловная: админка — отладочный инструмент, а
-                      страница отчёта сама скажет «сессия не завершена». */}
-                  <Link className="admin-link" to={`/report/${item.session_id}`}>
-                    Отчёт
-                  </Link>
-                </td>
+        <div className="table-scroll">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Сессия</th>
+                <th>Сценарий</th>
+                <th>Пользователь</th>
+                <th>Статус</th>
+                <th>Этап</th>
+                <th>Ходов</th>
+                <th>Создана</th>
+                <th>Отчёт</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.session_id}>
+                  <td>
+                    <Link className="admin-link" to={`/admin/sessions/${item.session_id}`}>
+                      {item.session_id.slice(0, 8)}…
+                    </Link>
+                  </td>
+                  <td>{item.scenario_id}</td>
+                  <td>{item.user_display_name}</td>
+                  <td>
+                    <span className={`admin-status admin-status--${item.status}`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  <td title={item.current_stage}>{stageLabel(item)}</td>
+                  <td>{item.turn_count}</td>
+                  <td>{new Date(item.created_at).toLocaleString('ru-RU')}</td>
+                  <td>
+                    {/* Ссылка безусловная: админка — отладочный инструмент, а
+                        страница отчёта сама скажет «сессия не завершена». */}
+                    <Link className="admin-link" to={`/report/${item.session_id}`}>
+                      Отчёт
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   );
