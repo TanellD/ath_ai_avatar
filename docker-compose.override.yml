@@ -64,11 +64,20 @@ services:
       - ./services/frontend/vite.config.ts:/app/vite.config.ts
       - frontend_node_modules:/app/node_modules
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
-      VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
-      VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-http://localhost:8050}
-      VITE_AI_API_URL: ${VITE_AI_API_URL:-http://localhost:8030}
-      VITE_SPEECH_WS_URL: ${VITE_SPEECH_WS_URL:-ws://localhost:8010}
+      # Пусто = один origin: браузер ходит в /api, /ws, /scenario, /ai,
+      # /speech того же хоста, а разводит их прокси (nginx.conf,
+      # vite.config.ts). Так адрес перестаёт быть параметром сборки и один
+      # образ работает и локально, и за HTTPS-туннелем — без чего микрофон
+      # на телефоне не включится вовсе. Заполнять только если нужна прежняя
+      # схема с прямым обращением в каждый сервис по своему порту.
+      # Vite отвечает 403 на любой Host, кроме localhost. Для туннеля
+      # (cloudflared/ngrok) открыть его домен: `.trycloudflare.com` или `true`.
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
+      VITE_API_URL: ${VITE_API_URL:-}
+      VITE_WS_URL: ${VITE_WS_URL:-}
+      VITE_SCENARIO_API_URL: ${VITE_SCENARIO_API_URL:-}
+      VITE_AI_API_URL: ${VITE_AI_API_URL:-}
+      VITE_SPEECH_WS_URL: ${VITE_SPEECH_WS_URL:-}
 
 volumes:
   frontend_node_modules:

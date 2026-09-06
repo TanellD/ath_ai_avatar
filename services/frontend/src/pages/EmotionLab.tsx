@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { origins } from '@/api/origins';
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
 import {
@@ -10,7 +11,7 @@ import {
 } from '@/avatar/TalkingHeadAvatar';
 import type { Emotion } from '@/contracts/events';
 
-const SPEECH_WS_URL = import.meta.env.VITE_SPEECH_WS_URL ?? 'ws://localhost:8010';
+const SPEECH_WS_URL = origins.speechWs;
 
 const AITH_VOICES = [
   { value: 'Nina', label: 'Nina — яркая, молодая, дружелюбная' },

@@ -1,12 +1,10 @@
 /**
  * HTTP-клиенты gateway, scenario-service и ai-service.
  *
- * Адреса приходят из VITE_*, подставляются на этапе сборки. Хардкода хостов в
- * коде нет — в референсном проекте он есть (`http://83.151.2.86:7533/...`
- * прямо в сервисе), и это ровно та вещь, которая ломается при переносе демо на
- * другую машину.
+ * Откуда берутся адреса и почему их две схемы — см. `origins.ts`.
  */
 
+import { origins } from '@/api/origins';
 import type {
   GenSummary,
   LoadStats,
@@ -25,10 +23,7 @@ import type {
   Stage,
 } from '@/contracts/events';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000';
-const SCENARIO_URL = import.meta.env.VITE_SCENARIO_API_URL ?? 'http://localhost:8050';
-const AI_URL = import.meta.env.VITE_AI_API_URL ?? 'http://localhost:8030';
+const { api: API_URL, ws: WS_URL, scenario: SCENARIO_URL, ai: AI_URL } = origins;
 
 /**
  * Ошибка с кодом ответа.
