@@ -112,6 +112,7 @@ def _mock_scenario_draft(properties: dict[str, Any]) -> dict[str, Any]:
     """
     return {
         "title": "Черновик заглушки",
+        "suggested_id": "mock_scenario",
         "persona": {
             "name": "Заглушка",
             "role": "провайдер LLM не настроен",

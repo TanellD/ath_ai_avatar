@@ -187,9 +187,18 @@ export const scenarioApi = {
   },
 };
 
-/** Черновик, а не готовый сценарий: `id` задаёт методист, он же адрес страницы. */
+/**
+ * Черновик, а не готовый сценарий: `id` задаёт методист, он же адрес страницы.
+ *
+ * `suggested_id` — необязательное поле: у настоящего ответа генерации оно
+ * всегда есть (бэкенд гарантирует непустое значение, см.
+ * `ai-service/app/scenario/drafts.py::_scenario_id`), а вот когда этот же тип
+ * используется как `current` — снимок уже заполненной формы, отправляемый
+ * обратно как контекст, — предлагать методисту нечего, поле просто не шлётся.
+ */
 export interface ScenarioDraft {
   title: string;
+  suggested_id?: string;
   persona: Persona;
   stages: Stage[];
   rubric: RubricItem[];
@@ -197,6 +206,23 @@ export interface ScenarioDraft {
   briefing: string;
   slots: ScenarioSlot[];
 }
+
+export interface DraftScenarioParams {
+  brief: string;
+  /** `null` — «реши сам»: методист не задал точное число (Claude.md §5). */
+  stagesCount: number | null;
+  rubricCount: number | null;
+  /** Что методист уже заполнил в форме — черновик обязан это учесть. */
+  current: ScenarioDraft | null;
+}
+
+/**
+ * Сильная модель, сценарий редкий — минуты, а не секунды (`docs/latency-budget.md`
+ * сюда не относится: это не ход диалога). Таймаута нет ни на клиенте SDK внутри
+ * ai-service, ни здесь по умолчанию — без него зависший запрос держал бы кнопку
+ * в «Собираем черновик…» бесконечно.
+ */
+const DRAFT_TIMEOUT_MS = 120_000;
 
 /**
  * Генерация черновиков в редакторе сценария.
@@ -206,15 +232,32 @@ export interface ScenarioDraft {
  * модели, а ключи остаются в сервисе.
  */
 export const aiApi = {
-  draftScenario(brief: string, stagesCount: number, rubricCount: number): Promise<ScenarioDraft> {
-    return request(`${AI_URL}/scenario/draft`, {
+  draftScenario({
+    brief,
+    stagesCount,
+    rubricCount,
+    current,
+  }: DraftScenarioParams): Promise<ScenarioDraft> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DRAFT_TIMEOUT_MS);
+
+    return request<ScenarioDraft>(`${AI_URL}/scenario/draft`, {
       method: 'POST',
+      signal: controller.signal,
       body: JSON.stringify({
         brief,
         stages_count: stagesCount,
         rubric_count: rubricCount,
+        current,
       }),
-    });
+    })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') {
+          throw new Error('Модель не ответила за две минуты — попробуйте ещё раз');
+        }
+        throw cause;
+      })
+      .finally(() => clearTimeout(timer));
   },
 
   async draftRubric(

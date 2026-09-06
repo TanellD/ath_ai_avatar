@@ -41,6 +41,7 @@ function scenario(patch: Partial<Scenario> = {}): Scenario {
       },
     ],
     tags: ['продажи'],
+    brief: '',
     briefing: '',
     slots: [],
     ...patch,

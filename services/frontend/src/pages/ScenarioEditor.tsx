@@ -35,8 +35,20 @@ import type {
   ScenarioSlot,
   Stage,
 } from '@/contracts/events';
+import { applyDraft, draftContext, isBlank } from '@/scenario/draft';
 import { hasIssues, validateScenario } from '@/scenario/validate';
 import type { ScenarioIssues } from '@/scenario/validate';
+
+/**
+ * Варианты явного числа — контракт (`ScenarioDraftRequest`) допускает 1..8, но
+ * форма предлагает диапазон, в котором тренировка реально устроена: меньше
+ * трёх этапов — не разговор, а вопрос-ответ.
+ */
+const COUNT_OPTIONS = [3, 4, 5, 6, 7, 8];
+
+/** Тот же диапазон, что `_AUTO_MIN`/`_AUTO_MAX` в `ai-service/app/scenario/prompts.py`
+ * — методист не задавал число, и модель решает сама. */
+const AUTO_HINT = 'Авто — модель решает сама, от 3 до 6';
 
 const MOODS: { value: Mood; label: string }[] = [
   { value: 'neutral', label: 'Нейтральное' },
@@ -79,6 +91,7 @@ function emptyScenario(): Scenario {
     stages: [emptyStage(0)],
     rubric: [emptyRubricItem(0)],
     tags: [],
+    brief: '',
     briefing: '',
     slots: [],
   };
@@ -135,9 +148,18 @@ export function ScenarioEditor() {
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  const [brief, setBrief] = useState('');
   const [generating, setGenerating] = useState<'draft' | 'rubric' | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  /**
+   * Один шаг назад, а не полная история: и «Заполнить/Пересобрать сценарий
+   * по описанию», и «Заполнить критерии» заменяют часть формы целиком, и
+   * оба используют один и тот же снимок — только последняя генерация
+   * обратима.
+   */
+  const [previous, setPrevious] = useState<Scenario | null>(null);
+  /** `null` — «реши сам»: методист не задал точное число (Claude.md §5). */
+  const [stagesCount, setStagesCount] = useState<number | null>(null);
+  const [rubricCount, setRubricCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!source) return;
@@ -169,6 +191,11 @@ export function ScenarioEditor() {
   // До первой попытки сохранить форма молчит: подсвечивать пустые поля сразу
   // после открытия — значит встретить методиста красным экраном.
   const shown: ScenarioIssues = submitted ? issues : {};
+
+  // Считается один раз на рендер: используется и в подсказке над кнопкой
+  // генерации, и в её тексте — «Заполнить» на пустом бланке, «Пересобрать»,
+  // когда форма уже что-то содержит.
+  const scenarioIsBlank = isBlank(scenario);
 
   // Критерии выводятся из персонажа и этапов: по пустой форме модель
   // придумает рубрику к несуществующему разговору.
@@ -241,28 +268,47 @@ export function ScenarioEditor() {
   const handleDraft = () => {
     setGenerating('draft');
     setGenError(null);
+    setPrevious(scenario);
     aiApi
-      .draftScenario(brief, scenario.stages.length, scenario.rubric.length)
+      .draftScenario({
+        brief: scenario.brief,
+        stagesCount,
+        rubricCount,
+        current: draftContext(scenario),
+      })
       .then((draft) => {
-        // id не трогаем: его задаёт человек, и он же адрес страницы.
-        setScenario((current) => ({ ...current, ...draft }));
+        setScenario((current) => applyDraft(current, draft));
         setSubmitted(false);
       })
-      .catch((cause: Error) => setGenError(cause.message))
+      .catch((cause: Error) => {
+        setGenError(cause.message);
+        setPrevious(null); // форма не менялась — возвращать нечего
+      })
       .finally(() => setGenerating(null));
   };
 
   const handleRubric = () => {
     setGenerating('rubric');
     setGenError(null);
+    setPrevious(scenario);
     aiApi
       .draftRubric(scenario.title, scenario.persona, scenario.stages, scenario.rubric.length)
       .then((items) => {
         patch({ rubric: items });
         setSubmitted(false);
       })
-      .catch((cause: Error) => setGenError(cause.message))
+      .catch((cause: Error) => {
+        setGenError(cause.message);
+        setPrevious(null);
+      })
       .finally(() => setGenerating(null));
+  };
+
+  const handleUndo = () => {
+    if (!previous) return;
+    setScenario(previous);
+    setPrevious(null);
+    setSubmitted(false);
   };
 
   const handleSubmit = (event: React.FormEvent) => {
@@ -304,45 +350,109 @@ export function ScenarioEditor() {
       </section>
 
       <form className="scenario-form" onSubmit={handleSubmit} noValidate>
-        {/* Только на пустом бланке. У копии содержание уже есть, и кнопка
-            «заменить всё» рядом с ним — ловушка, а не помощь. */}
-        {!isEdit && !copyFrom && (
-          <section className="card report__section">
-            <span className="eyebrow">Черновик</span>
-            <h2>Начать с описания</h2>
-            <p className="admin__hint">
-              Опишите тренировку парой фраз — персонаж, этапы и рубрика заполнятся сами.
-              Это черновик: он попадёт в форму, а не в библиотеку, и правится как обычно.
-            </p>
-            <div className="demo-form">
-              <Field label="Что тренируем" full>
-                {(id) => (
-                  <textarea
-                    id={id}
-                    value={brief}
-                    rows={3}
-                    placeholder="Менеджер продаёт CRM для логистики начальнику отдела закупок. Тот говорит, что у них уже всё работает и бюджета нет."
-                    onChange={(event) => setBrief(event.target.value)}
-                  />
-                )}
-              </Field>
-            </div>
-            <div className="scenario-form__generate">
+        {/*
+          Показывается всегда, а не только на пустом бланке: кнопка одна и та
+          же, но при правке и копии она пересобирает форму с опорой на уже
+          заполненное (_current_block в ai-service/app/scenario/prompts.py),
+          а не начинает с нуля. «Вернуть как было» ниже страхует от того, что
+          пересборка разойдётся с ожиданием.
+        */}
+        <section className="card report__section">
+          <span className="eyebrow">Черновик</span>
+          <h2>Начать с описания</h2>
+          <p className="admin__hint">
+            {scenarioIsBlank
+              ? 'Опишите тренировку парой фраз — персонаж, этапы и рубрика заполнятся сами.'
+              : 'Пересоберём сценарий заново, опираясь на то, что уже заполнено ниже — ' +
+                'прежнее содержимое можно вернуть одной кнопкой.'}
+            {' '}
+            Это черновик: он попадёт в форму, а не в библиотеку, и правится как обычно.
+          </p>
+          <div className="demo-form">
+            <Field label="Что тренируем" full>
+              {(id) => (
+                <textarea
+                  id={id}
+                  value={scenario.brief}
+                  rows={3}
+                  placeholder="Менеджер продаёт CRM для логистики начальнику отдела закупок. Тот говорит, что у них уже всё работает и бюджета нет."
+                  onChange={(event) => patch({ brief: event.target.value })}
+                />
+              )}
+            </Field>
+
+            <Field label="Этапов" hint={AUTO_HINT}>
+              {(id) => (
+                <select
+                  id={id}
+                  value={stagesCount === null ? 'auto' : String(stagesCount)}
+                  onChange={(event) =>
+                    setStagesCount(
+                      event.target.value === 'auto' ? null : Number(event.target.value),
+                    )
+                  }
+                >
+                  <option value="auto">Авто</option>
+                  {COUNT_OPTIONS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+
+            <Field label="Критериев" hint={AUTO_HINT}>
+              {(id) => (
+                <select
+                  id={id}
+                  value={rubricCount === null ? 'auto' : String(rubricCount)}
+                  onChange={(event) =>
+                    setRubricCount(
+                      event.target.value === 'auto' ? null : Number(event.target.value),
+                    )
+                  }
+                >
+                  <option value="auto">Авто</option>
+                  {COUNT_OPTIONS.map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          </div>
+          <div className="scenario-form__generate">
+            <button
+              type="button"
+              className="btn btn-gray"
+              onClick={handleDraft}
+              disabled={generating !== null || !scenario.brief.trim()}
+            >
+              {generating === 'draft'
+                ? scenarioIsBlank
+                  ? 'Заполняем сценарий…'
+                  : 'Пересобираем сценарий…'
+                : scenarioIsBlank
+                  ? 'Заполнить сценарий по описанию'
+                  : 'Пересобрать сценарий по описанию'}
+            </button>
+            {previous && (
               <button
                 type="button"
                 className="btn btn-gray"
-                onClick={handleDraft}
-                disabled={generating !== null || !brief.trim()}
+                onClick={handleUndo}
+                disabled={generating !== null}
               >
-                {generating === 'draft' ? 'Собираем черновик…' : 'Развернуть черновик'}
+                Вернуть как было
               </button>
-              <span className="modal-hint">
-                Займёт минуту-две: сценарий целиком собирает сильная модель.
-                Этапов и критериев будет столько же, сколько сейчас в форме.
-              </span>
-            </div>
-          </section>
-        )}
+            )}
+            <span className="modal-hint">
+              Займёт минуту-две: сценарий целиком собирает сильная модель.
+            </span>
+          </div>
+        </section>
 
         <section className="card report__section">
           <span className="eyebrow">Основное</span>
@@ -752,6 +862,16 @@ export function ScenarioEditor() {
             >
               {generating === 'rubric' ? 'Подбираем критерии…' : 'Заполнить критерии'}
             </button>
+            {previous && (
+              <button
+                type="button"
+                className="btn btn-gray"
+                onClick={handleUndo}
+                disabled={generating !== null}
+              >
+                Вернуть как было
+              </button>
+            )}
             <span className="modal-hint">
               {canDraftRubric
                 ? rubricFilled

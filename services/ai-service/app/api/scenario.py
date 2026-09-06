@@ -7,10 +7,15 @@
 смотрит и правит перед сохранением. Ответственность за методику остаётся у
 человека — модель ускоряет заполнение, но не решает, чему учить.
 
-Модель разная и не по недосмотру. Развернуть пару строк в связный сценарий —
-задача на понимание, вызов редкий и не в бюджете диалога, поэтому сильная.
-Рубрика к уже описанным этапам — работа поверх готового текста, там хватает
-быстрой.
+Одна модель на все три ручки, не быстрая/сильная пара, как у реплик персонажа
+и оценки: кнопки жмутся редко и вручную, вызов не в бюджете задержки диалога,
+делить их по скорости незачем. Провайдер, модель, хост и ключ — свои
+(`SCENARIO_LLM_PROVIDER`/`SCENARIO_LLM_MODEL`/`SCENARIO_LLM_ENDPOINT`/
+`SCENARIO_LLM_API_KEY`), отдельные от `LLM_PROVIDER`/реплик персонажа и
+оценки; пусто — наследуют его. Ключ можно не заводить отдельно: если
+методисту хватает того же аккаунта/лимита, что у основного провайдера,
+`SCENARIO_LLM_PROVIDER` просто выбирает, каким из уже настроенных в `.env`
+пользоваться здесь (`app/core/config.py`).
 
 Повтора при ошибке нет — как и во всём сервисе (см. TODO в evaluation.py).
 Черновик, в отличие от отчёта, ничем не рискует: методист просто нажимает
@@ -32,7 +37,12 @@ from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.scenario.drafts import build_details, build_rubric_draft, build_scenario_draft
+from app.scenario.drafts import (
+    InvalidDraftError,
+    build_details,
+    build_rubric_draft,
+    build_scenario_draft,
+)
 from app.scenario.prompts import (
     build_details_message,
     build_details_schema,
@@ -48,8 +58,9 @@ from app.scenario.prompts import (
 router = APIRouter(prefix="/scenario", tags=["scenario"])
 log = get_logger(__name__)
 
-_DRAFT_MAX_TOKENS = 4000
-"""Сценарий на 4 этапа и 4 критерия — того же порядка текст, что и отчёт."""
+_DRAFT_MAX_TOKENS = 6000
+"""Сценарий до 6 этапов и 6 критериев (авто-режим, Claude.md §5) плюс бриф со слотами —
+на 4/4 бы влезло в 4000, на верхней границе авто-диапазона уже нет."""
 
 _RUBRIC_MAX_TOKENS = 2000
 
@@ -60,7 +71,7 @@ _DETAILS_MAX_TOKENS = 500
 @router.post("/draft", response_model=ScenarioDraftResponse)
 async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> ScenarioDraftResponse:
     settings = get_settings()
-    provider = request.app.state.llm
+    provider = request.app.state.scenario_llm
 
     raw = await provider.complete_json(
         system=build_draft_system(),
@@ -68,11 +79,11 @@ async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> Sce
             {
                 "role": "user",
                 "content": build_draft_message(
-                    payload.brief, payload.stages_count, payload.rubric_count
+                    payload.brief, payload.stages_count, payload.rubric_count, payload.current
                 ),
             }
         ],
-        model=settings.llm_strong_model,
+        model=settings.effective_scenario_model,
         max_tokens=_DRAFT_MAX_TOKENS,
         temperature=settings.character_temperature,
         schema=build_draft_schema(payload.stages_count, payload.rubric_count),
@@ -86,7 +97,7 @@ async def draft_scenario(payload: ScenarioDraftRequest, request: Request) -> Sce
 @router.post("/rubric", response_model=RubricDraft)
 async def draft_rubric(payload: RubricDraftRequest, request: Request) -> RubricDraft:
     settings = get_settings()
-    provider = request.app.state.llm
+    provider = request.app.state.scenario_llm
 
     raw = await provider.complete_json(
         system=build_rubric_system(),
@@ -98,7 +109,7 @@ async def draft_rubric(payload: RubricDraftRequest, request: Request) -> RubricD
                 ),
             }
         ],
-        model=settings.llm_fast_model,
+        model=settings.effective_scenario_model,
         max_tokens=_RUBRIC_MAX_TOKENS,
         temperature=settings.character_temperature,
         schema=build_rubric_schema(payload.count),
@@ -124,7 +135,7 @@ async def scenario_details(
     не дать тренировке начаться.
     """
     settings = get_settings()
-    provider = request.app.state.llm
+    provider = request.app.state.scenario_llm
 
     raw = await provider.complete_json(
         system=build_details_system(),
@@ -136,7 +147,7 @@ async def scenario_details(
                 ),
             }
         ],
-        model=settings.llm_fast_model,
+        model=settings.effective_scenario_model,
         max_tokens=_DETAILS_MAX_TOKENS,
         # Смысл ручки — в разнообразии между прогонами: одни и те же детали на
         # пятом прогоне работают против §7.
@@ -161,7 +172,7 @@ def _build[T: (ScenarioDraftResponse, RubricDraft)](
     """
     try:
         return builder(raw)
-    except ValidationError as exc:
+    except (ValidationError, InvalidDraftError) as exc:
         log.error("scenario.draft.invalid", kind=kind, error=str(exc))
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,

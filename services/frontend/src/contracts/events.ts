@@ -279,6 +279,11 @@ export interface Scenario {
   stages: Stage[];
   rubric: RubricItem[];
   tags: string[];
+  /**
+   * Что тренируем, своими словами — вход генерации черновика. Заметка
+   * методиста, а не текст для чтения вслух: сотруднику не показывается.
+   */
+  brief: string;
   /** Что сотрудник читает перед разговором. Может содержать {slot_id}. */
   briefing: string;
   slots: ScenarioSlot[];

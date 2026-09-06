@@ -19,16 +19,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.llm = create_llm_provider(settings)
 
+    # Генерация сценария (кнопки в редакторе) может жить на своём провайдере,
+    # хосте и/или ключе — SCENARIO_LLM_PROVIDER/_ENDPOINT/_API_KEY. Второй
+    # экземпляр заводится, только если хоть один из них реально отличается:
+    # тот же провайдер на тот же хост с тем же ключом держать в двух объектах
+    # смысла нет, а закрывать один и тот же клиент дважды на shutdown — ошибка.
+    scenario_provider_differs = (
+        settings.effective_scenario_provider != settings.llm_provider
+        or bool(settings.effective_scenario_endpoint)
+        or bool(settings.effective_scenario_api_key)
+    )
+    app.state.scenario_llm = (
+        create_llm_provider(
+            settings,
+            provider_name=settings.effective_scenario_provider,
+            base_url=settings.effective_scenario_endpoint or None,
+            api_key=settings.effective_scenario_api_key or None,
+        )
+        if scenario_provider_differs
+        else app.state.llm
+    )
+
     log.info(
         "ai.started",
         provider=app.state.llm.name,
         fast_model=settings.llm_fast_model,
         strong_model=settings.llm_strong_model,
+        scenario_provider=app.state.scenario_llm.name,
+        scenario_model=settings.effective_scenario_model,
     )
     try:
         yield
     finally:
         await app.state.llm.aclose()
+        if scenario_provider_differs:
+            await app.state.scenario_llm.aclose()
         log.info("ai.stopped")
 
 
