@@ -89,6 +89,13 @@ export interface AvatarModelConfig {
    * остаётся ванильное поведение.
    */
   visemeRampMs?: number;
+  /**
+   * Экспоненциальное сглаживание выходного значения морфа, мс. Лечит дрожь,
+   * которую не убирает visemeRampMs: при быстрой смене визем их альфы
+   * болтаются в средней зоне, где сигмоида easing самая крутая. 0 или без
+   * значения — фильтр выключен.
+   */
+  visemeSmoothMs?: number;
   embeddedIdleAnimations?: boolean;
 }
 
@@ -175,7 +182,8 @@ export const AVATAR_MODELS = {
     // Ключ переведён в тёплый белый и усилен, заливка убавлена.
     // Рот у Vincent крупный и мультяшный: на ванильных 100 мс артикуляция
     // читается дёрганой. 190 мс дают внятное движение без суеты.
-    visemeRampMs: 190,
+    visemeRampMs: 150,
+    visemeSmoothMs: 120,
     lighting: {
       lightAmbientIntensity: 0.85,
       lightDirectColor: 0xfff0e2,
@@ -292,9 +300,12 @@ export function TalkingHeadAvatar({
           },
         });
 
-        if (model.visemeRampMs) {
-          (headaudio as unknown as { visemeRampMs: number }).visemeRampMs = model.visemeRampMs;
-        }
+        const audioTuning = headaudio as unknown as {
+          visemeRampMs: number;
+          visemeSmoothMs: number;
+        };
+        if (model.visemeRampMs) audioTuning.visemeRampMs = model.visemeRampMs;
+        if (model.visemeSmoothMs) audioTuning.visemeSmoothMs = model.visemeSmoothMs;
 
         await headaudio.loadModel(HEADAUDIO_MODEL_URL);
 
