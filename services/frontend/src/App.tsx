@@ -1,13 +1,24 @@
+import { Suspense, lazy } from 'react';
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 
-import { AdminSessionDetail } from '@/pages/AdminSessionDetail';
-import { AdminSessions } from '@/pages/AdminSessions';
-import { AvatarLab } from '@/pages/AvatarLab';
 import { EmotionLab } from '@/pages/EmotionLab';
 import { MethodistReport } from '@/pages/MethodistReport';
 import { MethodistScenarios } from '@/pages/MethodistScenarios';
 import { MethodistSessions } from '@/pages/MethodistSessions';
+import { ScenarioPreview } from '@/pages/ScenarioPreview';
 import { TraineeSession } from '@/pages/TraineeSession';
+
+/**
+ * Админ-панель грузится отдельным чанком: она тянет recharts (~400 КБ), а
+ * открывают её единицы и редко. В общем бандле этот вес платил бы и
+ * сотрудник на экране тренировки, которому там и так лежит 3D-аватар.
+ */
+const AdminSessions = lazy(() =>
+  import('@/pages/AdminSessions').then((m) => ({ default: m.AdminSessions })),
+);
+const AdminSessionDetail = lazy(() =>
+  import('@/pages/AdminSessionDetail').then((m) => ({ default: m.AdminSessionDetail })),
+);
 
 /**
  * Две роли по постановке (Claude.md §2): методист и сотрудник.
@@ -55,10 +66,7 @@ export function App() {
               Тренировки
             </NavLink>
             <NavLink to="/emotion-lab" className={mutedLinkClass}>
-              Эмоции
-            </NavLink>
-            <NavLink to="/avatar-lab" className={mutedLinkClass}>
-              Модели
+              Аватар
             </NavLink>
             <NavLink to="/admin/sessions" className={mutedLinkClass}>
               Админ-панель
@@ -68,18 +76,23 @@ export function App() {
       )}
 
       <div className="app__body">
-        <Routes>
-          <Route path="/" element={<Navigate to="/scenarios" replace />} />
-          <Route path="/scenarios" element={<MethodistScenarios />} />
-          <Route path="/sessions" element={<MethodistSessions />} />
-          <Route path="/session/:scenarioId" element={<TraineeSession />} />
-          <Route path="/emotion-lab" element={<EmotionLab />} />
-          <Route path="/avatar-lab" element={<AvatarLab />} />
-          <Route path="/report/:sessionId" element={<MethodistReport />} />
-          <Route path="/admin/sessions" element={<AdminSessions />} />
-          <Route path="/admin/sessions/:sessionId" element={<AdminSessionDetail />} />
-          <Route path="*" element={<p className="page">Страница не найдена</p>} />
-        </Routes>
+        <Suspense fallback={<p className="page">Загружаем…</p>}>
+          <Routes>
+            <Route path="/" element={<Navigate to="/scenarios" replace />} />
+            <Route path="/scenarios" element={<MethodistScenarios />} />
+            <Route path="/scenarios/:scenarioId" element={<ScenarioPreview />} />
+            <Route path="/sessions" element={<MethodistSessions />} />
+            <Route path="/session/:scenarioId" element={<TraineeSession />} />
+            <Route path="/emotion-lab" element={<EmotionLab />} />
+            {/* Лаборатория моделей поглощена emotion-lab (docs/bugs_front.md
+                №7) — старая ссылка не должна вести в никуда. */}
+            <Route path="/avatar-lab" element={<Navigate to="/emotion-lab" replace />} />
+            <Route path="/report/:sessionId" element={<MethodistReport />} />
+            <Route path="/admin/sessions" element={<AdminSessions />} />
+            <Route path="/admin/sessions/:sessionId" element={<AdminSessionDetail />} />
+            <Route path="*" element={<p className="page">Страница не найдена</p>} />
+          </Routes>
+        </Suspense>
       </div>
     </div>
   );

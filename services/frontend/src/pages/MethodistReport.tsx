@@ -14,21 +14,29 @@
  * инструменте проверки.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { ApiError, gatewayApi, scenarioApi } from '@/api/client';
 import { EvidenceQuote } from '@/components/EvidenceQuote';
 import type { Report, RubricItem } from '@/contracts/events';
 
+/** Оценка идёт десятками секунд после конца тренировки — столько же 404
+ *  будет штатным ответом. Ждём молча, вместо «Отчёта нет» сразу. */
+const POLL_INTERVAL_MS = 4000;
+const POLL_LIMIT_MS = 3 * 60 * 1000;
+
 export function MethodistReport() {
   const { sessionId = '' } = useParams();
   const [report, setReport] = useState<Report | null>(null);
   const [rubric, setRubric] = useState<RubricItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  /** 404 — это не поломка, а «сессия ещё не завершена». Ветка отдельная. */
+  /** 404 — это не поломка, а «оценка ещё считается» либо «сессия не завершена». */
   const [missing, setMissing] = useState(false);
+  /** Ждать перестали: за POLL_LIMIT_MS отчёт так и не появился. */
+  const [gaveUp, setGaveUp] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
+  const startedAt = useRef(Date.now());
 
   useEffect(() => {
     gatewayApi
@@ -39,6 +47,31 @@ export function MethodistReport() {
         else setError(cause.message);
       });
   }, [sessionId]);
+
+  // Пока отчёта нет — перезапрашиваем: он появится сам, когда сильная модель
+  // досчитает. Кнопку пересчёта показываем только после потолка ожидания,
+  // иначе методист жмёт её поверх уже идущей оценки.
+  useEffect(() => {
+    if (!missing || report || gaveUp) return;
+
+    const timer = setInterval(() => {
+      if (Date.now() - startedAt.current > POLL_LIMIT_MS) {
+        setGaveUp(true);
+        return;
+      }
+      gatewayApi
+        .getReport(sessionId)
+        .then((fresh) => {
+          setReport(fresh);
+          setMissing(false);
+        })
+        .catch(() => {
+          // Всё ещё 404 — это и есть ожидаемый ответ, ждём дальше.
+        });
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [missing, report, gaveUp, sessionId]);
 
   // Названия и шкалы критериев живут в сценарии, а не в отчёте, поэтому
   // рубрику подтягиваем отдельно. У отчётов, сохранённых до появления
@@ -64,14 +97,30 @@ export function MethodistReport() {
       .finally(() => setRebuilding(false));
   }, [sessionId]);
 
+  if (missing && !gaveUp) {
+    return (
+      <main className="page report-pending">
+        <h1>Оценка считается</h1>
+        <p className="admin__hint">
+          Итог формирует сильная модель уже после конца тренировки — это занимает
+          до минуты. Страница обновится сама.
+        </p>
+        <div className="report-pending__skeleton">
+          <div className="report-pending__line skeleton-shimmer" />
+          <div className="report-pending__line skeleton-shimmer" />
+          <div className="report-pending__line report-pending__line--short skeleton-shimmer" />
+        </div>
+      </main>
+    );
+  }
+
   if (missing) {
     return (
       <main className="page">
         <h1>Отчёта нет</h1>
         <p className="admin__hint">
-          Сессия ещё не завершена — оценка формируется в конце тренировки. Если
-          тренировка закончилась, а отчёта нет, оценка могла не пройти: её можно
-          запустить заново.
+          Оценка не появилась за отведённое время. Так бывает, если сессия не была
+          завершена или провайдер LLM не ответил — оценку можно запустить заново.
         </p>
         <button type="button" className="report__rebuild" onClick={rebuild} disabled={rebuilding}>
           {rebuilding ? 'Считаем…' : 'Посчитать оценку'}
@@ -90,7 +139,7 @@ export function MethodistReport() {
   return (
     <main className="page page--wide report">
       <section className="card hero-card">
-        <span className="eyebrow">Разбор сессии {report.session_id.slice(0, 8)}…</span>
+        <span className="eyebrow eyebrow--wrap">Разбор сессии {report.session_id}</span>
         <h1>Итог сессии</h1>
       </section>
 
@@ -125,7 +174,9 @@ export function MethodistReport() {
               <span>длительность</span>
             </div>
             <div className="stat">
-              {/* §11, пункт 6: счётчик освобождённых часов. */}
+              {/* Claude.md §11, п.6 — экран методиста, не сотрудника: на
+                  экране тренировки этой цифры быть не должно. Агрегат по
+                  всем сессиям живёт отдельно, в сводке админ-панели. */}
               <b>{(report.duration_sec / 3600).toFixed(1)} ч</b>
               <span>освобождено методисту</span>
             </div>
@@ -133,7 +184,7 @@ export function MethodistReport() {
         </article>
       </section>
 
-      <section className="card">
+      <section className="card report__section">
         <div className="report__scores-head">
           <div>
             <span className="eyebrow">Оценка</span>

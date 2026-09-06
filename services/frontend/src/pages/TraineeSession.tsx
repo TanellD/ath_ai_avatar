@@ -46,6 +46,7 @@ import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndi
 import { PushToTalkToggle } from '@/components/PushToTalkToggle';
 import { SessionEndOverlay } from '@/components/SessionEndOverlay';
 import { SessionStartOverlay } from '@/components/SessionStartOverlay';
+import { StageHint } from '@/components/StageHint';
 import type { Scenario, ServerEvent, SubtitleEvent } from '@/contracts/events';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
@@ -353,6 +354,9 @@ export function TraineeSession() {
                 />
               ))}
             </div>
+            {stages[Math.max(stageIndex, 0)] && (
+              <StageHint goal={stages[Math.max(stageIndex, 0)].goal} />
+            )}
           </div>
         )}
 
