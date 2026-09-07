@@ -10,7 +10,7 @@ describe('SilenceFollowup', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it('напоминает на 30-й секунде и продолжает на 60-й', () => {
+  it('напоминает на 30-й секунде и продолжает ещё через 30 после неё', () => {
     const phases: SilencePhase[] = [];
     const followup = new SilenceFollowup((phase) => phases.push(phase));
 
@@ -18,14 +18,37 @@ describe('SilenceFollowup', () => {
     vi.advanceTimersByTime(30_000);
     expect(phases).toEqual(['nudge']);
 
-    // Пока агент произносил напоминание, отсчёт был на паузе. После его
-    // окончания сохраняется исходный дедлайн 60 секунд.
+    // Пока агент произносил напоминание, отсчёт был на паузе. resume() ниже
+    // стартует НОВОЕ окно в 30 с — оно не наследует старый anchor.
     followup.resume();
     vi.advanceTimersByTime(30_000);
     expect(phases).toEqual(['nudge', 'continue']);
 
     followup.resume();
     vi.advanceTimersByTime(120_000);
+    expect(phases).toEqual(['nudge', 'continue']);
+  });
+
+  it('озвучка nudge не крадёт время у окна ожидания continue', () => {
+    // Живой баг: continue считался от anchor начала молчания, а не от конца
+    // nudge — время генерации и озвучки самого nudge (LLM+TTS+сеть) вычиталось
+    // из вторых 30 секунд. У разных людей эта задержка разная (сеть, нагрузка
+    // TTS-воркера), поэтому баг был незаметен на быстром соединении и выглядел
+    // как «продолжает почти сразу после nudge» на медленном.
+    const phases: SilencePhase[] = [];
+    const followup = new SilenceFollowup((phase) => phases.push(phase));
+
+    followup.resume();
+    vi.advanceTimersByTime(30_000);
+    expect(phases).toEqual(['nudge']);
+
+    // 10 секунд ушло на генерацию и проигрывание реплики-nudge — окно continue
+    // обязано начаться заново именно с этого момента, а не быть урезанным.
+    vi.advanceTimersByTime(10_000);
+    followup.resume();
+    vi.advanceTimersByTime(29_999);
+    expect(phases).toEqual(['nudge']);
+    vi.advanceTimersByTime(1);
     expect(phases).toEqual(['nudge', 'continue']);
   });
 
@@ -59,7 +82,7 @@ describe('SilenceFollowup', () => {
 
   it('не перебивает во время долгой паузы с непустым черновиком', () => {
     // Живой баг: пользователь формулирует длинный ответ, между нажатиями
-    // клавиш пауза больше NUDGE_MS — раньше персонаж перебивал его прямо
+    // клавиш пауза больше SILENCE_STEP_MS — раньше персонаж перебивал его прямо
     // посреди формулирования ответа, хотя поле ввода не пустое.
     const phases: SilencePhase[] = [];
     const followup = new SilenceFollowup((phase) => phases.push(phase));
