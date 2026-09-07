@@ -31,7 +31,11 @@ async def test_open_session_speaks_without_any_user_message(built) -> None:  # n
 async def test_stage_transition_opens_the_new_stage_in_the_same_turn(
     scenario: Scenario, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Смена этапа не ждёт следующей реплики сотрудника."""
+    """Смена этапа не ждёт следующей реплики сотрудника.
+
+    Верно для персонажа, который ведёт разговор. Обратный случай — в
+    `test_stage_transition_stays_silent_without_initiative`.
+    """
     session = LiveSession(session_id="s2", scenario=scenario)
     pipeline, ai, _speech, _sent = build_pipeline(session, monkeypatch)
     ai.classification = Classification.COMPLETE
@@ -45,6 +49,31 @@ async def test_stage_transition_opens_the_new_stage_in_the_same_turn(
     assert session.current_stage_id == "discovery"
     # Открывающая реплика идёт тем же поколением — отдельного bump быть не должно.
     assert session.generations.current == 1
+
+
+async def test_stage_transition_stays_silent_without_initiative(
+    scenario: Scenario, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Персонаж без инициативы на переходе НЕ заводит новую тему.
+
+    Живой диалог: кандидат отвечал интервьюеру и следом сам открывал новый
+    этап — два хода подряд, причём вторым он перехватывал ведение ровно там,
+    где по роли обязан ждать вопроса. Ответ при этом обязан остаться: без него
+    реплика сотрудника повисает без реакции.
+    """
+    follower = scenario.model_copy(deep=True)
+    follower.persona.holds_initiative = False
+    session = LiveSession(session_id="s2b", scenario=follower)
+    pipeline, ai, _speech, _sent = build_pipeline(session, monkeypatch)
+    ai.classification = Classification.COMPLETE
+
+    await pipeline.handle_user_message("Здравствуйте, я Пётр.", interrupts=None)
+    await drain(session)
+
+    assert len(ai.reply_calls) == 1, "только ответ, без открытия нового этапа"
+    assert ai.reply_calls[0]["opening_kind"] is None
+    # Сам переход должен состояться — молчит персонаж, а не автомат.
+    assert session.current_stage_id == "discovery"
 
 
 async def test_silence_followups_speak_without_fake_user_turns(built) -> None:  # noqa: ANN001

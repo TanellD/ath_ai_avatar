@@ -249,7 +249,14 @@ class TurnPipeline:
             # следующей реплики сотрудника (§1). Тем же поколением: это
             # продолжение той же задачи, и barge-in снимает его целиком.
             # Аватар берём тот же, каким пришла реплика сотрудника.
-            if transition.action is Action.NEXT_STAGE:
+            #
+            # Но только если инициатива у него. Персонаж без инициативы
+            # (кандидат на собеседовании) на переходе говорил ДВА раза подряд:
+            # сначала отвечал сотруднику, потом сам заводил новую тему — то
+            # есть перехватывал ведение ровно в тот момент, когда по роли
+            # обязан ждать вопроса. Ответ остаётся всегда: без него реплика
+            # сотрудника повисла бы без реакции.
+            if transition.action is Action.NEXT_STAGE and self._holds_initiative:
                 await self._speak(
                     gen_id,
                     _OPENING_DIRECTIVE[OpeningKind.STAGE_TRANSITION],
@@ -611,6 +618,15 @@ class TurnPipeline:
 
         agent_turn = self._session.add_turn(TurnRole.AGENT, text)
         await self._persist_turn(agent_turn, gen_id)
+
+    @property
+    def _holds_initiative(self) -> bool:
+        """Ведёт ли персонаж разговор (§1, Persona.holds_initiative).
+
+        Дефолт — True: в большинстве сценариев инициативу держит агент, и
+        сценарии, записанные до появления поля, обязаны вести себя как раньше.
+        """
+        return self._session.scenario.persona.holds_initiative
 
     def _speak_label(self, user_text: str, opening_kind: OpeningKind | None) -> str:
         """Подпись спана для Gantt-графика админ-панели.
