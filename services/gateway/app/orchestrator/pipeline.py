@@ -76,7 +76,7 @@ _OPENING_DIRECTIVE = {
 список, не начинающийся с роли user, — а у открывающей реплики реплики
 пользователя по определению нет. Содержательная часть инструкции лежит в
 системном промпте (ai-service/app/character/prompts.py), здесь — только
-непустая затычка нужной роли. См. docs/agent-initiative.md.
+непустая затычка нужной роли. См. docs/engineering/agent-initiative.md.
 """
 
 
@@ -624,7 +624,7 @@ class TurnPipeline:
     async def _speak_fallback_opening(self, gen_id: int, recorder: SpanRecorder) -> None:
         """Открывающая реплика без LLM — последнее средство при сбое модели.
 
-        Компромисс осознанный (docs/agent-initiative.md, открытый вопрос):
+        Компромисс осознанный (docs/engineering/agent-initiative.md, открытый вопрос):
         `agent_opening` из сценария озвучивается дословно, чего мы в норме
         избегаем, — но альтернатива здесь не «чуть хуже сформулировано», а
         полная тишина в начале сессии, когда сотруднику не на что реагировать.

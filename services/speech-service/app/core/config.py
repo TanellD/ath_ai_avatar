@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     tts_sample_rate: int = 24000
 
     # Кэш аудио для детерминированных фраз — прежде всего самопредставления
-    # персонажа (docs/agent-initiative.md). В памяти процесса: сервис и так
+    # персонажа (docs/engineering/agent-initiative.md). В памяти процесса: сервис и так
     # однопроцессный, а холодный кэш после рестарта стоит один синтез.
     tts_cache_enabled: bool = True
     tts_cache_max_entries: int = 256
@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     stt_debug_faults_enabled: bool = False
 
     # Safety limits are deliberately conservative dev defaults. Product values
-    # are pinned only after our own benchmark (docs/voice-input-plan.md).
+    # are pinned only after our own benchmark (docs/engineering/voice-input-plan.md).
     # 0 = без ограничения длительности: сотрудник договаривает мысль, сколько бы
     # она ни длилась. Лимит обрывал запись на полуслове и заодно давал персонажу
     # заговорить поверх ещё говорящего человека. ADR-0001 связывал 20 с с

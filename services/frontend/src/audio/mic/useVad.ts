@@ -8,7 +8,7 @@
  * (метрика 3), и ждать ответа сервера нельзя. Локальная остановка укладывается
  * в 70-170 мс, сетевой round-trip — нет.
  *
- * См. README.md в этом каталоге и docs/stt-phase.md.
+ * См. README.md в этом каталоге и docs/engineering/stt-phase.md.
  */
 
 export interface VadEvents {

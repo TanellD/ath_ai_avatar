@@ -15,6 +15,7 @@ import type {
   Span,
 } from '@/contracts/admin';
 import type {
+  AvatarId,
   Persona,
   Report,
   RubricItem,
@@ -125,13 +126,15 @@ export const gatewayApi = {
   },
 
   /**
-   * Аватар уходит параметром подключения, а не первым событием: по нему
-   * выбирается голос уже для ОТКРЫВАЮЩЕЙ реплики, которая звучит раньше, чем
-   * сотрудник скажет хоть слово.
+   * `avatarId` — то, что сотрудник выбрал ДО открытия сокета. Открывающая
+   * реплика (персонаж говорит первым, §1) звучит раньше первого UserMessage/
+   * SpeechStart — единственных событий, которые иначе несли бы avatar_id —
+   * поэтому без query-параметра сервер озвучивал её дефолтным (женским)
+   * голосом даже для Vincent/Tom. Дальнейшие ходы синхронизируются как
+   * раньше, этим параметром только открывающая реплика.
    */
-  sessionSocketUrl(sessionId: string, avatarId?: string): string {
-    const base = `${WS_URL}/ws/session/${sessionId}`;
-    return avatarId ? `${base}?avatar=${encodeURIComponent(avatarId)}` : base;
+  sessionSocketUrl(sessionId: string, avatarId: AvatarId): string {
+    return `${WS_URL}/ws/session/${sessionId}?avatar_id=${encodeURIComponent(avatarId)}`;
   },
 };
 
@@ -223,7 +226,7 @@ export interface DraftScenarioParams {
 }
 
 /**
- * Сильная модель, сценарий редкий — минуты, а не секунды (`docs/latency-budget.md`
+ * Сильная модель, сценарий редкий — минуты, а не секунды (`docs/engineering/latency-budget.md`
  * сюда не относится: это не ход диалога). Таймаута нет ни на клиенте SDK внутри
  * ai-service, ни здесь по умолчанию — без него зависший запрос держал бы кнопку
  * в «Собираем черновик…» бесконечно.

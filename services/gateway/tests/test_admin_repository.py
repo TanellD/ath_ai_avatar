@@ -55,7 +55,7 @@ async def test_list_sessions_reports_turn_count(db_session: AsyncSession) -> Non
 async def test_list_sessions_reports_stages_completed_from_history(
     db_session: AsyncSession,
 ) -> None:
-    """docs/bugs_front.md №5: номер этапа в админке — честная колонка БД
+    """docs/bugs/bugs_front.md №5: номер этапа в админке — честная колонка БД
     (stage_history), не что-то домысленное поверх current_stage."""
     repo = SqlSessionRepository(db_session)
     state = SessionState(
@@ -340,7 +340,7 @@ async def test_get_load_stats_operations_excludes_spans_outside_window(
 
 
 async def test_get_load_stats_buckets_errors_by_service(db_session: AsyncSession) -> None:
-    """docs/bugs_front.md №6: ошибки по времени, отдельным списком бакетов на
+    """docs/bugs/bugs_front.md №6: ошибки по времени, отдельным списком бакетов на
     каждый сервис — сгруппированы по той же _OPERATION_SERVICE, что и
     OperationLoad.service, без новой агрегации в БД."""
     repo = SqlSessionRepository(db_session)

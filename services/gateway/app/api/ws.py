@@ -3,7 +3,7 @@
 Одно соединение на сессию, JSON-события в обе стороны плюс бинарный канал —
 PCM-кадры микрофона идут тем же upgrade-обработчиком, отличаясь по
 `message["bytes"]`. Референсный проект держит два сокета (аудио отдельно от
-событий); нам это оказалось не нужно даже с голосом. См. docs/stt-phase.md.
+событий); нам это оказалось не нужно даже с голосом. См. docs/engineering/stt-phase.md.
 
 Инвариант входа: каждое событие валидируется через контракты, а не читается
 как свободный dict. Невалидное событие — ошибка клиенту, а не исключение
@@ -12,8 +12,10 @@ PCM-кадры микрофона идут тем же upgrade-обработч�
 
 import asyncio
 import json
+from typing import get_args
 
 from ath_contracts import (
+    AvatarId,
     ErrorEvent,
     FinishSession,
     Ping,
@@ -33,7 +35,6 @@ from app.core.config import get_settings
 from app.core.logging import bind_session_context, clear_session_context, get_logger
 from app.db.engine import session_factory
 from app.db.repositories import SqlSessionRepository
-from app.orchestrator.avatar_voice import resolve_avatar_id
 from app.orchestrator.pipeline import TurnPipeline
 from app.orchestrator.voice_recovery import VoiceRecoveryPlayer
 from app.orchestrator.voice_turns import VoiceTurnRegistry
@@ -55,16 +56,6 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         session = await _restore_session(websocket, session_id)
         if session is None:
             return
-
-    # Аватар сообщается ПАРАМЕТРОМ ПОДКЛЮЧЕНИЯ, а не первым событием: голос
-    # выбирается по нему уже в открывающей реплике, которая уходит раньше любой
-    # реплики сотрудника. Пока avatar_id приезжал только с user_message,
-    # Vincent произносил первую фразу голосом персонажа сценария (женским) и
-    # переключался на свой лишь со второй — «первую реплику женским голосом,
-    # потом нормально».
-    session.avatar_id = resolve_avatar_id(
-        websocket.query_params.get("avatar"), session.avatar_id
-    )
 
     send_lock = asyncio.Lock()
 
@@ -97,6 +88,17 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
     )
 
     log.info("ws.connected", scenario_id=session.scenario.id)
+
+    # Баг: открывающая реплика играла голосом DEFAULT_AVATAR_ID (Ирина/жен.)
+    # даже если сотрудник выбрал Vincent/Tom — клиент выбирает аватар ДО
+    # открытия сокета, но сервер узнавал его только из первого UserMessage/
+    # SpeechStart, а к открывающей реплике эти события ещё не пришли. Клиент
+    # уже кладёт свой выбор в query, разбираем его здесь, до open_session();
+    # если параметра нет или он не входит в известный набор — session.avatar_id
+    # остаётся дефолтным, как и раньше.
+    requested_avatar = websocket.query_params.get("avatar_id")
+    if requested_avatar in get_args(AvatarId):
+        session.avatar_id = requested_avatar  # type: ignore[assignment]
 
     # Инициативу держит агент (§1): персонаж заговаривает сам, не дожидаясь
     # реплики сотрудника.

@@ -28,7 +28,14 @@ interface Props {
   /** Персонаж сейчас говорит — значит отправка его перебьёт. */
   isAgentSpeaking: boolean;
   onSubmit: (text: string) => void;
-  onActivity?: () => void;
+  /**
+   * Есть ли прямо сейчас непустой черновик в поле. Таймер молчания (§1)
+   * ориентируется на это, а не на факт недавнего нажатия клавиши: человек,
+   * формулирующий длинный ответ, может надолго замереть между нажатиями, не
+   * переставая при этом отвечать — раньше персонаж в такой паузе перебивал
+   * его собственной репликой.
+   */
+  onDraftChange?: (hasText: boolean) => void;
 }
 
 export function MessageComposer({
@@ -36,7 +43,7 @@ export function MessageComposer({
   dictated,
   isAgentSpeaking,
   onSubmit,
-  onActivity,
+  onDraftChange,
 }: Props) {
   const [text, setText] = useState('');
 
@@ -47,6 +54,7 @@ export function MessageComposer({
 
     onSubmit(trimmed);
     setText('');
+    onDraftChange?.(false);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -64,8 +72,9 @@ export function MessageComposer({
         className="composer__input"
         value={dictated || text}
         onChange={(event) => {
-          setText(event.target.value);
-          onActivity?.();
+          const value = event.target.value;
+          setText(value);
+          onDraftChange?.(value.trim().length > 0);
         }}
         onKeyDown={handleKeyDown}
         placeholder={dictated === undefined ? 'Ваша реплика. Enter — отправить.' : 'Говорите…'}

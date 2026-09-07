@@ -41,23 +41,6 @@ def recovery_line_for(avatar_id: str) -> str:
     return _RECOVERY_LINES.get(avatar_id, DEFAULT_RECOVERY_LINE)
 
 
-def resolve_avatar_id(requested: str | None, current: str) -> str:
-    """Аватар, запрошенный при подключении, — или прежний, если запрос негоден.
-
-    Нужен до первой реплики сотрудника: голос открывающей фразы выбирается по
-    avatar_id, а он раньше приезжал только с user_message. Из-за этого Vincent
-    произносил первую фразу голосом персонажа сценария и переключался на свой
-    лишь со второй.
-
-    Неизвестный id молча игнорируется, а не подменяет аватара дефолтным:
-    параметр приходит из адресной строки, и опечатка в нём не повод менять
-    персонажа, которого сотрудник выбрал.
-    """
-    if requested and any(requested == profile for profile, _ in known_profiles()):
-        return requested
-    return current
-
-
 def known_profiles() -> list[tuple[str, str]]:
     """Пары «id профиля → фраза восстановления» для предрендера."""
     ids = {DEFAULT_AVATAR_ID, *_VOICES, *_RECOVERY_LINES}

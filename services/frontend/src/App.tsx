@@ -89,7 +89,7 @@ export function App() {
             <Route path="/sessions" element={<MethodistSessions />} />
             <Route path="/session/:scenarioId" element={<TraineeSession />} />
             <Route path="/emotion-lab" element={<EmotionLab />} />
-            {/* Лаборатория моделей поглощена emotion-lab (docs/bugs_front.md
+            {/* Лаборатория моделей поглощена emotion-lab (docs/bugs/bugs_front.md
                 №7) — старая ссылка не должна вести в никуда. */}
             <Route path="/avatar-lab" element={<Navigate to="/emotion-lab" replace />} />
             <Route path="/report/:sessionId" element={<MethodistReport />} />

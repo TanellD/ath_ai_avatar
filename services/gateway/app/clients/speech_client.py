@@ -8,7 +8,7 @@ WebSocket, а не HTTP, потому что чанки должны идти п
 генерации LLM. При CancelledError соединение закрывается вместе с задачей.
 
 [STT] В голосовой фазе здесь появится второе направление — стрим микрофонного
-аудио в STT. См. docs/stt-phase.md.
+аудио в STT. См. docs/engineering/stt-phase.md.
 """
 
 import asyncio
