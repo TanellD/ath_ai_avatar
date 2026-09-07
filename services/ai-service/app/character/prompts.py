@@ -28,8 +28,6 @@ _CHARACTER_SYSTEM = """\
 отрабатывает рабочий навык. Ты НЕ ассистент и НЕ помогаешь ему. Ты играешь
 свою роль и ведёшь себя как реальный человек в этой ситуации.
 
-Текущий этап разговора: {stage_goal}
-
 Правила:
 - Первой строкой выведи ровно один служебный маркер: <emotion=NAME>, где NAME —
   neutral, friendly, irritated, angry, sad, excited или surprised.
@@ -176,16 +174,22 @@ def build_character_system(
     пользователя (§1). `off_topic_streak` меняет ровно тон возврата в русло и
     ничего больше — решение о переходе принимает автомат (§5).
 
-    `stage.completion_criteria` сюда не попадает ни при каких условиях: то,
-    чего персонаж не знает, он не может проболтать. Критерий видит только
-    классификатор — см. `build_classifier_system`.
+    Ни `stage.completion_criteria`, ни `stage.goal` сюда не попадают. Про
+    критерий это было верно всегда: чего персонаж не знает, того он не
+    проболтает. Цель убрана позже и по другой причине — она сформулирована со
+    стороны СОТРУДНИКА («выявить потребность», «выяснить реальный опыт»), а
+    подставлялась персонажу как его собственная задача. Сильная модель
+    разрешала противоречие в пользу роли, локальная — нет: кандидат на
+    собеседовании начинал сам расспрашивать интервьюера про опыт, а закупщик —
+    выявлять потребность у продавца. Персонаж и не должен знать методическую
+    задачу этапа: он играет человека, а не ведёт занятие. О чём идёт разговор,
+    он видит из истории и из `agent_opening`.
     """
     prompt = _CHARACTER_SYSTEM.format(
         name=persona.name,
         role=persona.role,
         character=persona.character,
         mood=persona.mood.value,
-        stage_goal=stage.goal,
         initiative_rule=_INITIATIVE_ON if persona.holds_initiative else _INITIATIVE_OFF,
         difficulty_hint=_DIFFICULTY_HINTS.get(persona.difficulty, _DIFFICULTY_HINTS[3]),
     )

@@ -35,6 +35,36 @@ def test_completion_criteria_never_leaks_to_the_character() -> None:
         assert STAGE.completion_criteria not in prompt
 
 
+def test_stage_goal_never_reaches_the_character() -> None:
+    """Цель этапа — задача СОТРУДНИКА, персонажу её знать незачем.
+
+    Живой баг на локальной модели: цель подставлялась в системный промпт как
+    «Текущий этап разговора», и персонаж принимался её выполнять. Кандидат на
+    собеседовании начинал сам расспрашивать интервьюера («какой была твоя роль
+    в той команде?»), а закупщик — выявлять потребность у продавца. Формально
+    модель слушалась инструкции: ей поручили выяснить опыт, она и выясняла.
+    """
+    prompt = build_character_system(PERSONA, STAGE)
+
+    assert STAGE.goal not in prompt
+    assert "Выявить" not in prompt and "выяснить" not in prompt.lower()
+    # Роль и характер остаются: без них персонажа не будет вовсе.
+    assert PERSONA.role in prompt
+    assert PERSONA.character in prompt
+
+
+def test_stage_goal_absent_from_opening_blocks_too() -> None:
+    """Открытие этапа даёт ориентир репликой, а не методической задачей."""
+    for kind in OpeningKind:
+        prompt = build_character_system(PERSONA, STAGE, opening_kind=kind)
+        assert STAGE.goal not in prompt, f"цель просочилась в блок {kind}"
+    # Ориентир при этом на месте — иначе персонажу нечем открывать этап.
+    session_start = build_character_system(
+        PERSONA, STAGE, opening_kind=OpeningKind.SESSION_START
+    )
+    assert STAGE.agent_opening in session_start
+
+
 def test_character_is_told_not_to_write_stage_directions() -> None:
     """Живой прогон выдал «(разговор завершён)Ладно, слушаю…» — ремарку, которую
     TTS произнёс бы вслух. Правило про разметку это не покрывало."""
