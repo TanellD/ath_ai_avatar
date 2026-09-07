@@ -24,3 +24,30 @@ export function currentCueSentence(text: string): string {
   }
   return trimmed.slice(start).trim();
 }
+
+/** Сколько субтитры держатся на экране после конца ХОДА. */
+export const SUBTITLE_LINGER_MS = 1000;
+
+/**
+ * Что показывать в оверлее на данной позиции аудио. Пустая строка — скрыть.
+ *
+ * Отдельной функцией, а не внутри компонента, по той же причине, что и
+ * `agentLines`: здесь живут ошибки, которые глазами не поймать, и обе уже
+ * случались. Сперва компонент вызывал setText ТОЛЬКО когда было что показать,
+ * и ветки «стереть» не было вовсе — после конца реплики её текст висел до
+ * следующей. Потом гашение сделали по одной лишь тишине дольше секунды — и
+ * субтитры стали пропадать ПОСРЕДИ речи: TTS отдаёт её чанками, пауза между
+ * ними легко больше секунды, а следующего cue в массиве ещё нет.
+ *
+ * Отсюда `ended`: пока ход идёт, последняя фраза остаётся на экране, сколько
+ * бы ни длилась пауза. Гаснет она только после конца хода.
+ */
+export function subtitleAt(cues: SubtitleEvent[], positionMs: number, ended = false): string {
+  const visible = cues.filter((cue) => cue.start_ms <= positionMs);
+  if (!visible.length) return '';
+
+  const lastEnd = visible.reduce((end, cue) => Math.max(end, cue.end_ms), 0);
+  if (ended && positionMs > lastEnd + SUBTITLE_LINGER_MS) return '';
+
+  return currentCueSentence(joinCueText(visible));
+}

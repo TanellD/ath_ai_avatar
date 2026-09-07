@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { ScenarioSlot } from '@/contracts/events';
 
-import { renderBriefing, slotDefaults } from './briefing';
+import { renderBriefing, slotDefaults, slotPlaceholders } from './briefing';
 
 const SLOTS: ScenarioSlot[] = [
   { id: 'company', label: 'Компания', hint: 'закупщик', example: 'Северный Ветер' },
@@ -55,5 +55,25 @@ describe('slotDefaults', () => {
 
   test('сценарий без слотов даёт пустую подстановку', () => {
     expect(slotDefaults([])).toEqual({});
+  });
+});
+
+describe('slotPlaceholders', () => {
+  test('подставляет подписи, а не примеры', () => {
+    // Живая жалоба: на превью стояло «Ортекс», сотрудник запоминал имя, а в
+    // тренировке собеседника звали иначе — детали подбираются заново.
+    const text = renderBriefing(
+      'Вы продаёте {product} компании «{company}».',
+      slotPlaceholders(SLOTS),
+    );
+
+    expect(text).toBe('Вы продаёте [продукт] компании «[компания]».');
+    expect(text).not.toContain('Северный Ветер');
+  });
+
+  test('примеры остаются доступны отдельно', () => {
+    // slotDefaults никуда не делся: он нужен как запасное значение при сбое
+    // генерации деталей, и подменять его здесь было бы ошибкой.
+    expect(slotDefaults(SLOTS).company).toBe('Северный Ветер');
   });
 });

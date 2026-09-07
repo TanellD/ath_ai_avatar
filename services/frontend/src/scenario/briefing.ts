@@ -30,3 +30,20 @@ export function renderBriefing(text: string, values: Record<string, string>): st
 export function slotDefaults(slots: ScenarioSlot[]): Record<string, string> {
   return Object.fromEntries(slots.map((slot) => [slot.id, slot.example]));
 }
+
+/**
+ * Подписи слотов вместо примеров — для превью, где деталей прогона ещё нет.
+ *
+ * `slotDefaults` подставляет `example`, и сотрудник читал «Ортекс» как факт:
+ * запоминал имя, входил в тренировку — а там gateway подобрал детали заново, и
+ * собеседника зовут иначе. Формально страница честна (подсказка «имена будут
+ * другими» рядом есть), но текст вокруг выглядит конкретным и спорит с ней.
+ *
+ * Квадратные скобки — не украшение: они единственное, что отличает заполнитель
+ * от имени, когда методист уже обернул слот в кавычки («{company}»).
+ */
+export function slotPlaceholders(slots: ScenarioSlot[]): Record<string, string> {
+  return Object.fromEntries(
+    slots.map((slot) => [slot.id, `[${slot.label.toLocaleLowerCase('ru')}]`]),
+  );
+}

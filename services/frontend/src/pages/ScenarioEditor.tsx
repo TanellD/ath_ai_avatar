@@ -36,6 +36,7 @@ import type {
   Stage,
 } from '@/contracts/events';
 import { applyDraft, draftContext, isBlank } from '@/scenario/draft';
+import { formatTags, parseTags, tagsTextMatches } from '@/scenario/tags';
 import { hasIssues, validateScenario } from '@/scenario/validate';
 import type { ScenarioIssues } from '@/scenario/validate';
 
@@ -147,6 +148,15 @@ export function ScenarioEditor() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  /**
+   * Сырая строка тегов, пока её набирают.
+   *
+   * Поле нельзя рисовать прямо из модели: разбор выбрасывает запятую и
+   * пробелы, и «продажи,» тут же превращалось обратно в «продажи» — второй тег
+   * было не ввести. Модель обновляется на каждый ввод, а показывается
+   * набранное.
+   */
+  const [tagsText, setTagsText] = useState('');
 
   const [generating, setGenerating] = useState<'draft' | 'rubric' | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
@@ -230,6 +240,14 @@ export function ScenarioEditor() {
     const used = texts.flatMap((text) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]));
     return [...new Set(used.filter((name) => !declared.has(name)))];
   }, [scenario]);
+
+  // Внешние изменения модели (загрузка сценария, «развернуть черновик») строку
+  // пересобирают, правка пользователя — нет: иначе снова съедим запятую.
+  useEffect(() => {
+    setTagsText((current) =>
+      tagsTextMatches(current, scenario.tags) ? current : formatTags(scenario.tags),
+    );
+  }, [scenario.tags]);
 
   const patch = useCallback((update: Partial<Scenario>) => {
     setScenario((current) => ({ ...current, ...update }));
@@ -501,16 +519,13 @@ export function ScenarioEditor() {
                 <input
                   id={id}
                   type="text"
-                  value={scenario.tags.join(', ')}
+                  value={tagsText}
                   placeholder="продажи, возражения, цена"
-                  onChange={(event) =>
-                    patch({
-                      tags: event.target.value
-                        .split(',')
-                        .map((tag) => tag.trim())
-                        .filter(Boolean),
-                    })
-                  }
+                  onChange={(event) => {
+                    setTagsText(event.target.value);
+                    patch({ tags: parseTags(event.target.value) });
+                  }}
+                  onBlur={() => setTagsText(formatTags(parseTags(tagsText)))}
                 />
               )}
             </Field>
