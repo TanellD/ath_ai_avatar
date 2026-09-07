@@ -65,3 +65,52 @@ def test_closing_tag_can_arrive_across_chunks() -> None:
 
     assert parser.feed("</emo").text == ""
     assert parser.feed("tion> Продолжим.").text == " Продолжим."
+
+
+def test_foreign_marker_name_is_swallowed_not_spoken() -> None:
+    """Живой баг: локальный Qwen выдал `<intent=neutral>` вместо `<emotion=`.
+
+    Литеральное сравнение с `<emotion=` его не узнало, маркер не признали
+    служебным — и он ушёл в реплику, то есть в субтитры и в озвучку.
+    """
+    parser = EmotionPrefixParser(Emotion.NEUTRAL)
+
+    result = parser.feed("<intent=neutral> Да, спасибо за вопрос.")
+
+    assert "<intent" not in result.text
+    assert result.text == "Да, спасибо за вопрос."
+    assert result.emotion is Emotion.NEUTRAL
+
+
+def test_foreign_marker_still_yields_a_known_emotion() -> None:
+    """Имя тега чужое, а значение — наше: эмоцию берём, маркер убираем."""
+    parser = EmotionPrefixParser(Emotion.NEUTRAL)
+
+    result = parser.feed("<mood=irritated>Дорого.")
+
+    assert result.emotion is Emotion.IRRITATED
+    assert result.text == "Дорого."
+
+
+def test_foreign_marker_split_across_chunks() -> None:
+    """Маркер приходит по кускам — держим, пока не станет ясно."""
+    parser = EmotionPrefixParser(Emotion.FRIENDLY)
+
+    assert parser.feed("<int").text == ""
+    assert parser.feed("ent=neu").text == ""
+    result = parser.feed("tral>Здравствуйте.")
+
+    assert result.text == "Здравствуйте."
+
+
+def test_reply_starting_with_angle_bracket_is_not_eaten() -> None:
+    """Обычная реплика, начавшаяся со скобки, не должна пропасть.
+
+    Граница нужна: правило «съедать всё в угловых скобках» иначе молча
+    проглотило бы живой текст.
+    """
+    parser = EmotionPrefixParser(Emotion.NEUTRAL)
+
+    result = parser.feed("<3 это про сердечко, а не про тег")
+
+    assert result.text == "<3 это про сердечко, а не про тег"
