@@ -1,80 +1,92 @@
-# Voice Input / Turn Intelligence: план реализации
+# Голосовой ввод / Turn Intelligence: план реализации
 
-Статус: **в реализации**. Phase 0 foundation завершён; Phase 1 PTT + Soniox
-прошёл автоматические проверки и ручную проверку в браузере. Phase 2 GigaAM local
-завершён: изолированный worker с preload/readiness и ограниченной очередью,
-`make gigaam-setup` с закреплёнными в `models.lock.json` контрольными суммами и
-офлайновый штатный старт. Phase 3 automatic failover реализован в основном:
-epoch, lossless replay, 5-секундный finalize-watchdog и объявление смены
-провайдера клиенту через `voice_provider_switched`. Обязательные fault-кейсы §L
-закрыты с обеих сторон: на speech-service (поздний Soniox final после failover,
+Статус: **в реализации**. Фаза 0 (основа) завершена; Фаза 1 (PTT + Soniox)
+прошла автоматические проверки и ручную проверку в браузере. Фаза 2
+(локальный GigaAM) завершена: изолированный worker с preload/readiness и
+ограниченной очередью, `make gigaam-setup` с закреплёнными в
+`models.lock.json` контрольными суммами и офлайновый штатный старт. Фаза 3
+(автоматический failover) реализована в основном: epoch, lossless replay,
+5-секундный finalize-watchdog и объявление смены провайдера клиенту через
+`voice_provider_switched`. Обязательные fault-кейсы раздела L закрыты с
+обеих сторон: на speech-service (поздний финал Soniox после failover,
 недоступный GigaAM, оба порядка final/disconnect, восстановление только со
-следующего хода) и на клиенте (отбрасывание протухших событий по каждому стоку,
-vitest). Соединение переживает обрыв: экспоненциальное переподключение на
-клиенте плюс восстановление ходов, истории этапов и счётчика поколений на
-сервере. Не закрыто: прогон benchmark на реальном корпусе, браузерная и
-акустическая матрица, hands-free. Это единственный актуальный
-источник решений по голосовому вводу; [`stt-phase.md`](stt-phase.md) — только
-инвентарь подготовленного кода.
+следующего хода) и на клиенте (отбрасывание протухших событий по каждому
+стоку, vitest). Соединение переживает обрыв: экспоненциальное
+переподключение на клиенте плюс восстановление ходов, истории этапов и
+счётчика поколений на сервере. Не закрыто: прогон бенчмарка на реальном
+корпусе, браузерная и акустическая матрица, hands-free. Это единственный
+актуальный источник решений по голосовому вводу; [`stt-phase.md`](stt-phase.md)
+— только инвентарь подготовленного кода.
 
 Основания: **product** — требования; **code** — текущий репозиторий;
-**provider/runtime** — официальные Soniox/GigaAM; **benchmark** — наши замеры и
-ADR. Чужие voice-agent реализации не являются blueprint; thresholds, policies
-и эвристики из них не переносятся.
+**provider/runtime** — официальная документация Soniox/GigaAM; **benchmark**
+— наши замеры и ADR. Чужие реализации voice-агентов не образец для
+копирования; пороги, политики и эвристики из них не переносятся.
 
-## A. What stays
+## A. Что остаётся
 
-1. PTT — первый vertical slice. Первый клик явно означает новый turn: локально
-   остановить playback, создать один `gen_id`, начать capture/STT; второй клик —
-   finalize. Toggle-to-talk выбран после проверки на тачпаде: удержание оказалось
-   неудобным, при этом явные границы turn сохраняются.
-2. Gateway владеет generation lifecycle. Provider не создаёт dialogue
-   generation; после final transcript второй bump запрещён.
-3. Audio идёт binary: browser → gateway → speech-service. Основной
+1. PTT — первый срез (vertical slice). Первый клик явно означает новый ход
+   (turn): локально остановить воспроизведение, создать один `gen_id`,
+   начать захват/STT; второй клик — финализация. Toggle-to-talk выбран после
+   проверки на тачпаде: удержание оказалось неудобным, при этом явные
+   границы хода сохраняются.
+2. Gateway владеет жизненным циклом поколения (generation lifecycle).
+   Провайдер не создаёт поколение диалога; после финального транскрипта
+   повторный bump запрещён.
+3. Аудио идёт бинарно: браузер → gateway → speech-service. Основной
    `SONIOX_API_KEY` не попадает в браузер; JSON/base64 не используется.
-4. Одна active capture/session; `capture_id` отсекает late capture events.
-5. MVP отправляет в LLM только committed final transcript. Partial — UI,
-   telemetry и будущая stability/speculation.
-6. Text input остаётся независимым fallback. После commit оба входа создают
-   один `CommittedUserTurn` и используют существующий LLM/TTS/FSM pipeline.
-7. STT terms формируются из сценария/базы знаний, без второго словаря.
+4. Один активный захват на сессию; `capture_id` отсекает опоздавшие события
+   захвата.
+5. MVP отправляет в LLM только зафиксированный финальный транскрипт.
+   Партиалы — это UI, телеметрия и будущая стабилизация/спекуляция.
+6. Текстовый ввод остаётся независимым резервным путём. После фиксации оба
+   способа ввода создают один `CommittedUserTurn` и используют существующий
+   конвейер LLM/TTS/FSM.
+7. Термины для STT формируются из сценария/базы знаний, без второго
+   словаря.
 
-## B. What changes
+## B. Что меняется
 
-- Soniox realtime — primary; обязательный fallback — локальный GigaAM-v3,
-  а не другой cloud API.
-- Provider objects скрыты за normalized events/capabilities.
-- `SttProviderManager` централизует health, epoch, failover и recovery.
-- Lossless audio текущего uncommitted turn хранится до commit/abort и при
-  падении Soniox целиком replay-ится в GigaAM.
-- `capture_id` дополняется `provider_epoch`; exactly-once обеспечивает
-  атомарный gateway commit arbiter + DB uniqueness.
-- PTT сразу cancel. Hands-free VAD onset только создаёт candidate и локально
-  duck-ит playback; bump/cancel — после подтверждения interruption.
-- Raw audio storage/evidence вынесен после core MVP: обязательные требования
-  не оправдывают privacy/infra scope сейчас.
+- Soniox realtime — основной провайдер; обязательный резервный — локальный
+  GigaAM-v3, а не другой облачный API.
+- Объекты провайдера скрыты за нормализованными событиями/возможностями
+  (capabilities).
+- `SttProviderManager` централизует здоровье соединения, epoch, failover и
+  восстановление.
+- Аудио текущего незафиксированного хода хранится без потерь до фиксации/
+  отмены и при падении Soniox целиком переигрывается (replay) в GigaAM.
+- `capture_id` дополняется `provider_epoch`; ровно-однократность
+  (exactly-once) обеспечивает атомарный арбитр фиксации на gateway плюс
+  уникальность в БД.
+- PTT сразу отменяет. Onset VAD в hands-free-режиме только создаёт
+  кандидата и локально приглушает (duck) воспроизведение; bump/cancel —
+  только после подтверждения перебивания.
+- Хранение сырого аудио/цитаты вынесено за пределы базового MVP:
+  обязательные требования пока не оправдывают объём работы по приватности и
+  инфраструктуре сейчас.
 
-## C. Current architecture fit
+## C. Куда это ложится в текущей архитектуре
 
 | Текущий файл/компонент | Роль в фиче |
 |---|---|
-| `frontend/pages/TraineeSession.tsx` | mic lifecycle, output gate, transcript UI |
-| `frontend/audio/cancelPlayback.ts` | необратимый PTT/confirmed-interrupt cancel |
-| `frontend/audio/AudioQueue.ts` | второй `gen_id`-фильтр stale audio |
-| `frontend/ws/useSessionSocket.ts` | JSON control/events + binary frames + stale gate |
-| `gateway/orchestrator/generation.py` | authoritative bump/cancel/is_stale |
-| `gateway/orchestrator/pipeline.py` | committed turn → существующий LLM/TTS flow |
-| `gateway/orchestrator/session_manager.py` | live FSM + voice capture registry |
-| `gateway/db/repositories.py` | idempotent voice Turn commit |
-| `speech-service/app/stt/base.py` | перерабатываемая provider abstraction |
-| `packages/contracts/ath_contracts/events.py` | Python source of truth для WS |
+| `frontend/pages/TraineeSession.tsx` | жизненный цикл микрофона, output gate, UI транскрипта |
+| `frontend/audio/cancelPlayback.ts` | необратимая отмена для PTT/подтверждённого перебивания |
+| `frontend/audio/AudioQueue.ts` | второй фильтр протухшего аудио по `gen_id` |
+| `frontend/ws/useSessionSocket.ts` | JSON control/events + бинарные фреймы + фильтр протухших событий |
+| `gateway/orchestrator/generation.py` | авторитетный источник bump/cancel/is_stale |
+| `gateway/orchestrator/pipeline.py` | зафиксированный ход → существующий конвейер LLM/TTS |
+| `gateway/orchestrator/session_manager.py` | живой FSM + реестр голосовых захватов |
+| `gateway/db/repositories.py` | идемпотентная фиксация голосового хода |
+| `speech-service/app/stt/base.py` | перерабатываемая абстракция провайдера |
+| `packages/contracts/ath_contracts/events.py` | источник истины на Python для WS |
 
-Уже заготовлены `useMicCapture`, `useVad`, PTT UI, `listening/recognizing`,
-`TranscriptEvent`, `stt_confidence/audio_ref` и STT namespace. Но текущий
-`LiveSession.add_turn()` меняет память до отдельного DB `append_turn()`, поэтому
-не доказывает exactly-once для voice path.
+Уже заготовлены `useMicCapture`, `useVad`, UI для PTT, `listening/recognizing`,
+`TranscriptEvent`, `stt_confidence/audio_ref` и пространство имён STT. Но
+текущий `LiveSession.add_turn()` меняет память до отдельной записи в БД
+через `append_turn()`, поэтому не доказывает ровно-однократность для
+голосового пути.
 
-## D. Proposed architecture
+## D. Предлагаемая архитектура
 
 ```text
 MicCapture → PCM worklet → LocalCaptureGate
@@ -89,20 +101,23 @@ speech-service: CaptureBuffer              existing TurnPipeline
           └─ GigaAmSttProvider → isolated local worker
 ```
 
-- `MicCapture`: permission/device, downmix, единственный resampling, PCM/sample
-  clock.
+- `MicCapture`: разрешение/устройство, downmix, единственный resampling,
+  PCM/sample clock.
 - `LocalCaptureGate`: блокирует старый output до PTT ACK; позже делает duck.
-- `VoiceTurnRegistry`: capture state, gen, epoch, watchdog, per-capture lock.
-- `TurnIntelligence` (gateway): commit/candidate/backchannel/endpoint policy;
-  provider-neutral.
-- `SttProviderManager` (speech-service): selection, capabilities, health,
-  stall, failover, recovery, telemetry.
-- `CaptureBuffer`: bounded canonical PCM для mid-turn replay.
-- `gigaam-worker`: отдельный local process/container, preload и bounded queue;
-  CPU inference не блокирует asyncio loops.
-- `CommitArbiter`: единственная точка `COMMITTED`, DB idempotency и LLM start.
+- `VoiceTurnRegistry`: состояние захвата, поколение, epoch, watchdog,
+  блокировка на каждый захват.
+- `TurnIntelligence` (gateway): политика фиксации/кандидата/бэкчаннела/
+  эндпоинта; не зависит от провайдера.
+- `SttProviderManager` (speech-service): выбор провайдера, возможности,
+  здоровье соединения, зависание, failover, восстановление, телеметрия.
+- `CaptureBuffer`: ограниченный канонический PCM для переигрывания посреди
+  хода.
+- `gigaam-worker`: отдельный локальный процесс/контейнер, preload и
+  ограниченная очередь; инференс на CPU не блокирует циклы asyncio.
+- `CommitArbiter`: единственная точка перехода в `COMMITTED`,
+  идемпотентность в БД и запуск LLM.
 
-## E. Provider contract
+## E. Контракт провайдера
 
 ```text
 ProviderCapabilities:
@@ -119,52 +134,57 @@ FinalizationComplete(text, aggregate_confidence?, token_spans?)
 ProviderFault(kind, retryable, provider_request_id?)
 ```
 
-Soniox FULL поддерживает partials/confidence/timestamps/semantic endpoint/
-terms. GigaAM LOCAL DEGRADED обязан дать final, остальные поля optional. Нельзя
-подделывать отсутствующую confidence. Soniox final tokens стабильны, но commit
-разрешён только после authoritative `<fin>`/`<end>`.
+Soniox (режим FULL) поддерживает партиалы/confidence/таймстемпы/семантический
+эндпоинт/термины. GigaAM (режим LOCAL DEGRADED) обязан дать финал, остальные
+поля опциональны. Нельзя подделывать отсутствующий confidence. Финальные
+токены Soniox стабильны, но фиксация разрешена только после авторитетного
+`<fin>`/`<end>`.
 
-Provider API концептуально: `open(config)`, `push(pcm)`, `finalize()`,
-`events()`, `aclose()`; точные Python signatures фиксируются после SDK/runtime
-spike и contract tests.
+API провайдера концептуально: `open(config)`, `push(pcm)`, `finalize()`,
+`events()`, `aclose()`; точные сигнатуры на Python фиксируются после
+исследовательского прохода по SDK/runtime и контрактных тестов.
 
-## F. Voice turn lifecycle
+## F. Жизненный цикл голосового хода
 
 ### PTT (MVP)
 
 ```text
 первый клик по кнопке записи
-→ local cancelPlayback + output_gate=BLOCKED + capture_id
+→ локальный cancelPlayback + output_gate=BLOCKED + capture_id
 → speech_start
-→ gateway validates, bumps once, cancels old, returns SpeechStarted(gen_id)
-→ Soniox + CaptureBuffer; PCM stream; active partial UI
-второй клик/watchdog → speech_end → manual finalize
-→ CommitArbiter → DB insert once → existing TurnPipeline(gen_id, final_text)
+→ gateway валидирует, делает bump один раз, отменяет старое, возвращает SpeechStarted(gen_id)
+→ Soniox + CaptureBuffer; поток PCM; активный UI партиалов
+второй клик/watchdog → speech_end → ручная финализация
+→ CommitArbiter → однократная запись в БД → существующий TurnPipeline(gen_id, final_text)
 ```
 
-До ACK frontend отбрасывает все token/audio/subtitle/action старой generation,
-даже если server gen ещё не изменился. При потере ACK старый output не
-возобновляется: capture abort, voice error, text fallback.
+До получения ACK фронтенд отбрасывает все token/audio/subtitle/action
+старого поколения, даже если поколение на сервере ещё не изменилось. При
+потере ACK старый вывод не возобновляется: отмена захвата, ошибка голоса,
+откат на текст.
 
-`pointercancel`, lost pointer capture, release вне элемента,
-`visibilitychange`, device ended, WS close и max-duration watchdog вызывают
-один idempotent `finalize_or_abort` — session не зависает в CAPTURING.
+`pointercancel`, потеря захвата указателя, отпускание вне элемента,
+`visibilitychange`, отключение устройства, закрытие WS и watchdog
+максимальной длительности — все вызывают один идемпотентный
+`finalize_or_abort`: сессия не зависает в состоянии CAPTURING.
 
-### Hands-free (later)
+### Hands-free (позже)
 
 ```text
-IDLE → CANDIDATE_LISTENING → local DUCK (без bump/cancel)
+IDLE → CANDIDATE_LISTENING → локальный DUCK (без bump/cancel)
 → INTERRUPTION_CONFIRMED | BACKCHANNEL | NOISE_OR_ECHO | UNKNOWN
 ```
 
-Confirmed promoted в capture и только тогда bump/cancel. Остальные ветки
-resume/continue и не меняют dialogue state. Вначале reversible primitive —
-gain duck: WebAudio BufferSource нельзя честно pause/resume без перестройки
-очереди. Настоящий pause добавляется лишь если собственный UX benchmark этого
-потребует. Echo evidence использует AEC + temporal overlap + similarity с
-текущим playback window, не со всем текстом ответа.
+Подтверждённый (confirmed) кандидат повышается до захвата, и только тогда
+происходит bump/cancel. Остальные ветки возобновляют/продолжают и не меняют
+состояние диалога. Сначала — обратимый примитив, приглушение громкости (gain
+duck): у WebAudio BufferSource нет честного pause/resume без перестройки
+очереди. Настоящая пауза добавляется, только если это потребуется по
+собственным замерам UX. Доказательство эха использует AEC + временное
+перекрытие + схожесть с текущим окном воспроизведения, а не со всем текстом
+ответа.
 
-## G. Failover state machine
+## G. Автомат состояний failover
 
 ```text
 SELECTING → PRIMARY_ACTIVE(epoch=N) | LOCAL_PENDING(epoch=N+1)
@@ -174,238 +194,283 @@ LOCAL_ACTIVE → FINALIZING | ABORTED + text fallback
 FINALIZING → COMMITTING → COMMITTED
 ```
 
-Soniox восстанавливается только между turns. Provider stall определяется по
-progress (audio отправляется, но нет first partial; finalize без completion),
-не только по socket close. Watchdog values — Phase 0 test configuration/ADR.
+Soniox восстанавливается только между ходами. Зависание провайдера
+определяется по прогрессу (аудио отправляется, но нет первого партиала;
+финализация без завершения), а не только по закрытию сокета. Значения
+watchdog — тестовая конфигурация Фазы 0/ADR.
 
-Race final ↔ failure решает per-capture lock:
+Гонку между финалом и сбоем решает блокировка на каждый захват:
 
-- authoritative final первым перевёл в COMMITTING — close не запускает local;
-- failure первым увеличил epoch — late Soniox final отбрасывается;
-- GigaAM активен — любое событие старого epoch отбрасывается.
+- если авторитетный финал первым перевёл в COMMITTING — закрытие не
+  запускает локальный провайдер;
+- если сбой первым увеличил epoch — опоздавший финал Soniox отбрасывается;
+- если активен GigaAM — любое событие старого epoch отбрасывается.
 
-## H. Turn Intelligence state machine
+## H. Автомат состояний Turn Intelligence
 
 MVP: `IDLE → PTT_CAPTURING → FINALIZING → COMMITTING → COMMITTED`, из любого
-незавершённого state возможен `ABORTED`.
+незавершённого состояния возможен переход в `ABORTED`.
 
-Extensions: `CANDIDATE_LISTENING → INTERRUPTION_CONFIRMED | BACKCHANNEL |
-NOISE_OR_ECHO | UNKNOWN`. `WORKING_TRANSCRIPT` никогда не равен committed turn.
-Self-correction остаётся рабочей гипотезой до final.
+Расширения: `CANDIDATE_LISTENING → INTERRUPTION_CONFIRMED | BACKCHANNEL |
+NOISE_OR_ECHO | UNKNOWN`. `WORKING_TRANSCRIPT` никогда не равен
+зафиксированному ходу. Самокоррекция остаётся рабочей гипотезой до финала.
 
-После корректности: `PREPARE` → cancellable `LLM_PREFILL` → лишь затем
-`SPEECH_SPECULATION`. В MVP нет user-visible speculation. Stability позже
-выводится из stable prefix, suffix churn, возраста prefix и confidence;
-лексика/thresholds — только наш corpus/ADR.
+После проверки корректности: `PREPARE` → отменяемый `LLM_PREFILL` → и
+только затем `SPEECH_SPECULATION`. В MVP нет спекуляции, видимой
+пользователю. Стабильность позже выводится из стабильного префикса,
+изменчивости суффикса, возраста префикса и confidence; лексика/пороги —
+только из нашего корпуса/ADR.
 
-## I. Cancellation and exactly-once
+## I. Отмена и ровно-однократность
 
 | ID | Владелец | Закрывает |
 |---|---|---|
-| `gen_id` | gateway | stale dialogue/LLM/TTS output |
-| `capture_id` | frontend + gateway validation | late audio/transcript другой capture |
-| `provider_epoch` | speech-service | late provider event после failover |
+| `gen_id` | gateway | протухший вывод диалога/LLM/TTS |
+| `capture_id` | frontend + валидация gateway | опоздавшее аудио/транскрипт другого захвата |
+| `provider_epoch` | speech-service | опоздавшее событие провайдера после failover |
 
-Проверка: active capture → capture match → epoch match → valid state → atomic
-commit transition → DB unique insert → LLM.
+Проверка: активный захват → совпадение захвата → совпадение epoch →
+допустимое состояние → атомарный переход в фиксацию → уникальная запись в
+БД → LLM.
 
-- Per-capture lock разрешает только `FINALIZING → COMMITTING`.
-- В `turns` добавляется nullable `capture_id` и unique `(session_id,capture_id)`.
+- Блокировка на каждый захват разрешает только переход
+  `FINALIZING → COMMITTING`.
+- В `turns` добавляется nullable `capture_id` и уникальность
+  `(session_id, capture_id)`.
 - `commit_voice_turn()` транзакционно возвращает `inserted|already_committed`.
-- Только `inserted` обновляет live memory и запускает LLM.
-- DB failure не запускает LLM; показывается error + text fallback.
+- Только `inserted` обновляет память в реальном времени и запускает LLM.
+- Сбой БД не запускает LLM; показывается ошибка + откат на текст.
 
-Stale protection распространяется на `useSessionSocket`, `AudioQueue` до/после
-decode, subtitles, HeadAudio reset, face/body animations, gestures и delayed
-callbacks. Все будущие команды несут `gen_id`; fault tests задерживают каждый
-тип sink. После cancel видимый/слышимый stale count обязан быть 0.
+Защита от протухших событий распространяется на `useSessionSocket`,
+`AudioQueue` до/после декодирования, субтитры, сброс HeadAudio, анимации
+лица/тела, жесты и отложенные колбэки. Все будущие команды несут `gen_id`;
+fault-тесты задерживают каждый тип получателя (sink). После отмены число
+видимых/слышимых протухших событий обязано быть 0.
 
-## J. Audio buffering
+## J. Буферизация аудио
 
 Канонический формат: **mono PCM signed 16-bit little-endian, 16 kHz**.
 
-- AudioWorklet читает фактический device Float32 rate, один раз делает downmix,
-  stateful resampling и PCM16 quantization.
-- Gateway/speech-service только валидируют и считают samples, не resample.
-- Soniox: raw `pcm_s16le`, 16000, 1 channel.
-- GigaAM adapter: PCM → in-memory tensor без lossy encode/second resampling.
-- Timestamps: `total_samples / 16000`, не wall clock; drift test обязателен.
+- AudioWorklet читает фактическую частоту устройства в Float32, один раз
+  делает downmix, стейтфул-resampling и квантование в PCM16.
+- Gateway/speech-service только валидируют и считают сэмплы, не делают
+  resample.
+- Soniox: сырой `pcm_s16le`, 16000 Гц, 1 канал.
+- Адаптер GigaAM: PCM → тензор в памяти без lossy-кодирования и повторного
+  resampling.
+- Таймстемпы: `total_samples / 16000`, не настенное время; тест на дрейф
+  обязателен.
 
-Authoritative buffer живёт в speech-service. PTT хранит весь uncommitted turn,
-после commit/abort память очищается. Начальный dev guard — 20 s: официальный
-GigaAM short `.transcribe()` ограничен 25 s. Это 640000 bytes (~625 KiB).
-`VOICE_MAX_CAPTURE_SECONDS` уточняется benchmark. Gateway независимо ограничивает
-frames/bytes/duration и одну capture/session. Hands-free добавит bounded pre-roll.
-Permanent raw storage не входит в core MVP.
+Авторитетный буфер живёт в speech-service. PTT хранит весь незафиксированный
+ход целиком, после фиксации/отмены память очищается. Начальный
+dev-предохранитель — 20 с: официальный короткий `.transcribe()` у GigaAM
+ограничен 25 с. Это 640000 байт (~625 КиБ). `VOICE_MAX_CAPTURE_SECONDS`
+уточняется по бенчмарку. Gateway независимо ограничивает число
+фреймов/байт/длительность и один захват на сессию. Hands-free добавит
+ограниченный pre-roll. Постоянное хранение сырого аудио не входит в базовый
+MVP.
 
-## K. Metrics and telemetry
+## K. Метрики и телеметрия
 
-Events: capture start/end/abort, start sent/acked, provider selected/connected/
-progress/error/stall/recovered, first partial/partial/endpoint/final, failover
-and replay start/end, commit start/success/duplicate-drop, duck/resume,
-interruption confirmed, old gen cancelled, stale drop, transport rejection.
-Raw audio/partial text в обычные logs не пишутся.
+События: начало/конец/отмена захвата, отправка/подтверждение старта,
+выбор/подключение/прогресс/ошибка/зависание/восстановление провайдера,
+первый партиал/партиал/эндпоинт/финал, начало/конец failover и
+переигрывания, начало/успех/отброс дубликата фиксации, приглушение/
+возобновление, подтверждённое перебивание, отмена старого поколения, отброс
+протухшего, отклонение на уровне транспорта. Сырое аудио и текст партиалов
+в обычные логи не пишутся.
 
-Формулы на frontend monotonic clock:
+Формулы на монотонных часах фронтенда:
 
 - `barge_in_silence = playback_silent - acoustic_or_ptt_onset`;
 - `first_partial = first_partial_visible - capture_start`;
 - `finalization = final_visible - speech_end`;
 - `response_ttfa = first_response_audio - speech_end`.
 
-Внутренние spans связываются `session/capture/epoch`, но часы разных машин
-напрямую не вычитаются. Hard acceptance: confirmed interruption → silence
-≤300 ms; speech end → first response audio ≤3 s; stale audio = 0; lost and
-duplicate committed turns = 0. Остальные p50/p95/thresholds — после baseline.
+Внутренние спаны связываются по `session/capture/epoch`, но часы разных
+машин напрямую друг из друга не вычитаются. Жёсткая приёмка: подтверждённое
+перебивание → тишина ≤300 мс; конец речи → первый звук ответа ≤3 с;
+протухшее аудио = 0; потерянные и задвоенные зафиксированные ходы = 0.
+Остальные p50/p95/пороги — после снятия базовой линии (baseline).
 
-## L. Testing and fault injection
+## L. Тестирование и внедрение сбоев
 
-Собственный corpus: 30–50+ русских реплик, два голоса, headset/speakers;
-имена, компании, суммы, проценты, даты, отрицания, corrections, паузы,
-backchannels, шум и barge-in. Метрики: WER, critical entities, lost/added
-negations, endpoint latency, partial churn.
+Собственный корпус: 30–50+ русских реплик, два голоса, наушники/колонки;
+имена, компании, суммы, проценты, даты, отрицания, исправления в речи,
+паузы, бэкчаннелы, шум и перебивание. Метрики: WER, критичные сущности,
+потерянные/добавленные отрицания, задержка эндпоинта, изменчивость
+партиалов.
 
-- Unit: resampler/chunks/sample clock, normalized events, capabilities, CAS,
-  buffer bounds, epoch filter.
-- Contract: Python/TS parity; JSON+binary order; invalid format/frame/state.
-- Integration: fake providers, partial corrections, empty final, timeout,
-  reconnect, two captures, text/voice alternation.
-- Browser: permission/device/pointer/background/refresh/WS/max-hold/silence.
-- Acoustic: AEC, headset/speakers, echo/noise/hesitation/barge-in.
+- Модульные: resampler/чанки/sample clock, нормализованные события,
+  возможности провайдера, CAS, границы буфера, фильтр epoch.
+- Контрактные: паритет Python/TS; порядок JSON+бинарных сообщений;
+  некорректный формат/фрейм/состояние.
+- Интеграционные: фейковые провайдеры, исправления в партиалах, пустой
+  финал, таймаут, переподключение, два захвата подряд, чередование текста и
+  голоса.
+- Браузерные: разрешения/устройство/указатель/фон/обновление страницы/WS/
+  максимальное удержание/тишина.
+- Акустические: AEC, наушники/колонки, эхо/шум/заминки/перебивание.
 
-Mandatory fault cases: primary unavailable before turn; Soniox mid-turn fail +
-buffer replay; late Soniox final; recovery only next turn; local unavailable;
-stall without close; both final/disconnect orders; delayed old event каждого
-user-visible sink. Debug faults доступны только dev/test server config.
+Обязательные проблемные случаи: основной провайдер недоступен до начала
+хода; сбой Soniox посреди хода + переигрывание буфера; опоздавший финал
+Soniox; восстановление только со следующего хода; локальный провайдер
+недоступен; зависание без закрытия соединения; оба порядка
+финал/разрыв соединения; отложенное старое событие для каждого видимого
+пользователю получателя. Отладочные сбои доступны только в dev/test
+конфигурации сервера.
 
-## M. Phases and PRs
+## M. Фазы и PR
 
-0. **Benchmark + contracts (foundation готов, измерения GigaAM впереди):** corpus, Soniox, GigaAM-v3 220M CTC/RNNT/e2e,
-   CPU cold/warm/RTF/RAM/weights/direct PCM; normalized events, fake providers,
-   ADR runtime/model/watchdogs.
-1. **PTT Soniox (готов):** PCM worklet, binary transport/output gate, partial UI,
-   manual finalize, CommitArbiter, cancellation/browser tests.
-2. **GigaAM local:** isolated preloaded worker/cache/setup/readiness, normalized
-   final, manual debug provider switch.
-3. **Automatic failover:** manager health/epoch/recovery, buffer/replay, all
-   fault injection. Phases 0–3 = core hackathon MVP.
-4. **VAD + pre-roll:** candidate lifecycle, acoustic metrics, reversible duck.
-5. **Hands-free TI v1:** confirmed interrupt, semantic endpoint, echo window,
-   basic backchannel/noise classification.
-6. **Transcript intelligence:** stability, critical-token risk, corrections.
-7. **Speculation:** PREPARE, then cancellable LLM prefill.
-8. **Adaptive UX:** endpoint profiles, user pauses, avatar reactions.
+0. **Бенчмарк + контракты (основа готова, замеры GigaAM впереди):** корпус,
+   Soniox, GigaAM-v3 220M CTC/RNNT/e2e, CPU cold/warm/RTF/RAM/веса/прямой
+   PCM; нормализованные события, фейковые провайдеры, ADR по
+   runtime/модели/watchdog'ам.
+1. **PTT + Soniox (готово):** PCM worklet, бинарный транспорт/output gate,
+   UI партиалов, ручная финализация, CommitArbiter, тесты на отмену/браузер.
+2. **Локальный GigaAM:** изолированный предзагруженный worker/кэш/setup/
+   readiness, нормализованный финал, ручное переключение провайдера для
+   отладки.
+3. **Автоматический failover:** менеджер здоровья/epoch/восстановления,
+   буфер/переигрывание, все внедрения сбоев. Фазы 0–3 = базовый MVP
+   хакатона.
+4. **VAD + pre-roll:** жизненный цикл кандидата, акустические метрики,
+   обратимое приглушение.
+5. **Hands-free Turn Intelligence v1:** подтверждённое перебивание,
+   семантический эндпоинт, окно эха, базовая классификация
+   бэкчаннела/шума.
+6. **Интеллект транскрипта:** стабильность, риск критичных токенов,
+   исправления.
+7. **Спекуляция:** PREPARE, затем отменяемый LLM prefill.
+8. **Адаптивный UX:** профили эндпоинта, паузы пользователя, реакции
+   аватара.
 
-PRs: `feat/stt-bench-contracts`, `feat/voice-input-ptt`,
+PR: `feat/stt-bench-contracts`, `feat/voice-input-ptt`,
 `feat/gigaam-local-worker`, `feat/stt-failover`, `feat/voice-vad-candidates`,
-`feat/turn-intelligence`. Каждый сохраняет text mode и cancellation regression.
+`feat/turn-intelligence`. Каждый сохраняет текстовый режим и регресс-тесты
+на отмену.
 
-## N. Files impact
+## N. Затрагиваемые файлы
 
-Existing: contracts `events.py/session.py` и TS mirror; `TraineeSession`,
-`useSessionSocket`, `cancelPlayback`, `AudioQueue`, mic hooks, composer/PTT/
-indicator/consent, `TalkingHeadAvatar`; gateway `ws.py`, generation/pipeline/
-session manager, DB models/repository/migration, config/speech client;
-speech-service main/config/STT base/pyproject/Dockerfile; `.env.example`, compose,
-Makefile, README.
+Существующие: контракты `events.py/session.py` и их TS-зеркало;
+`TraineeSession`, `useSessionSocket`, `cancelPlayback`, `AudioQueue`, хуки
+микрофона, composer/PTT/индикатор/согласие, `TalkingHeadAvatar`; gateway
+`ws.py`, generation/pipeline/session manager, модели БД/репозиторий/
+миграция, конфиг/клиент speech; speech-service main/config/базовый
+STT/pyproject/Dockerfile; `.env.example`, compose, Makefile, README.
 
-New (имена уточняет PR 1): frontend PCM worklet/useVoiceCapture/output gate;
-gateway `voice_turns.py`, `turn_intelligence.py`; speech STT WS/events/Soniox/
-GigaAM/manager/buffer; `services/gigaam-worker/`; benchmark runner/manifest,
-ADR и tests. Raw corpus audio не коммитится без consent/licensing решения.
+Новые (имена уточняются в PR 1): фронтенд PCM worklet/useVoiceCapture/output
+gate; gateway `voice_turns.py`, `turn_intelligence.py`; speech STT
+WS/events/Soniox/GigaAM/manager/buffer; `services/gigaam-worker/`; раннер
+бенчмарка/манифест, ADR и тесты. Сырое аудио корпуса не коммитится без
+решения по согласию/лицензированию.
 
-## O. MVP vs Later
+## O. MVP и то, что позже
 
-Core MVP: text+PTT в одной session, Soniox partial/final, canonical binary PCM,
-local cancel/gate, gen/capture/epoch, atomic commit, GigaAM buffered failover,
-bounded resources/readiness/fault injection/telemetry.
+Базовый MVP: текст+PTT в одной сессии, партиалы/финал Soniox, канонический
+бинарный PCM, локальная отмена/gate, gen/capture/epoch, атомарная фиксация,
+буферизованный failover на GigaAM, ограниченные ресурсы/readiness/внедрение
+сбоев/телеметрия.
 
-Later: hands-free candidate/VAD, echo/backchannel/stability/corrections,
-speculation/adaptation, permanent audio evidence, diarization/translation.
+Позже: кандидат/VAD для hands-free, эхо/бэкчаннел/стабильность/исправления,
+спекуляция/адаптация, постоянное хранение аудио-цитаты, диаризация/перевод.
 
-## P. Risks
+## P. Риски
 
 | Риск | Митигация |
 |---|---|
-| network/Soniox outage | buffer + GigaAM failover |
-| rate/concurrency/cost | connection ADR, telemetry, bounded sessions |
-| GigaAM CPU/cold start | 220M benchmark, isolated worker, preload, concurrency 1 |
-| model download/demo | explicit setup, checksum, persistent cache/readiness |
-| browser audio variance | worklet resampling/sample-count tests |
-| echo/false endpoint | AEC + candidate duck + own acoustic corpus; PTT fallback |
-| final/failure race | capture lock + epoch + DB idempotency |
-| stale events | output gate + triple identity + sink fault tests |
-| memory/input abuse | one capture, frame/sample/duration/backpressure limits |
-| worker overload | bounded queue, typed error, text remains available |
-| privacy | no permanent raw audio in MVP; minimized telemetry |
+| сбой сети/Soniox | буфер + failover на GigaAM |
+| лимиты частоты/конкурентности/стоимость | ADR по соединениям, телеметрия, ограниченное число сессий |
+| CPU/холодный старт GigaAM | бенчмарк 220M, изолированный worker, preload, конкурентность 1 |
+| загрузка модели/демо | явный setup, контрольная сумма, постоянный кэш/readiness |
+| разброс аудио в браузерах | resampling в worklet/тесты на число сэмплов |
+| эхо/ложный эндпоинт | AEC + приглушение кандидата + собственный акустический корпус; откат на PTT |
+| гонка финала/сбоя | блокировка захвата + epoch + идемпотентность в БД |
+| протухшие события | output gate + тройной идентификатор + fault-тесты получателей |
+| злоупотребление памятью/вводом | один захват, лимиты на фреймы/сэмплы/длительность/backpressure |
+| перегрузка worker'а | ограниченная очередь, типизированная ошибка, текст остаётся доступен |
+| приватность | нет постоянного хранения сырого аудио в MVP; минимизированная телеметрия |
 
-Soniox documents 100 realtime requests/min, 10 concurrent requests and max
-300-minute stream; actual project/org limits are checked through API/Console.
-Realtime sessions may terminate early and must be restartable; typed
-`limit_exceeded`, internal and service-unavailable errors feed the centralized
-failover policy. A paused persistent stream still needs keepalive and is billed
-for its full duration, so per-turn vs persistent connection is a latency/cost
-ADR after measurement, not a default architectural assumption.
+Документация Soniox заявляет 100 realtime-запросов/мин, 10 параллельных
+запросов и максимум 300 минут на поток; фактические лимиты проекта/
+организации проверяются через API/консоль. Realtime-сессии могут
+завершиться раньше времени и должны уметь перезапускаться; типизированные
+ошибки `limit_exceeded`, внутренние и service-unavailable питают
+централизованную политику failover. Приостановленный постоянный поток
+всё равно требует keepalive и тарифицируется за всю длительность, поэтому
+выбор между соединением на каждый ход и постоянным соединением — это ADR по
+задержке и стоимости после замеров, а не архитектурное допущение по
+умолчанию.
 
 ## Потерянный ход: реплика персонажа
 
 Failover не является потерей: буфер переигрывается в GigaAM целиком, поэтому
-извиняться не за что, а фраза «я могла что-то не расслышать» была бы неправдой
-и подтолкнула бы человека повторять сказанное — портя ту самую запись, которую
-в этот момент расшифровывают. Пользователю сообщается только об исчезновении
-партиалов (`voice_provider_switched`).
+извиняться не за что, а фраза «я могла что-то не расслышать» была бы
+неправдой и подтолкнула бы человека повторять сказанное — портя ту самую
+запись, которую в этот момент расшифровывают. Пользователю сообщается
+только об исчезновении партиалов (`voice_provider_switched`).
 
-Ход считается потерянным в четырёх случаях: отказ обоих движков, обрыв потока
-без терминального события, исключение на нашей стороне и пустой финал. Здесь
-персонаж переспрашивает вслух своим голосом. `ErrorEvent` уходит в любом случае
-— клиент по нему сбрасывает захват — но с `spoken=true`, и тогда баннер не
-показывается: одна неудача не должна сообщаться дважды.
+Ход считается потерянным в четырёх случаях: отказ обоих движков, обрыв
+потока без терминального события, исключение на нашей стороне и пустой
+финал. Здесь персонаж переспрашивает вслух своим голосом. `ErrorEvent`
+уходит в любом случае — клиент по нему сбрасывает захват — но с
+`spoken=true`, и тогда баннер не показывается: одна неудача не должна
+сообщаться дважды.
 
 Аудио предрендерится (`make voice-recovery-setup`), потому что отказ TTS сам
 входит в список причин потери хода. Ключ кеша — голос плюс текст.
 
-Аватар выбирает ученик, и его профиль определяет голос: рендер-настройки живут
-на клиенте (`AVATAR_MODELS`), голос и служебные реплики — в
+Аватар выбирает ученик, и его профиль определяет голос: рендер-настройки
+живут на клиенте (`AVATAR_MODELS`), голос и служебные реплики — в
 `gateway/app/orchestrator/avatar_voice.py`. `avatar_id` едет и на
 `user_message`, и на `speech_start` и хранится в сессии, поэтому голос
-одинаков для обоих способов ввода. Реплика по умолчанию не содержит прошедшего
-времени: род персонажа заранее неизвестен.
+одинаков для обоих способов ввода. Реплика по умолчанию не содержит
+прошедшего времени: род персонажа заранее неизвестен.
 
-Филлер, закрывающий задержку GigaAM, сюда не относится и отклонён: он заговорил
-бы поверх пайплайна и оставил бы лишний ход в стенограмме, если расшифровка
-затем прошла успешно. Backchannels остаются в фазе 5.
+Филлер, закрывающий задержку GigaAM, сюда не относится и отклонён: он
+заговорил бы поверх пайплайна и оставил бы лишний ход в стенограмме, если
+расшифровка затем прошла успешно. Backchannels остаются в фазе 5.
 
-## Q. Open questions
+## Q. Открытые вопросы
 
-1. Minimum target CPU/RAM/OS for local fallback?
-2. Maximum product duration of a spoken turn (dev guard is 20 s)?
-3. Required Soniox data region/privacy constraints?
-4. Required browser/device matrix beyond desktop Chrome?
-5. Is permanent playable raw-audio evidence ever required, or is transcript +
-   confidence sufficient?
+1. Минимальные целевые CPU/RAM/ОС для локального резервного пути?
+2. Максимальная продуктовая длительность произнесённого хода
+   (dev-предохранитель — 20 с)?
+3. Требуемый регион данных/ограничения приватности у Soniox?
+4. Требуемая матрица браузеров/устройств сверх десктопного Chrome?
+5. Нужна ли когда-либо постоянная воспроизводимая аудио-цитата, или
+   достаточно транскрипта + confidence?
 
-## Local GigaAM readiness
+## Готовность локального GigaAM
 
-- Separate internal `gigaam-worker` Docker profile/process; no paid service.
-- Phase 0 compares v3 CTC/RNNT/e2e CTC/e2e RNNT, 220M first, PyTorch/ONNX;
-  600M forbidden without measured benefit.
-- ADR pins model/runtime/checksum. Env: `GIGAAM_MODEL`, `GIGAAM_RUNTIME`,
-  `GIGAAM_CACHE_DIR`, CPU threads/concurrency.
-- `make gigaam-setup` downloads/verifies ahead of demo; normal start is offline.
-- Worker preloads/warms model before ready. Queue is bounded (MVP concurrency 1;
-  queue limit from load test). Overload returns typed error, never blocks realtime.
-- Direct PCM tensor path is benchmarked. Any file/ffmpeg workaround stays inside
-  adapter and is rejected from hot path unless ADR proves it necessary.
+- Отдельный внутренний Docker-профиль/процесс `gigaam-worker`; никакого
+  платного сервиса.
+- Фаза 0 сравнивает v3 CTC/RNNT/e2e CTC/e2e RNNT, сначала 220M, PyTorch/ONNX;
+  600M запрещена без измеренной выгоды.
+- ADR фиксирует модель/runtime/контрольную сумму. Переменные окружения:
+  `GIGAAM_MODEL`, `GIGAAM_RUNTIME`, `GIGAAM_CACHE_DIR`, потоки/конкурентность
+  CPU.
+- `make gigaam-setup` скачивает/проверяет заранее перед демо; обычный старт
+  — офлайн.
+- Worker предзагружает и прогревает модель до готовности. Очередь
+  ограничена (конкурентность 1 в MVP; лимит очереди — по нагрузочному
+  тесту). Перегрузка возвращает типизированную ошибку и никогда не
+  блокирует realtime.
+- Путь прямого PCM-тензора бенчмаркается. Любой обходной путь через
+  файлы/ffmpeg остаётся внутри адаптера и отвергается на горячем пути, пока
+  ADR не докажет его необходимость.
 
-## Definition of Done before implementation
+## Definition of Done перед реализацией
 
-Phase 0 ADR must fill only benchmark-dependent values: GigaAM model/runtime and
-hardware baseline; Soniox connection/watchdogs/endpoint test config; final
-capture/frame bounds; health/recovery policy; browser matrix; corpus quality
-thresholds. Ownership, canonical format/resampling, atomic commit, races,
-output gate, resource limits and PR boundaries are fixed above.
+ADR Фазы 0 должен заполнить только значения, зависящие от бенчмарка:
+модель/runtime GigaAM и базовые характеристики железа; конфигурация
+соединения/watchdog'ов/тестов эндпоинта для Soniox; итоговые границы
+захвата/фрейма; политика здоровья/восстановления; матрица браузеров; пороги
+качества корпуса. Владение компонентами, канонический формат/resampling,
+атомарная фиксация, гонки, output gate, лимиты ресурсов и границы PR
+зафиксированы выше.
 
-## Official sources
+## Официальные источники
 
 - [Soniox realtime](https://soniox.com/docs/stt/rt/real-time-transcription)
 - [Soniox WebSocket](https://soniox.com/docs/api-reference/stt/websocket-api)

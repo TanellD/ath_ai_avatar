@@ -1,3 +1,20 @@
-I need a new page for a methodist to create new scnarios. Look at the cyrrent structure, I want to use the page in the similar theme as the rest of pages and I want to add a button to fill the criteria, and enhanced definition of the scenario.
+# Страница создания сценария методистом
 
-Then in each part when the user (not a methodist) opens a scenario the details were generated as a little story with the name of the avatar, the details about the situation that is good to operate and etc.
+Постановка задачи для редактора сценариев (`ScenarioEditor.tsx`): методист
+создаёт новую тренировку в той же визуальной теме, что и остальные страницы
+продукта, без необходимости писать JSON вручную.
+
+## Что должна делать страница
+
+- Форма в теме остального интерфейса, а не отдельный визуальный стиль.
+- Кнопка «Заполнить критерии» — методист описывает сценарий и рубрику оценки
+  в свободной форме, а не заполняет структуру поля за полем.
+- По этому краткому описанию генерируется полное определение сценария:
+  персонаж, этапы, критерии оценки.
+
+## Что видит сотрудник (не методист)
+
+При открытии сценария детали генерируются как короткая история: имя
+персонажа, вводные обстоятельства ситуации, в которых сотруднику предстоит
+действовать. Это не сухое перечисление полей сценария, а понятный контекст
+перед началом диалога.
