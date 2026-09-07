@@ -10,18 +10,18 @@ describe('SilenceFollowup', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it('напоминает на 20-й секунде и продолжает на 40-й', () => {
+  it('напоминает на 30-й секунде и продолжает на 60-й', () => {
     const phases: SilencePhase[] = [];
     const followup = new SilenceFollowup((phase) => phases.push(phase));
 
     followup.resume();
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(30_000);
     expect(phases).toEqual(['nudge']);
 
     // Пока агент произносил напоминание, отсчёт был на паузе. После его
-    // окончания сохраняется исходный дедлайн 40 секунд.
+    // окончания сохраняется исходный дедлайн 60 секунд.
     followup.resume();
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(30_000);
     expect(phases).toEqual(['nudge', 'continue']);
 
     followup.resume();
@@ -34,9 +34,9 @@ describe('SilenceFollowup', () => {
     const followup = new SilenceFollowup((phase) => phases.push(phase));
 
     followup.resume();
-    vi.advanceTimersByTime(19_000);
+    vi.advanceTimersByTime(29_000);
     followup.postpone();
-    vi.advanceTimersByTime(19_999);
+    vi.advanceTimersByTime(29_999);
     expect(phases).toEqual([]);
     vi.advanceTimersByTime(1);
     expect(phases).toEqual(['nudge']);
@@ -47,13 +47,13 @@ describe('SilenceFollowup', () => {
     const followup = new SilenceFollowup((phase) => phases.push(phase));
 
     followup.resume();
-    vi.advanceTimersByTime(19_000);
+    vi.advanceTimersByTime(29_000);
     followup.beginUserTurn();
     vi.advanceTimersByTime(50_000);
     expect(phases).toEqual([]);
 
     followup.resume();
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(30_000);
     expect(phases).toEqual(['nudge']);
   });
 
@@ -72,7 +72,7 @@ describe('SilenceFollowup', () => {
 
     // Стёр черновик, не отправив, — отсчёт стартует заново от этого момента.
     followup.setDraftActive(false);
-    vi.advanceTimersByTime(19_999);
+    vi.advanceTimersByTime(29_999);
     expect(phases).toEqual([]);
     vi.advanceTimersByTime(1);
     expect(phases).toEqual(['nudge']);
@@ -87,7 +87,7 @@ describe('SilenceFollowup', () => {
     followup.beginUserTurn();
 
     followup.resume();
-    vi.advanceTimersByTime(20_000);
+    vi.advanceTimersByTime(30_000);
     expect(phases).toEqual(['nudge']);
   });
 
@@ -98,7 +98,7 @@ describe('SilenceFollowup', () => {
     followup.postpone();
     vi.advanceTimersByTime(50_000);
     followup.resume();
-    vi.advanceTimersByTime(19_999);
+    vi.advanceTimersByTime(29_999);
     expect(phases).toEqual([]);
     vi.advanceTimersByTime(1);
     expect(phases).toEqual(['nudge']);
