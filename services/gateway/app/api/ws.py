@@ -33,6 +33,7 @@ from app.core.config import get_settings
 from app.core.logging import bind_session_context, clear_session_context, get_logger
 from app.db.engine import session_factory
 from app.db.repositories import SqlSessionRepository
+from app.orchestrator.avatar_voice import resolve_avatar_id
 from app.orchestrator.pipeline import TurnPipeline
 from app.orchestrator.voice_recovery import VoiceRecoveryPlayer
 from app.orchestrator.voice_turns import VoiceTurnRegistry
@@ -54,6 +55,16 @@ async def session_socket(websocket: WebSocket, session_id: str) -> None:
         session = await _restore_session(websocket, session_id)
         if session is None:
             return
+
+    # Аватар сообщается ПАРАМЕТРОМ ПОДКЛЮЧЕНИЯ, а не первым событием: голос
+    # выбирается по нему уже в открывающей реплике, которая уходит раньше любой
+    # реплики сотрудника. Пока avatar_id приезжал только с user_message,
+    # Vincent произносил первую фразу голосом персонажа сценария (женским) и
+    # переключался на свой лишь со второй — «первую реплику женским голосом,
+    # потом нормально».
+    session.avatar_id = resolve_avatar_id(
+        websocket.query_params.get("avatar"), session.avatar_id
+    )
 
     send_lock = asyncio.Lock()
 

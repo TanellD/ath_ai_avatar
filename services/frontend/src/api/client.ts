@@ -124,8 +124,14 @@ export const gatewayApi = {
     return request(`${API_URL}/sessions/${sessionId}/report`, { method: 'POST' });
   },
 
-  sessionSocketUrl(sessionId: string): string {
-    return `${WS_URL}/ws/session/${sessionId}`;
+  /**
+   * Аватар уходит параметром подключения, а не первым событием: по нему
+   * выбирается голос уже для ОТКРЫВАЮЩЕЙ реплики, которая звучит раньше, чем
+   * сотрудник скажет хоть слово.
+   */
+  sessionSocketUrl(sessionId: string, avatarId?: string): string {
+    const base = `${WS_URL}/ws/session/${sessionId}`;
+    return avatarId ? `${base}?avatar=${encodeURIComponent(avatarId)}` : base;
   },
 };
 

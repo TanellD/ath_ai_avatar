@@ -58,10 +58,13 @@ interface Options {
    * вызывающий обязан пересинхронизироваться, а не продолжать с места.
    */
   onReconnect?: () => void;
+  /** Выбранный на превью аватар — нужен серверу до открывающей реплики. */
+  avatarId?: string;
 }
 
 export function useSessionSocket({
   sessionId,
+  avatarId,
   onEvent,
   currentGeneration,
   onError,
@@ -85,7 +88,7 @@ export function useSessionSocket({
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const open = (isRetry: boolean) => {
-      const socket = new WebSocket(gatewayApi.sessionSocketUrl(sessionId));
+      const socket = new WebSocket(gatewayApi.sessionSocketUrl(sessionId, avatarId));
       socketRef.current = socket;
       setState(isRetry ? 'reconnecting' : 'connecting');
 
@@ -150,7 +153,11 @@ export function useSessionSocket({
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [sessionId]);
+    // avatarId в зависимостях безопасен: он выбирается на превью и на весь
+    // разговор неизменен, поэтому переоткрыть сокет посреди реплики (то есть
+    // оборвать звук) он не может. Если аватара когда-нибудь снова сделают
+    // переключаемым по ходу, эту строку придётся пересмотреть.
+  }, [sessionId, avatarId]);
 
   const send = useCallback((event: ClientEvent) => {
     const socket = socketRef.current;
