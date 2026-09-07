@@ -5,9 +5,25 @@ from dataclasses import dataclass
 
 from ath_contracts import Emotion
 
-_PREFIX_START = "<emotion="
 _MAX_PREFIX_CHARS = 80
 _CLOSING_TAG_RE = re.compile(r"</emotion\s*>", re.IGNORECASE)
+
+#: Служебный маркер с ЛЮБЫМ именем: `<emotion=...>`, `<intent=...>`, `<mood=...>`.
+#:
+#: Промпт просит ровно `<emotion=...>`, но слабая модель придумывает своё имя:
+#: на живой сессии локальный Qwen выдал `<intent=neutral>`. Под литерал
+#: `<emotion=` это не подошло, маркер не признали служебным — и он ушёл в
+#: реплику, то есть в субтитры и в озвучку, вслух.
+#:
+#: Правило поэтому шире промпта: что бы модель ни поставила в начале в угловых
+#: скобках, произнесено это быть не должно. Ужесточать промпт бесполезно —
+#: завтра она напишет `<tone=...>`.
+_ANY_MARKER_RE = re.compile(r"^<\s*[A-Za-z_][\w-]*\s*=\s*([^<>]*)>")
+
+#: Тот же маркер, ещё не дописанный: «<int», «<intent=neut». Ждём продолжения,
+#: а не отдаём в текст. Первый символ после «<» обязан быть буквой — иначе это
+#: обычная реплика, начавшаяся со скобки, и задерживать её нельзя.
+_PARTIAL_MARKER_RE = re.compile(r"^<\s*[A-Za-z_][\w-]*\s*=?[^<>]*$")
 
 
 @dataclass(frozen=True)
@@ -33,20 +49,22 @@ class EmotionPrefixParser:
         stripped = self._buffer.lstrip()
 
         # Как только видно, что заголовка нет, не задерживаем первый токен.
-        has_possible_prefix = _PREFIX_START.startswith(stripped) or stripped.startswith(
-            _PREFIX_START
+        has_possible_prefix = (
+            stripped == "<"
+            or bool(_ANY_MARKER_RE.match(stripped))
+            or bool(_PARTIAL_MARKER_RE.match(stripped))
         )
         if stripped and not has_possible_prefix:
             return self._fallback_result(self._buffer)
 
-        closing = stripped.find(">")
-        if closing >= 0:
-            raw_emotion = stripped[len(_PREFIX_START) : closing].strip().lower()
+        marker = _ANY_MARKER_RE.match(stripped)
+        if marker:
+            raw_emotion = marker.group(1).strip().lower()
             try:
                 emotion = Emotion(raw_emotion)
             except ValueError:
                 emotion = self._fallback
-            remainder = stripped[closing + 1 :].lstrip("\r\n ")
+            remainder = stripped[marker.end() :].lstrip("\r\n ")
             self._resolved = True
             self._buffer = ""
             return EmotionParseResult(
@@ -71,8 +89,8 @@ class EmotionPrefixParser:
         self._resolved = True
         self._buffer = ""
         stripped = text.lstrip()
-        looks_like_control = stripped.startswith(_PREFIX_START) or _PREFIX_START.startswith(
-            stripped
+        looks_like_control = bool(_ANY_MARKER_RE.match(stripped)) or bool(
+            _PARTIAL_MARKER_RE.match(stripped)
         )
         return EmotionParseResult(
             emotion=self._fallback,
