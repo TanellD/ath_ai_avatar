@@ -297,9 +297,11 @@ class TurnPipeline:
             await self._speak(
                 gen_id,
                 _OPENING_DIRECTIVE[opening_kind],
-                # Реплики пользователя ещё не было, профиль аватара взять
-                # неоткуда — берём тот же дефолт, что и у UserMessage.
-                DEFAULT_AVATAR_ID,
+                # ws.py кладёт выбор аватара в session.avatar_id из query-параметра
+                # ещё до вызова open_session(), так что к этому моменту он уже
+                # известен — раньше здесь ошибочно стоял DEFAULT_AVATAR_ID, из-за
+                # чего первая реплика Vincent звучала дефолтным (женским) голосом.
+                self._session.avatar_id,
                 recorder,
                 opening_kind=opening_kind,
             )

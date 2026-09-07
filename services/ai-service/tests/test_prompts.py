@@ -130,7 +130,7 @@ def test_silence_prompts_nudge_then_move_the_scene_forward() -> None:
         PERSONA, STAGE, opening_kind=OpeningKind.SILENCE_CONTINUE
     )
 
-    assert "двадцать секунд" in nudge
+    assert "тридцать секунд" in nudge
     assert "мягко побуди" in nudge
     assert "новым" in continuation
     assert "этого же этапа" in continuation
