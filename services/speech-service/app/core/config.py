@@ -56,7 +56,12 @@ class Settings(BaseSettings):
 
     # Safety limits are deliberately conservative dev defaults. Product values
     # are pinned only after our own benchmark (docs/engineering/voice-input-plan.md).
-    voice_max_capture_seconds: int = 20
+    # 0 = без ограничения длительности: сотрудник договаривает мысль, сколько бы
+    # она ни длилась. Лимит обрывал запись на полуслове и заодно давал персонажу
+    # заговорить поверх ещё говорящего человека. ADR-0001 связывал 20 с с
+    # деградацией GigaAM short-form после 25 с — если она вернётся на длинной
+    # речи, ограничение возвращается этой же переменной, а не правкой кода.
+    voice_max_capture_seconds: int = 0
     voice_max_frame_bytes: int = 32_000
 
 

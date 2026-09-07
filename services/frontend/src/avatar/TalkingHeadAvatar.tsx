@@ -202,17 +202,6 @@ export const AVATAR_MODEL_LIST: AvatarModelConfig[] = [
 ];
 
 /**
- * Следующая модель по кругу. Одна реализация на экран тренировки и на
- * лабораторию: раньше каждый крутил свою пару и они разъезжались.
- *
- * Неизвестная модель отправляет в начало списка, а не роняет перебор.
- */
-export function nextAvatarAfter(current: AvatarModelConfig): AvatarModelConfig {
-  const index = AVATAR_MODEL_LIST.findIndex((model) => model.id === current.id);
-  return AVATAR_MODEL_LIST[(index + 1) % AVATAR_MODEL_LIST.length];
-}
-
-/**
  * Модель по id, с запасным путём на неизвестный/отсутствующий id.
  *
  * Нужна на экране предпросмотра сценария (§8): выбор персонажа сотрудник

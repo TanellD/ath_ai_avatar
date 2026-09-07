@@ -107,6 +107,54 @@ def test_silence_prompts_nudge_then_move_the_scene_forward() -> None:
     assert STAGE.completion_criteria not in nudge + continuation
 
 
+def _opening_block_of(persona: Persona, kind: OpeningKind) -> str:
+    """Только приписанный блок, без общей шапки промпта.
+
+    Блок добавляется в конец, поэтому его даёт разность с обычной репликой.
+    Сравнивать промпты целиком бессмысленно: шапка законно различается самим
+    правилом инициативы, и тест ловил бы именно её.
+    """
+    base = build_character_system(persona, STAGE)
+    full = build_character_system(persona, STAGE, opening_kind=kind)
+    assert full.startswith(base)
+    return " ".join(full[len(base) :].split())
+
+
+def test_silence_continuation_respects_initiative() -> None:
+    """Молчание — самый соблазнительный момент перехватить ведение.
+
+    Живой прогон: у кандидата holds_initiative=False доехал до сессии, а на
+    ходу после молчания он всё равно расспрашивал интервьюера про его резюме.
+    Причина — блок продолжения предписывал «новый вопрос» безусловно и
+    приписывался ПОСЛЕ правила инициативы, то есть читался как главный.
+    """
+    candidate = PERSONA.model_copy(update={"holds_initiative": False})
+
+    leader = _opening_block_of(PERSONA, OpeningKind.SILENCE_CONTINUE)
+    follower = _opening_block_of(candidate, OpeningKind.SILENCE_CONTINUE)
+
+    assert "новым вопросом" in leader
+    assert "новым вопросом" not in follower
+    assert "не начинай расспрашивать его" in follower
+
+
+def test_other_opening_blocks_do_not_depend_on_initiative() -> None:
+    """Различается ровно один вид блока — остальные нейтральны к роли.
+
+    Иначе правка расползлась бы: начало сессии уже само оговаривает случай
+    кандидата, а переход этапа и мягкое напоминание одинаковы для обеих ролей.
+    """
+    candidate = PERSONA.model_copy(update={"holds_initiative": False})
+    for kind in (
+        OpeningKind.SESSION_START,
+        OpeningKind.STAGE_TRANSITION,
+        OpeningKind.SILENCE_NUDGE,
+    ):
+        assert _opening_block_of(PERSONA, kind) == _opening_block_of(candidate, kind), (
+            f"блок {kind} не должен зависеть от инициативы"
+        )
+
+
 def test_off_topic_nudge_escalates_then_stops() -> None:
     calm = build_character_system(PERSONA, STAGE, off_topic_streak=0)
     soft = build_character_system(PERSONA, STAGE, off_topic_streak=1)

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AudioQueue } from '@/audio/AudioQueue';
 import { PlaybackClock } from '@/audio/PlaybackClock';
+import type { SubtitleEvent } from '@/contracts/events';
+import { Subtitles } from '@/subtitles/Subtitles';
 import {
   AVATAR_MODELS,
   AVATAR_MODEL_LIST,
@@ -135,6 +137,8 @@ function withEnhancedProsody(text: string): string {
 
 interface LabRig extends AvatarPlaybackHandle {
   queue: AudioQueue;
+  /** Часы нужны субтитрам: их позиция читается из воспроизводимого аудио (§8). */
+  clock: PlaybackClock;
 }
 
 interface TtsChunk {
@@ -142,6 +146,11 @@ interface TtsChunk {
   seq: number;
   data: string;
   is_final: boolean;
+  /** Тайминги субтитров speech-service присылает прямо в чанке — см.
+   *  ath_contracts.TtsChunk. Лаборатория их раньше просто не объявляла. */
+  subtitle_text?: string;
+  subtitle_start_ms?: number | null;
+  subtitle_end_ms?: number | null;
 }
 
 /** Порядок выпадающего списка — общий с экраном тренировки
@@ -170,6 +179,8 @@ export function EmotionLab() {
   const [text, setText] = useState(EMOTIONS[0].sample);
   const [rig, setRig] = useState<LabRig | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  /** Те же субтитры, что на экране тренировки: тот же компонент и те же часы. */
+  const [cues, setCues] = useState<SubtitleEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const generationRef = useRef(0);
@@ -179,7 +190,7 @@ export function EmotionLab() {
     const queue = new AudioQueue(handle.audioCtx, clock, handle.destination, () =>
       setIsSpeaking(false),
     );
-    setRig({ ...handle, queue });
+    setRig({ ...handle, queue, clock });
   }, []);
 
   const handleAvatarError = useCallback((message: string) => setError(message), []);
@@ -235,6 +246,7 @@ export function EmotionLab() {
 
     const genId = generationRef.current + 1;
     generationRef.current = genId;
+    setCues([]);
     rig.queue.startGeneration(genId);
     rig.setEmotion(emotion);
 
@@ -270,6 +282,18 @@ export function EmotionLab() {
     socket.onmessage = (message) => {
       const chunk = JSON.parse(message.data as string) as TtsChunk;
       if (chunk.gen_id !== generationRef.current) return;
+      if (chunk.subtitle_text && chunk.subtitle_start_ms != null && chunk.subtitle_end_ms != null) {
+        setCues((current) => [
+          ...current,
+          {
+            type: 'subtitle',
+            gen_id: chunk.gen_id,
+            text: chunk.subtitle_text ?? '',
+            start_ms: chunk.subtitle_start_ms ?? 0,
+            end_ms: chunk.subtitle_end_ms ?? 0,
+          },
+        ]);
+      }
       void rig.queue.enqueue({ genId: chunk.gen_id, seq: chunk.seq, data: chunk.data });
     };
 
@@ -302,6 +326,10 @@ export function EmotionLab() {
           onReady={handleAvatarReady}
           onError={handleAvatarError}
         />
+        {/* Тот же компонент, что на экране тренировки, и те же часы: в
+            лаборатории как раз и сверяют губы со звуком, а субтитры — третья
+            дорожка, по которой видно, что все трое идут вместе. */}
+        {rig && <Subtitles clock={rig.clock} cues={cues} frozen={false} ended={!isSpeaking} />}
       </section>
 
       <section className="emotion-lab__controls">

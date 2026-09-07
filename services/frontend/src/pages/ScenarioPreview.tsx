@@ -21,7 +21,7 @@ import { scenarioApi } from '@/api/client';
 import { AVATAR_MODEL_LIST } from '@/avatar/TalkingHeadAvatar';
 import { ScenarioBriefing } from '@/components/ScenarioBriefing';
 import type { Scenario } from '@/contracts/events';
-import { renderBriefing, slotDefaults } from '@/scenario/briefing';
+import { renderBriefing, slotPlaceholders } from '@/scenario/briefing';
 
 export function ScenarioPreview() {
   const { scenarioId = '' } = useParams();
@@ -42,7 +42,12 @@ export function ScenarioPreview() {
   // Слоты подставляются не только в briefing — role/character методист тоже
   // пишет со слотами («закупщик в «{client}»»), и без подстановки здесь
   // сотрудник видел бы фигурные скобки прямо в подзаголовке кейса.
-  const defaults = slotDefaults(scenario.slots);
+  //
+  // Подставляем ПОДПИСИ, а не примеры. С примерами страница выглядела как
+  // рассказ о конкретном собеседнике, сотрудник запоминал имя — и не находил
+  // его в тренировке: детали подбираются заново на каждый прогон. Превью
+  // описывает задачу, конкретика живёт в самой тренировке (кнопка «О кейсе»).
+  const defaults = slotPlaceholders(scenario.slots);
 
   return (
     <main className="page page--wide">
@@ -65,8 +70,9 @@ export function ScenarioPreview() {
           <ScenarioBriefing text={renderBriefing(scenario.briefing, defaults)} />
           {scenario.slots.length > 0 && (
             <p className="admin__hint">
-              Имена, названия и цифры в тренировке будут другими — они подбираются заново
-              на каждый прогон.
+              Имена, названия и цифры подбираются заново на каждый прогон — здесь они
+              показаны заполнителями. Настоящие вы увидите в тренировке, по кнопке
+              «О кейсе».
             </p>
           )}
         </section>

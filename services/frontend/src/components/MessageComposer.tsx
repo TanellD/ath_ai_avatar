@@ -18,6 +18,13 @@ import { useState, type FormEvent, type KeyboardEvent } from 'react';
 
 interface Props {
   disabled: boolean;
+  /**
+   * Распознаваемая речь. Показывается прямо в поле, а не отдельной строкой:
+   * сотрудник смотрит туда, куда обычно пишет, и видит, что именно расслышал
+   * сервис. Ход всё равно уходит автоматически по финалу распознавания —
+   * поле лишь показывает, а не собирает реплику.
+   */
+  dictated?: string;
   /** Персонаж сейчас говорит — значит отправка его перебьёт. */
   isAgentSpeaking: boolean;
   onSubmit: (text: string) => void;
@@ -31,7 +38,13 @@ interface Props {
   onDraftChange?: (hasText: boolean) => void;
 }
 
-export function MessageComposer({ disabled, isAgentSpeaking, onSubmit, onDraftChange }: Props) {
+export function MessageComposer({
+  disabled,
+  dictated,
+  isAgentSpeaking,
+  onSubmit,
+  onDraftChange,
+}: Props) {
   const [text, setText] = useState('');
 
   const submit = (event: FormEvent) => {
@@ -57,14 +70,14 @@ export function MessageComposer({ disabled, isAgentSpeaking, onSubmit, onDraftCh
     <form className="composer" onSubmit={submit}>
       <textarea
         className="composer__input"
-        value={text}
+        value={dictated || text}
         onChange={(event) => {
           const value = event.target.value;
           setText(value);
           onDraftChange?.(value.trim().length > 0);
         }}
         onKeyDown={handleKeyDown}
-        placeholder="Ваша реплика. Enter — отправить."
+        placeholder={dictated === undefined ? 'Ваша реплика. Enter — отправить.' : 'Говорите…'}
         rows={2}
         disabled={disabled}
         autoFocus

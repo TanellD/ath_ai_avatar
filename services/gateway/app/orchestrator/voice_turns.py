@@ -116,14 +116,19 @@ class VoiceTurnRegistry:
                 gen_id=gen_id,
                 provider_epoch=0,
                 stream=stream,
-                max_bytes=self._max_capture_seconds
-                * _PCM_SAMPLE_RATE_HZ
-                * _PCM_SAMPLE_WIDTH_BYTES,
+                # 0 = без ограничения: сотрудник договаривает мысль, сколько
+                # бы она ни длилась.
+                max_bytes=(
+                    self._max_capture_seconds * _PCM_SAMPLE_RATE_HZ * _PCM_SAMPLE_WIDTH_BYTES
+                    if self._max_capture_seconds
+                    else 0
+                ),
                 started_at=time.monotonic(),
             )
             self._active = active
             active.reader_task = asyncio.create_task(self._read_events(active))
-            active.watchdog_task = asyncio.create_task(self._watchdog(active))
+            if self._max_capture_seconds:
+                active.watchdog_task = asyncio.create_task(self._watchdog(active))
             await self._send(
                 SpeechStartedEvent(gen_id=gen_id, capture_id=event.capture_id)
             )
@@ -150,7 +155,7 @@ class VoiceTurnRegistry:
             if not frame or len(frame) % 2 or len(frame) > self._max_frame_bytes:
                 await self._abort_locked(active, "invalid_audio_frame")
                 return
-            if active.received_bytes + len(frame) > active.max_bytes:
+            if active.max_bytes and active.received_bytes + len(frame) > active.max_bytes:
                 await self._finalize_locked(active)
                 return
             active.received_bytes += len(frame)
@@ -232,6 +237,14 @@ class VoiceTurnRegistry:
         )
 
     async def _watchdog(self, active: _ActiveCapture) -> None:
+        """Оборвать захват по таймеру. Запускается только при ненулевом лимите.
+
+        Сторож завершает запись независимо от того, говорит человек или нет, —
+        поэтому при лимите в 20 с он давал сразу два дефекта: длинную реплику
+        обрывало на полуслове, а персонаж отвечал поверх ещё говорящего
+        сотрудника (это и была жалоба «аватар перебивает, если долго
+        отвечаешь»). По умолчанию лимита нет и сторожа тоже.
+        """
         try:
             await asyncio.sleep(self._max_capture_seconds)
             async with self._lock:

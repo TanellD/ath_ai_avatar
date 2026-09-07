@@ -1,6 +1,10 @@
 .env
 .env.local
 *.env
+# Резервные копии .env: содержат те же ключи, а под «*.env» не подпадают —
+# «.env.bak-voice-limit» в коммит бы прошёл.
+.env.bak*
+.env.*.bak
 !.env.example
 
 # SQLite и прочие рантайм-данные
@@ -42,3 +46,11 @@ benchmarks/stt/manifest.local.jsonl
 
 # reference
 tatarby-main
+
+# Результаты браузерных прогонов (scripts/browser-drive.mjs) — данные замера,
+# а не исходники: у каждого прогона свои цифры, в истории они только шумят
+services/frontend/browser-*.jsonl
+services/frontend/browser-run-*.png
+services/frontend/*.log
+data/full_runs.jsonl
+data/*.txt

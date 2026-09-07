@@ -45,7 +45,6 @@ import { DEFAULT_PAUSE_DETECTOR_CONFIG, PauseDetector } from '@/audio/mic/PauseD
 import { useMicCapture } from '@/audio/mic/useMicCapture';
 import {
   avatarById,
-  nextAvatarAfter,
   TalkingHeadAvatar,
   type AvatarModelConfig,
   type AvatarPlaybackHandle,
@@ -54,12 +53,14 @@ import { ChatPanel, type ChatTurn } from '@/components/ChatPanel';
 import { MessageComposer } from '@/components/MessageComposer';
 import { MicButton } from '@/components/MicButton';
 import { PlaybackIndicator, type PlaybackState } from '@/components/PlaybackIndicator';
+import { ScenarioBriefing } from '@/components/ScenarioBriefing';
 import { SessionEndOverlay } from '@/components/SessionEndOverlay';
 import { SessionStartOverlay } from '@/components/SessionStartOverlay';
 import { StageHint } from '@/components/StageHint';
 import type { Scenario, ServerEvent, SubtitleEvent } from '@/contracts/events';
-import { appendAgentToken } from '@/session/agentLines';
+import { appendAgentToken, truncateLastAgentLine } from '@/session/agentLines';
 import { SilenceFollowup, type SilencePhase } from '@/session/SilenceFollowup';
+import { joinCueText } from '@/subtitles/cueText';
 import { Subtitles } from '@/subtitles/Subtitles';
 import type { SessionError } from '@/types/errors';
 import { useSessionSocket } from '@/ws/useSessionSocket';
@@ -89,15 +90,33 @@ interface VoiceMetrics {
   responseTtfaMs?: number;
 }
 
+/** Сколько держится баннер ошибки, прежде чем снимется сам. */
+const ERROR_AUTO_DISMISS_MS = 8000;
+
 export function TraineeSession() {
   const { scenarioId = '' } = useParams();
   const [searchParams] = useSearchParams();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<SessionError | null>(null);
+  // Баннер снимается сам. Раньше setError(null) не вызывался НИГДЕ: «Речь не
+  // распознана» появлялась на одну неудачную попытку и висела до конца
+  // тренировки, споря со всем, что происходило дальше.
+  useEffect(() => {
+    // Отказ в доступе к микрофону — не мимолётная ошибка, а состояние: пока
+    // разрешение не выдано, убирать объяснение вредно.
+    if (!error || error.type === 'permission') return;
+    const timer = setTimeout(() => setError(null), ERROR_AUTO_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, [error]);
   const [transcript, setTranscript] = useState<ChatTurn[]>([]);
   const [cues, setCues] = useState<SubtitleEvent[]>([]);
+  /** §6, шаг 1: при перебивании субтитры замирают, а не стираются. */
   const [subtitlesFrozen, setSubtitlesFrozen] = useState(false);
+  // Отмена (§6, шаг 1) синхронна и обязана уложиться в 20 мс — читать cues из
+  // замыкания useCallback нельзя, оно устаревает между ходами.
+  const cuesRef = useRef<SubtitleEvent[]>([]);
+  cuesRef.current = cues;
   const [voiceActive, setVoiceActive] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState('');
   // Распознавание ушло на резервный движок без партиалов: черновик больше
@@ -117,9 +136,10 @@ export function TraineeSession() {
   // Выбор персонажа сотрудник делает на экране предпросмотра сценария
   // (ScenarioPreview), до входа в разговор — id уезжает в query-параметр
   // ссылки "Начать тренировку". Ленивый инициализатор: searchParams читаем
-  // ровно один раз при монтировании, дальнейшая смена аватара — через
-  // switchAvatar() в шапке, а не перечитыванием URL.
-  const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(() =>
+  // ровно один раз при монтировании. Менять аватара посреди разговора нельзя:
+  // это была отладочная кнопка в шапке, и она же мешала сообщить серверу
+  // выбранный голос один раз при старте.
+  const [avatarModel] = useState<AvatarModelConfig>(() =>
     avatarById(searchParams.get('avatar')),
   );
   // Только для шапки (заголовок, прогресс по этапам) — не участвует ни в
@@ -129,6 +149,8 @@ export function TraineeSession() {
   const [opening, setOpening] = useState(false);
   /** Сессия готова, сотрудник читает обстановку и ещё не вошёл в разговор. */
   const [briefingShown, setBriefingShown] = useState(false);
+  /** Напоминание об обстановке посреди разговора — бриф читался один раз до него. */
+  const [caseShown, setCaseShown] = useState(false);
   const [currentStageId, setCurrentStageId] = useState<string | null>(null);
 
   /**
@@ -288,6 +310,12 @@ export function TraineeSession() {
             setPlayback('idle');
             silenceFollowupRef.current?.resume();
           }
+          // Открытие нового этапа идёт ТЕМ ЖЕ gen_id (поколения оно не тратит),
+          // поэтому без явной границы его реплика дописывалась в конец
+          // предыдущей без разделителя — в чате получалось слитное
+          // «...частями?Я посмотрела ваш прайс...». Сбрасываем счёт реплики, а
+          // не поколения: gen_id остаётся прежним, это по-прежнему один ход.
+          if (event.action === 'next_stage') agentLineGenRef.current = null;
           // Только для прогресса в шапке — сам переход уже сделал сервер.
           setCurrentStageId(event.stage_id);
           break;
@@ -551,6 +579,26 @@ export function TraineeSession() {
     }
   }, [connection, stopMic]);
 
+  /**
+   * §6, шаг 1: «фиксация субтитров на текущей позиции».
+   *
+   * Две вещи разом. Субтитры замирают на последней прозвучавшей фразе — их
+   * оверлей это и показывает. А реплика в ЧАТЕ обрезается до произнесённого:
+   * она собирается из событий `token`, а те обгоняют звук, и без обрезки
+   * сотрудник после перебивания прочитал бы фразу целиком, хотя услышал треть.
+   */
+  const freezeSpokenLine = useCallback(() => {
+    // Обрезаем ТОЛЬКО если персонаж сейчас говорит, то есть это настоящее
+    // перебивание. cancelPlayback зовётся на каждой отправке, а не только на
+    // перебивании: без этой проверки договорённая реплика получала пустое
+    // «произнесено» и удалялась из чата целиком — «пропадают реплики».
+    if (!audio?.clock.isPlaying) return;
+    setSubtitlesFrozen(true);
+    const positionMs = audio.clock.positionMs();
+    const spoken = joinCueText(cuesRef.current.filter((cue) => cue.start_ms <= positionMs));
+    setTranscript((lines) => truncateLastAgentLine(lines, spoken));
+  }, [audio]);
+
   // ----------------------------------------------------- отправка = перебивание
 
   const handleSubmit = useCallback(
@@ -558,6 +606,9 @@ export function TraineeSession() {
       // MessageComposer держит disabled, пока audio === null (аватар ещё
       // грузится) — это защита от невозможного состояния, а не рабочий путь.
       if (!audio) return;
+      // Сотрудник заговорил снова — прошлая жалоба больше не про текущий
+      // момент, что бы в ней ни было.
+      setError(null);
       silenceFollowupRef.current?.beginUserTurn();
 
       // Текст поверх незаконченной записи: обрываем её, иначе на сервер
@@ -576,7 +627,7 @@ export function TraineeSession() {
       // Шаг 1 (§6): локально и немедленно, без сетевого round-trip.
       cancelPlayback({
         queue: audio.queue,
-        freezeSubtitles: () => setSubtitlesFrozen(true),
+        freezeSpokenText: freezeSpokenLine,
         resetFace: audio.resetFace,
       });
 
@@ -597,7 +648,7 @@ export function TraineeSession() {
       setSubtitlesFrozen(false);
       setPlayback('thinking');
     },
-    [audio, avatarModel.id, sendSpeechAbort, sendUserMessage, stopMic],
+    [audio, avatarModel.id, freezeSpokenLine, sendSpeechAbort, sendUserMessage, stopMic],
   );
 
   // --------------------------------------------------------- голосовой ход
@@ -620,7 +671,7 @@ export function TraineeSession() {
     const interrupted = wasPlaying ? genRef.current : null;
     cancelPlayback({
       queue: audio.queue,
-      freezeSubtitles: () => setSubtitlesFrozen(true),
+      freezeSpokenText: freezeSpokenLine,
       resetFace: audio.resetFace,
     });
     genRef.current += 1;
@@ -635,9 +686,9 @@ export function TraineeSession() {
     setVoiceMetrics({ stopMs });
     audio.queue.startGeneration(genRef.current);
     setCues([]);
-    // Баг: cancelPlayback() выше замораживает субтитры (freezeSubtitles), а
-    // здесь, в отличие от handleSend, не было снятия заморозки — субтитры
-    // застывали на первой же голосовой реплике и не двигались до конца сессии.
+    // Баг: cancelPlayback() выше замораживает субтитры, а здесь, в отличие от
+    // handleSend, не было снятия заморозки — субтитры застывали на первой же
+    // голосовой реплике и не двигались до конца сессии.
     setSubtitlesFrozen(false);
     sendSpeechStart(captureId, interrupted, avatarModel.id);
     setPlayback('listening');
@@ -652,7 +703,15 @@ export function TraineeSession() {
         silenceFollowupRef.current?.resume();
       }
     });
-  }, [audio, avatarModel.id, connection, sendSpeechAbort, sendSpeechStart, startMic]);
+  }, [
+    audio,
+    avatarModel.id,
+    connection,
+    freezeSpokenLine,
+    sendSpeechAbort,
+    sendSpeechStart,
+    startMic,
+  ]);
 
   const handleVoiceEnd = useCallback(() => {
     const captureId = activeCaptureRef.current;
@@ -681,17 +740,6 @@ export function TraineeSession() {
     document.addEventListener('visibilitychange', finalizeWhenHidden);
     return () => document.removeEventListener('visibilitychange', finalizeWhenHidden);
   }, [handleVoiceEnd]);
-
-  const switchAvatar = () => {
-    if (!audio || playback !== 'idle') return;
-    audio.queue.stopAll();
-    audio.resetFace();
-    setAudio(null);
-    setAvatarModel(nextAvatarAfter(avatarModel));
-  };
-
-  /** Следующая модель по кругу. Списком, а не парой: аватаров уже три. */
-  const nextAvatar = nextAvatarAfter(avatarModel);
 
   // ------------------------------------------------------------------ рендер
 
@@ -739,14 +787,6 @@ export function TraineeSession() {
         <div className="session__controls">
           <button
             type="button"
-            className="avatar-switch"
-            onClick={switchAvatar}
-            disabled={!audio || playback !== 'idle'}
-          >
-            Переключить на {nextAvatar.label}
-          </button>
-          <button
-            type="button"
             className="btn btn-gray session__finish"
             onClick={handleFinish}
             disabled={connection !== 'open' || finished}
@@ -758,7 +798,15 @@ export function TraineeSession() {
 
       {error && (
         <p className="session__error" role="alert">
-          {error.message}
+          <span>{error.message}</span>
+          <button
+            type="button"
+            className="session__error-close"
+            onClick={() => setError(null)}
+            aria-label="Скрыть сообщение"
+          >
+            ×
+          </button>
         </p>
       )}
 
@@ -781,10 +829,30 @@ export function TraineeSession() {
 
         <div className="session__stage">
           <div className="session__avatar-panel">
-            {persona && (
+            {(persona || (sessionId && scenario?.briefing)) && (
               <div className="session__persona-badge">
-                <span className="bento-pill session__badge-dark">{persona.name}</span>
-                <span className="bento-pill session__badge-dark">сложность {persona.difficulty} / 5</span>
+                {/* Только имя. «Сложность 3 / 5» сотруднику ничего не говорила:
+                    это настройка методиста, влияющая на тон персонажа, а не
+                    оценка, которую сотруднику предстоит получить, — но читалась
+                    именно так. Сама настройка осталась в редакторе сценария. */}
+                {persona && (
+                  <span className="bento-pill session__badge-dark">{persona.name}</span>
+                )}
+                {/* В одном ряду с именем, а не поверх него: абсолютным
+                    позиционированием кнопка ложилась ровно на плашку персонажа.
+                    Условие на sessionId, а не просто на briefing: ДО создания
+                    сессии в `scenario` лежит шаблон со слотами, и кнопка
+                    показала бы «{company}» вместо названия компании. */}
+                {sessionId && scenario?.briefing && (
+                  <button
+                    type="button"
+                    className="bento-pill session__case-toggle"
+                    onClick={() => setCaseShown((shown) => !shown)}
+                    aria-expanded={caseShown}
+                  >
+                    {caseShown ? 'Скрыть' : 'О кейсе'}
+                  </button>
+                )}
               </div>
             )}
             <TalkingHeadAvatar
@@ -794,16 +862,33 @@ export function TraineeSession() {
               onReady={handleAvatarReady}
               onError={handleAvatarError}
             />
-            {/* switchAvatar() обнуляет audio сразу, а новая GLB грузится ~1-3 с —
-                без этого индикатора панель на это время просто пустела и следующая
-                модель (другого масштаба и в другой позе) появлялась рывком, что
-                читалось как «интерфейс съехал». */}
+            {/* GLB грузится несколько секунд, и всё это время audio === null.
+                Без индикатора панель на это время просто пустеет, а потом модель
+                появляется рывком — читается как «интерфейс съехал». */}
             {!audio && (
               <div className="avatar-loading" aria-hidden="true">
                 <span className="avatar-loading__spinner" />
               </div>
             )}
-            {audio && <Subtitles clock={audio.clock} cues={cues} frozen={subtitlesFrozen} />}
+
+            {/* Бриф сотрудник читает один раз, до разговора, и к пятому ходу уже
+                не помнит, как зовут компанию собеседника. Данные те же самые —
+                отрендеренный сценарий ЭТОГО прогона лежит в состоянии страницы,
+                нового запроса не нужно. */}
+            {audio && (
+              <Subtitles
+                clock={audio.clock}
+                cues={cues}
+                frozen={subtitlesFrozen}
+                ended={playback === 'idle'}
+              />
+            )}
+
+            {caseShown && sessionId && scenario?.briefing && (
+              <div className="session__case-card" role="dialog" aria-label="Описание кейса">
+                <ScenarioBriefing text={scenario.briefing} />
+              </div>
+            )}
           </div>
 
           <section className="card session__composer-card">
@@ -823,12 +908,12 @@ export function TraineeSession() {
               />
               <MessageComposer
                 disabled={connection !== 'open' || !audio || voiceActive || finished}
+                dictated={voiceActive ? voiceDraft : undefined}
                 isAgentSpeaking={playback === 'speaking'}
                 onSubmit={handleSubmit}
                 onDraftChange={(hasText) => silenceFollowupRef.current?.setDraftActive(hasText)}
               />
             </div>
-            {voiceDraft && <p className="voice-draft">Распознаю: {voiceDraft}</p>}
             {voiceBuffered && (
               <p className="voice-draft voice-draft--buffered">
                 {playback === 'recognizing'

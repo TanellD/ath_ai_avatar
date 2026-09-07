@@ -17,26 +17,26 @@ function targets() {
   return {
     calls,
     queue: { stopAll: vi.fn(() => void calls.push('audio')) } as unknown as AudioQueue,
-    freezeSubtitles: vi.fn(() => void calls.push('subtitles')),
+    freezeSpokenText: vi.fn(() => void calls.push('subtitles')),
     resetFace: vi.fn(() => void calls.push('face')),
   };
 }
 
 describe('cancelPlayback', () => {
   it('гасит все три стока', () => {
-    const { queue, freezeSubtitles, resetFace } = targets();
+    const { queue, freezeSpokenText, resetFace } = targets();
 
-    cancelPlayback({ queue, freezeSubtitles, resetFace });
+    cancelPlayback({ queue, freezeSpokenText, resetFace });
 
     expect(queue.stopAll).toHaveBeenCalledOnce();
-    expect(freezeSubtitles).toHaveBeenCalledOnce();
+    expect(freezeSpokenText).toHaveBeenCalledOnce();
     expect(resetFace).toHaveBeenCalledOnce();
   });
 
   it('останавливает звук раньше визуального состояния', () => {
-    const { calls, queue, freezeSubtitles, resetFace } = targets();
+    const { calls, queue, freezeSpokenText, resetFace } = targets();
 
-    cancelPlayback({ queue, freezeSubtitles, resetFace });
+    cancelPlayback({ queue, freezeSpokenText, resetFace });
 
     // Пользователь замечает тишину раньше, чем положение губ: порядок здесь
     // часть бюджета в 300 мс, а не вкусовщина.
@@ -44,9 +44,9 @@ describe('cancelPlayback', () => {
   });
 
   it('работает синхронно', () => {
-    const { calls, queue, freezeSubtitles, resetFace } = targets();
+    const { calls, queue, freezeSpokenText, resetFace } = targets();
 
-    const result = cancelPlayback({ queue, freezeSubtitles, resetFace });
+    const result = cancelPlayback({ queue, freezeSpokenText, resetFace });
 
     // Ни одного await: бюджет — менее 20 мс, любое ожидание сети превращает
     // их в 200.

@@ -16,8 +16,14 @@ class CaptureBufferLimitError(ValueError):
 
 class CaptureBuffer:
     def __init__(self, *, max_duration_seconds: int, max_frame_bytes: int) -> None:
-        if max_duration_seconds <= 0 or max_frame_bytes <= 0:
-            raise ValueError("capture buffer limits must be positive")
+        """`max_duration_seconds = 0` — без ограничения длительности.
+
+        Ограничение на РАЗМЕР КАДРА остаётся всегда: оно защищает от битого или
+        враждебного клиента, а не от долгой мысли сотрудника, и снимать его
+        вместе с лимитом длительности было бы подменой одного другим.
+        """
+        if max_duration_seconds < 0 or max_frame_bytes <= 0:
+            raise ValueError("capture buffer limits must not be negative")
         self._max_bytes = (
             max_duration_seconds
             * CANONICAL_SAMPLE_RATE
@@ -46,7 +52,7 @@ class CaptureBuffer:
             raise InvalidPcmFrameError("PCM16 frame must contain complete samples")
         if len(frame) > self._max_frame_bytes:
             raise CaptureBufferLimitError("PCM frame exceeds configured limit")
-        if len(self._data) + len(frame) > self._max_bytes:
+        if self._max_bytes and len(self._data) + len(frame) > self._max_bytes:
             raise CaptureBufferLimitError("voice capture exceeds configured duration")
         self._data.extend(frame)
 

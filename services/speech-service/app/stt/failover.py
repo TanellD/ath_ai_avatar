@@ -73,7 +73,9 @@ class FailoverSttProvider(SttProvider):
         async with self._lock:
             if self._closed or self._active is None:
                 raise RuntimeError("STT provider is not open")
-            if len(self._audio) + len(pcm) > self._max_audio_bytes:
+            # 0 = без ограничения. Буфер нужен, чтобы переиграть запись на
+            # запасном провайдере, и живёт он ровно одну реплику.
+            if self._max_audio_bytes and len(self._audio) + len(pcm) > self._max_audio_bytes:
                 raise ValueError("failover replay buffer limit exceeded")
             self._audio.extend(pcm)
             try:

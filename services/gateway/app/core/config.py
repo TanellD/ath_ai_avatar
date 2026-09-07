@@ -48,7 +48,12 @@ class Settings(BaseSettings):
     voice_recovery_dir: str = "/data/voice-recovery"
 
     # Voice transport guards; benchmark may tighten these defaults later.
-    voice_max_capture_seconds: int = 20
+    # 0 = без ограничения длительности: сотрудник договаривает мысль, сколько бы
+    # она ни длилась. Лимит обрывал запись на полуслове и заодно давал персонажу
+    # заговорить поверх ещё говорящего человека. ADR-0001 связывал 20 с с
+    # деградацией GigaAM short-form после 25 с — если она вернётся на длинной
+    # речи, ограничение возвращается этой же переменной, а не правкой кода.
+    voice_max_capture_seconds: int = 0
     voice_max_frame_bytes: int = 32_000
     stt_language: str = "ru"
 
