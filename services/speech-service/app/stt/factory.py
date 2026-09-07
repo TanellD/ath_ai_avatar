@@ -17,6 +17,8 @@ def create_stt_provider(settings: Settings) -> SttProvider:
                 _create_named_provider("soniox", settings), settings
             ),
             fallback_factory=lambda: _create_named_provider("gigaam", settings),
+            # 0 = без ограничения (см. CaptureBuffer): провайдер не должен
+            # обрывать длинную реплику, если её не обрывает захват.
             max_audio_bytes=settings.voice_max_capture_seconds * 16_000 * 2,
             finalize_timeout_seconds=settings.stt_finalize_timeout_seconds,
         )

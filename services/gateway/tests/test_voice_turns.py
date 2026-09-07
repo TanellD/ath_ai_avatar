@@ -138,6 +138,36 @@ async def test_watchdog_finalizes_capture_without_speech_end() -> None:
     await registry.aclose()
 
 
+async def test_zero_limit_leaves_long_capture_alone() -> None:
+    """Нулевой лимит = без сторожа: длинную реплику никто не обрывает.
+
+    Сторож завершал захват по таймеру независимо от того, говорит человек или
+    нет. При лимите в 20 с это давало сразу два дефекта: реплику обрывало на
+    полуслове, а персонаж отвечал поверх ещё говорящего сотрудника.
+    """
+    registry, _pipeline, stream, _sent = make_registry(max_seconds=0)
+    await start_capture(registry)
+
+    await asyncio.sleep(0.05)
+
+    assert stream.finalize_count == 0, "захват завершили, хотя лимита нет"
+    await registry.aclose()
+
+
+async def test_zero_limit_accepts_audio_past_the_old_ceiling() -> None:
+    """Байтовый потолок тоже снимается, иначе лимит просто переезжает слоем ниже."""
+    registry, _pipeline, stream, _sent = make_registry(max_seconds=0)
+    await start_capture(registry)
+
+    # Больше, чем помещалось в прежние 20 с (20 * 16000 * 2 байта).
+    frame = bytes(640)  # тишина, содержимое кадра здесь не важно
+    for _ in range(1100):
+        await registry.push(frame)
+
+    assert stream.finalize_count == 0
+    await registry.aclose()
+
+
 async def test_invalid_binary_frame_aborts_capture() -> None:
     registry, _pipeline, stream, sent = make_registry()
     await start_capture(registry)

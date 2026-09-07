@@ -101,7 +101,9 @@ def create_app(
                 status_code=400,
                 detail="PCM body must contain complete int16 samples",
             )
-        if len(pcm) > max_bytes:
+        # 0 = без ограничения, как и у захвата выше по течению: иначе лимит
+        # просто переезжает на последний слой и реплика всё равно обрывается.
+        if max_bytes and len(pcm) > max_bytes:
             raise HTTPException(status_code=413, detail="audio exceeds configured duration limit")
         engine = request.app.state.engine
         if engine is None:
