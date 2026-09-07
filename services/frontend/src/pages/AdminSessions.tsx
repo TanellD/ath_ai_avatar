@@ -10,7 +10,7 @@ import { adminApi } from '@/api/client';
 import { LoadPanel } from '@/components/LoadPanel';
 import type { LoadStats, SessionSummary } from '@/contracts/admin';
 
-/** «Этап N из M» — docs/bugs_front.md №5. stages_total может быть null,
+/** «Этап N из M» — docs/bugs/bugs_front.md №5. stages_total может быть null,
  *  если сценарий с тех пор удалён из scenario-service. */
 function stageLabel(item: SessionSummary): string {
   if (item.stages_total === null) return item.current_stage;

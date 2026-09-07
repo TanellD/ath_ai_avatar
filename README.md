@@ -4,8 +4,8 @@
 персонажем по заданному сценарию. Методист получает историю разговора и
 итоговую оценку с цитатой под каждым баллом.
 
-Актуальная архитектура — [docs/architecture.md](docs/architecture.md), план
-голосового ввода — [docs/voice-input-plan.md](docs/voice-input-plan.md).
+Актуальная архитектура — [docs/engineering/architecture.md](docs/engineering/architecture.md), план
+голосового ввода — [docs/engineering/voice-input-plan.md](docs/engineering/voice-input-plan.md).
 
 Текстовый ввод работает как прежде. Голосовой режим — push-to-talk: Soniox
 realtime STT используется как основной движок, а локальный GigaAM — как
@@ -233,7 +233,7 @@ Dev-режим включён по умолчанию (`docker-compose.override.
 3. **Переход между этапами делает код, а не модель** —
    `services/gateway/app/orchestrator/fsm.py`. LLM только классифицирует.
 
-Бюджеты и способ их измерения — [docs/latency-budget.md](docs/latency-budget.md).
+Бюджеты и способ их измерения — [docs/engineering/latency-budget.md](docs/engineering/latency-budget.md).
 
 ### Миграции
 

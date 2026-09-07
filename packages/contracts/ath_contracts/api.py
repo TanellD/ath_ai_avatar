@@ -36,7 +36,7 @@ class CharacterReplyRequest(BaseModel):
         description="Реплика пользователя. Для открывающих реплик (opening_kind != None) "
         "здесь лежит служебная ремарка режиссёра, а не текст человека: Anthropic "
         "Messages API отклоняет пустой список сообщений и список, не начинающийся "
-        "с роли user, — см. docs/agent-initiative.md"
+        "с роли user, — см. docs/engineering/agent-initiative.md"
     )
     opening_kind: OpeningKind | None = Field(
         default=None,

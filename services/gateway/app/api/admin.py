@@ -37,7 +37,7 @@ async def _stages_total_by_scenario(
     client: ScenarioClient, scenario_ids: set[str]
 ) -> dict[str, int | None]:
     """По одному запросу на КАЖДЫЙ scenario_id, не на каждую сессию —
-    сессий может быть сотня, сценариев из них — единицы (docs/bugs_front.md
+    сессий может быть сотня, сценариев из них — единицы (docs/bugs/bugs_front.md
     №5)."""
     result: dict[str, int | None] = {}
     for scenario_id in scenario_ids:

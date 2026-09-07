@@ -44,7 +44,7 @@ STAGES = [
 
 def test_generator_is_told_that_criteria_stay_hidden_from_the_trainee() -> None:
     """Иначе модель напишет completion_criteria как подсказку сотруднику —
-    ScenarioPreview специально их не показывает (docs/bugs_front.md №8)."""
+    ScenarioPreview специально их не показывает (docs/bugs/bugs_front.md №8)."""
     system = build_draft_system()
 
     assert "не показывается" in system.lower() or "не видна" in system.lower()

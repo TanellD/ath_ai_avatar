@@ -147,7 +147,7 @@ interface TtsChunk {
 /** Порядок выпадающего списка — общий с экраном тренировки
  *  (AVATAR_MODEL_LIST). Раньше здесь лежала своя пара aith+tom, и добавление
  *  третьей модели её бы не заметило. Выбор модели когда-то требовал `?model=`
- *  в URL и перезагрузки страницы — см. историю AvatarLab, docs/bugs_front.md №7. */
+ *  в URL и перезагрузки страницы — см. историю AvatarLab, docs/bugs/bugs_front.md №7. */
 
 export function EmotionLab() {
   const [avatarModel, setAvatarModel] = useState<AvatarModelConfig>(() => {
